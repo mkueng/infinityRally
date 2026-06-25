@@ -30,6 +30,17 @@ let gameOver=false;
 let healthDamageCooldown=0;
 let cameraFollowDistance=18;
 let cameraFollowHeight=7.5;
+let cameraYaw=0;
+
+function clamp(value,min,max){
+  return Math.max(min,Math.min(max,value));
+}
+
+function normalizeAngle(angle){
+  while(angle>Math.PI) angle-=Math.PI*2;
+  while(angle<-Math.PI) angle+=Math.PI*2;
+  return angle;
+}
 
 function updateCameraProjection(){
   cam.aspect=innerWidth/innerHeight;
@@ -117,20 +128,40 @@ function loop(){
     carSpeed=0;
     carVy=0;
   }else{
-    carSpeed=Math.max(-localMaxSpeed,Math.min(localMaxSpeed,carSpeed+forward*0.01));
-    carAngle+=turn*0.03;
-  }
+    let speedAbs=Math.abs(carSpeed);
+    let speedRatio=clamp(speedAbs/roadMaxSpeed,0,1);
+    let grip=1-clamp((roadDist-42)/95,0,1);
+    let throttle=forward>0;
+    let brakeOrReverse=forward<0;
 
-  let angleDiff=carAngle-carVelAngle;
-  while(angleDiff>Math.PI) angleDiff-=Math.PI*2;
-  while(angleDiff<-Math.PI) angleDiff+=Math.PI*2;
-  let roadGrip=1-Math.min(1,Math.max(0,(roadDist-45)/80));
-  let speedRatio=Math.min(1,Math.abs(carSpeed)/roadMaxSpeed);
-  let speedDrift=speedRatio*speedRatio*(3-2*speedRatio);
-  let onRoadAlign=0.24-speedDrift*0.2;
-  let offRoadAlign=0.22;
-  let velocityAlign=offRoadAlign*(1-roadGrip)+onRoadAlign*roadGrip;
-  carVelAngle+=angleDiff*velocityAlign;
+    if(throttle){
+      carSpeed+=0.018*(1-speedRatio*0.42);
+    }else if(brakeOrReverse){
+      carSpeed+=carSpeed>0.08 ? -0.04 : -0.014;
+    }else{
+      carSpeed*=grip>0.45 ? 0.992 : 0.982;
+      if(Math.abs(carSpeed)<0.004) carSpeed=0;
+    }
+
+    carSpeed=clamp(carSpeed,-localMaxSpeed*0.42,localMaxSpeed);
+
+    let movingSteer=clamp(speedAbs/0.65,0,1);
+    let highSpeedCalm=1-clamp((speedAbs-1.05)/0.85,0,0.28);
+    let steeringResponse=(0.48+movingSteer*0.72)*highSpeedCalm;
+    let reverseSteer=carSpeed< -0.04 ? -1 : 1;
+    carAngle+=turn*reverseSteer*0.052*steeringResponse;
+
+    let angleDiff=normalizeAngle(carAngle-carVelAngle);
+    let slipAngle=Math.abs(angleDiff);
+    let brakingSlide=brakeOrReverse && speedAbs>0.45 ? 0.045 : 0;
+    let throttleSlide=throttle && turn!==0 && speedAbs>0.62 ? 0.04 : 0;
+    let surfaceAlign=(0.08+grip*0.105)-speedRatio*0.06-brakingSlide-throttleSlide;
+    let velocityAlign=clamp(surfaceAlign,0.028,0.17);
+    carVelAngle+=angleDiff*velocityAlign;
+
+    let slipDrag=clamp(slipAngle*speedRatio*(grip>0.5 ? 0.008 : 0.018),0,0.03);
+    carSpeed*=1-slipDrag;
+  }
 
   if(!gameOver){
     carX+=Math.sin(carVelAngle)*carSpeed;
@@ -148,7 +179,7 @@ function loop(){
     t=t*t*(3-2*t);
 
     let center=roadCenterX(carZ);
-    carX+=(center-carX)*0.02*t;
+      carX+=(center-carX)*0.006*t;
     surfaceY=carSurfaceHeight(carX,carZ);
   }
 
@@ -162,8 +193,8 @@ function loop(){
   }
 
   if(!gameOver && roadDist>60){
-    carVelAngle+=Math.sin(carX*0.01+carZ*0.013)*0.003;
-    carSpeed*=0.985;
+    carVelAngle+=Math.sin(carX*0.01+carZ*0.013)*0.0018;
+    carSpeed*=0.992;
   }
 
   if(!gameOver) carVy-=gravityStrength;
@@ -214,25 +245,27 @@ function loop(){
   dust.update();
 
   let pitchSampleDist=2.2;
-  let frontX=carX+Math.sin(carVelAngle)*pitchSampleDist;
-  let frontZ=carZ+Math.cos(carVelAngle)*pitchSampleDist;
-  let backX=carX-Math.sin(carVelAngle)*pitchSampleDist;
-  let backZ=carZ-Math.cos(carVelAngle)*pitchSampleDist;
+  let frontX=carX+Math.sin(carAngle)*pitchSampleDist;
+  let frontZ=carZ+Math.cos(carAngle)*pitchSampleDist;
+  let backX=carX-Math.sin(carAngle)*pitchSampleDist;
+  let backZ=carZ-Math.cos(carAngle)*pitchSampleDist;
   let frontY=carSurfaceHeight(frontX,frontZ);
   let backY=carSurfaceHeight(backX,backZ);
   let targetPitch=-Math.atan2(frontY-backY,pitchSampleDist*2);
   carPitch+=(targetPitch-carPitch)*0.18;
 
   carGroup.position.set(carX,carY,carZ);
-  carGroup.rotation.y=carVelAngle;
+  carGroup.rotation.y=carAngle;
   carGroup.rotation.x=carPitch;
 
-  carShadow.update({carX,carZ,carY,surfaceY,carVelAngle});
+  carShadow.update({carX,carZ,carY,surfaceY,carVelAngle:carAngle});
+
+  cameraYaw+=normalizeAngle(carVelAngle-cameraYaw)*0.075;
 
   let camDist=cameraFollowDistance;
   let camHeight=cameraFollowHeight;
-  px=carX-Math.sin(carAngle)*camDist;
-  pz=carZ-Math.cos(carAngle)*camDist;
+  px=carX-Math.sin(cameraYaw)*camDist;
+  pz=carZ-Math.cos(cameraYaw)*camDist;
   py=carY+camHeight;
 
   let pcx=Math.floor(carX/chunkSize);
@@ -247,9 +280,9 @@ function loop(){
   let lookAhead=16;
   cam.position.set(px,py,pz);
   cam.lookAt(
-    carX+Math.sin(carVelAngle)*lookAhead,
+    carX+Math.sin(cameraYaw)*lookAhead,
     carY+3.8,
-    carZ+Math.cos(carVelAngle)*lookAhead
+    carZ+Math.cos(cameraYaw)*lookAhead
   );
 
   clouds.update();
