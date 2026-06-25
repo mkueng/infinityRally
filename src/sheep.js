@@ -108,14 +108,26 @@ export function makeSheep(x,z,seed,collider){
     centerX:x,
     centerZ:z,
     angle,
-    speed:0.022+(rand(seed+23,seed-11)*0.5+0.5)*0.018,
+    targetAngle:angle,
+    turnEase:0.018+(rand(seed+37,seed+61)*0.5+0.5)*0.018,
+    speed:0,
+    targetSpeed:0.018+(rand(seed+23,seed-11)*0.5+0.5)*0.024,
+    baseSpeed:0.018+(rand(seed+23,seed-11)*0.5+0.5)*0.024,
     phase:(rand(seed-31,seed+5)*0.5+0.5)*Math.PI*2,
     roamRadius:38+(rand(seed+7,seed+19)*0.5+0.5)*48,
     lineTimer:170+(rand(seed+13,seed+71)*0.5+0.5)*230,
-    grazeTimer:220+(rand(seed+41,seed-29)*0.5+0.5)*330,
+    grazeTimer:160+(rand(seed+41,seed-29)*0.5+0.5)*300,
+    grazeDuration:120+(rand(seed+83,seed-47)*0.5+0.5)*190,
+    bobOffset:(rand(seed+17,seed+89)*0.5+0.5)*Math.PI*2,
     collider
   };
   return sheep;
+}
+
+function normalizeAngle(angle){
+  while(angle>Math.PI) angle-=Math.PI*2;
+  while(angle<-Math.PI) angle+=Math.PI*2;
+  return angle;
 }
 
 export function updateSheep(chunks){
@@ -124,7 +136,7 @@ export function updateSheep(chunks){
 
     for(let sheep of chunk.sheep){
       let data=sheep.userData;
-      data.phase+=0.045;
+      data.phase+=0.036+data.speed*0.9;
       data.grazeTimer-=1;
       data.lineTimer-=1;
 
@@ -136,46 +148,60 @@ export function updateSheep(chunks){
       let roadD=roadDistance(x,z);
       let grazing=data.grazeTimer<0;
 
-      if(data.grazeTimer<-170){
+      if(data.grazeTimer<-data.grazeDuration){
         grazing=false;
-        data.grazeTimer=240+(rand(data.seed+data.phase,data.seed-3)*0.5+0.5)*340;
-        data.lineTimer=170+(rand(data.seed-data.phase,data.seed+11)*0.5+0.5)*230;
-        data.angle+=((rand(data.seed+data.phase,data.seed+29)*0.5+0.5)-0.5)*Math.PI*0.75;
+        data.grazeTimer=190+(rand(data.seed+data.phase,data.seed-3)*0.5+0.5)*360;
+        data.grazeDuration=120+(rand(data.seed-data.phase,data.seed+43)*0.5+0.5)*210;
+        data.lineTimer=120+(rand(data.seed-data.phase,data.seed+11)*0.5+0.5)*230;
+        data.targetAngle+=((rand(data.seed+data.phase,data.seed+29)*0.5+0.5)-0.5)*Math.PI*0.8;
       }
 
       if(!grazing && (data.lineTimer<=0 || dist>data.roamRadius || roadD<42)){
         if(dist>data.roamRadius || roadD<42){
-          data.angle=Math.atan2(data.centerX-x,data.centerZ-z);
+          data.targetAngle=Math.atan2(data.centerX-x,data.centerZ-z)
+            + ((rand(data.seed+data.phase,data.seed+19)*0.5+0.5)-0.5)*0.45;
         }else{
-          data.angle+=((rand(data.seed+data.phase,data.seed-17)*0.5+0.5)-0.5)*Math.PI*0.7;
+          data.targetAngle+=((rand(data.seed+data.phase,data.seed-17)*0.5+0.5)-0.5)*Math.PI*0.72;
         }
-        data.lineTimer=160+(rand(data.seed-data.phase,data.seed+53)*0.5+0.5)*280;
+        data.lineTimer=115+(rand(data.seed-data.phase,data.seed+53)*0.5+0.5)*260;
       }
 
-      let moveSpeed=grazing ? 0 : data.speed;
+      data.targetSpeed=grazing
+        ? 0
+        : data.baseSpeed*(0.72+Math.sin(data.phase*0.27+data.bobOffset)*0.18);
+      data.speed+=(data.targetSpeed-data.speed)*0.045;
+
+      let turnNoise=Math.sin(data.phase*0.19+data.seed)*0.012;
+      data.angle+=normalizeAngle(data.targetAngle-data.angle)*(grazing ? 0.006 : data.turnEase)+turnNoise;
+
+      let moveSpeed=data.speed;
       let nextX=x+Math.sin(data.angle)*moveSpeed;
       let nextZ=z+Math.cos(data.angle)*moveSpeed;
       let nextY=groundHeight(nextX,nextZ);
 
       if(nextY<-15 || nextY>30 || roadDistance(nextX,nextZ)<35){
-        data.angle+=Math.PI*0.74;
-        data.lineTimer=140+(rand(data.seed+data.phase,data.seed+91)*0.5+0.5)*190;
+        data.targetAngle=data.angle+Math.PI*0.68+((rand(data.seed+data.phase,data.seed+91)*0.5+0.5)-0.5)*0.55;
+        data.speed*=0.25;
+        data.lineTimer=100+(rand(data.seed+data.phase,data.seed+91)*0.5+0.5)*180;
         nextX=x;
         nextZ=z;
         nextY=groundHeight(x,z);
       }
 
       sheep.position.set(nextX,nextY,nextZ);
-      sheep.rotation.y=data.angle-Math.PI/2;
-      sheep.rotation.z=Math.sin(data.phase*0.32)*0.01;
+      sheep.rotation.y+=(normalizeAngle(data.angle-Math.PI/2-sheep.rotation.y))*0.12;
+      sheep.rotation.z=Math.sin(data.phase*0.32+data.bobOffset)*0.015*(!grazing ? 1 : 0.35);
+      sheep.rotation.x=Math.sin(data.phase*0.21+data.bobOffset)*0.012*(!grazing ? 1 : 0.25);
 
       if(data.head){
-        data.head.rotation.z=grazing ? -0.58 : Math.sin(data.phase*0.08)*0.04;
+        data.head.rotation.z+=((grazing ? -0.58 : Math.sin(data.phase*0.08+data.bobOffset)*0.08)-data.head.rotation.z)*0.08;
+        data.head.rotation.y=Math.sin(data.phase*0.11+data.bobOffset)*0.08;
       }
 
       if(data.legs){
         for(let i=0;i<data.legs.length;i++){
-          data.legs[i].rotation.z=grazing ? 0 : Math.sin(data.phase*1.5+i*Math.PI)*0.22;
+          data.legs[i].rotation.z=grazing ? 0 : Math.sin(data.phase*1.9+i*Math.PI+data.bobOffset)*0.18;
+          data.legs[i].rotation.x=grazing ? 0 : Math.sin(data.phase*1.9+i*Math.PI*0.7)*0.05;
         }
       }
 

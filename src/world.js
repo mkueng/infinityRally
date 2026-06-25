@@ -749,6 +749,7 @@ function makeChunk(cx,cz){
       animal.userData.centerX=centerX;
       animal.userData.centerZ=centerZ;
       animal.userData.angle=herdHeading+(herdRand(cx*307+i*7,cz*509-i*5)-0.5)*0.5;
+      animal.userData.targetAngle=animal.userData.angle;
       animal.userData.roamRadius=34+herdSize*4;
       animal.rotation.y=animal.userData.angle-Math.PI/2;
       sheep.push(animal);
