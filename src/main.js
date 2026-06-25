@@ -1,12 +1,12 @@
 import { THREE } from "./three.js";
-import { gravityStrength, jumpBaseBoost, jumpSlopeBoost, roadMaxSpeed, chunkSize } from "./constants.js";
+import { gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize } from "./constants.js";
 import { carSurfaceHeight, groundHeight, maxSpeedForRoadDistance, roadCenterX, roadDistance } from "./terrain.js?v=no-ramps";
 import { createInput } from "./input.js";
 import { createHud } from "./hud.js";
-import { createBirds, createCarShadow, createClouds, createDust, createWheelTracks } from "./effects.js";
+import { createBirds, createCarShadow, createClouds, createDust, createWheelTracks } from "./effects.js?v=stride-matched-mech";
 import { createWorld } from "./world.js?v=no-ramps";
-import { createMotorAudio } from "./audio.js?v=airborne-rev-audio";
-import { loadCarModel, loadGarageModel, loadGasStationModel, makeFallbackCarModel } from "./models.js?v=cars-folder";
+import { createMotorAudio } from "./audio.js?v=stride-matched-mech";
+import { loadGarageModel, loadGasStationModel, makeMechModel } from "./models.js?v=walking-mech";
 import { updateSheep } from "./sheep.js";
 import { makeSkyTexture } from "./textures.js";
 
@@ -35,6 +35,9 @@ let cars=[];
 let gameStarted=false;
 let gameMode="single";
 let waterLevel=-20;
+let mechRoadMaxSpeed=0.38;
+let mechOffroadMaxSpeed=0.28;
+let mechStrideLength=2.35;
 
 function clamp(value,min,max){
   return Math.max(min,Math.min(max,value));
@@ -122,6 +125,9 @@ function createCarState(id,lateralOffset,controls,camera,gamepadIndex){
     trickRollVel:0,
     trickYawVel:0,
     lastTrickButtons:{a:false,b:false,x:false,y:false},
+    walkCycle:0,
+    lastWalkX:0,
+    lastWalkZ:0,
     health:100,
     lateralOffset
   };
@@ -290,6 +296,105 @@ function updateAirTricks(car,airborne){
   }
 }
 
+function resetMechPart(part){
+  if(!part || !part.userData.basePosition || !part.userData.baseRotation) return;
+  part.position.copy(part.userData.basePosition);
+  part.rotation.copy(part.userData.baseRotation);
+}
+
+function updateMechAnimation(car){
+  let model=car.group.children[0];
+  let parts=model && model.userData ? model.userData.walkParts : null;
+  if(!model || !parts) return;
+
+  model.traverse(child=>{
+    if(child.isMesh) resetMechPart(child);
+  });
+
+  let speedAbs=Math.abs(car.speed || 0);
+  let previousWalkX=Number.isFinite(car.lastWalkX) ? car.lastWalkX : car.x;
+  let previousWalkZ=Number.isFinite(car.lastWalkZ) ? car.lastWalkZ : car.z;
+  let groundDistance=Math.hypot(car.x-previousWalkX,car.z-previousWalkZ);
+  car.lastWalkX=car.x;
+  car.lastWalkZ=car.z;
+
+  let moving=car.onGround && car.health>0 && !gameOver && groundDistance>0.002 && speedAbs>0.01;
+  let intensity=moving ? clamp(groundDistance/mechRoadMaxSpeed,0.18,1) : 0;
+  let direction=car.speed<0 ? -1 : 1;
+
+  if(moving){
+    car.walkCycle+=direction*groundDistance*(Math.PI*2/mechStrideLength);
+  }else{
+    car.walkCycle*=0.88;
+  }
+
+  let phase=car.walkCycle;
+  let bob=Math.abs(Math.sin(phase))*0.16*intensity;
+  let torsoSway=Math.sin(phase)*0.045*intensity;
+  let headCounter=Math.sin(phase)*0.025*intensity;
+
+  model.position.y=(model.userData.baseY || 0)+bob;
+  model.rotation.z=torsoSway;
+  model.rotation.x=-0.035*intensity;
+
+  if(parts.torso) parts.torso.rotation.z+=torsoSway*0.45;
+  if(parts.pelvis) parts.pelvis.rotation.z-=torsoSway*0.8;
+  if(parts.head) parts.head.rotation.z-=headCounter;
+  if(parts.reactorPack) parts.reactorPack.rotation.x+=Math.sin(phase*2)*0.025*intensity;
+
+  for(let sideName of ["left","right"]){
+    let side=sideName==="left" ? -1 : 1;
+    let sideParts=parts[sideName];
+    let sidePhase=phase+(sideName==="left" ? 0 : Math.PI);
+    let swing=Math.sin(sidePhase)*intensity;
+    let planted=Math.max(0,Math.cos(sidePhase))*intensity;
+    let lifted=Math.max(0,-Math.cos(sidePhase))*intensity;
+
+    if(sideParts.upperLeg){
+      sideParts.upperLeg.rotation.x+=swing*0.96;
+      sideParts.upperLeg.position.z+=swing*0.24;
+    }
+    if(sideParts.shin){
+      sideParts.shin.rotation.x+=(-swing*0.58-lifted*0.34);
+      sideParts.shin.position.z+=swing*0.2;
+    }
+    if(sideParts.knee){
+      sideParts.knee.position.y+=lifted*0.08;
+      sideParts.knee.position.z+=swing*0.1;
+    }
+    if(sideParts.kneePlate){
+      sideParts.kneePlate.position.y+=lifted*0.08;
+      sideParts.kneePlate.position.z+=swing*0.1;
+    }
+    if(sideParts.foot){
+      sideParts.foot.position.y+=lifted*0.38;
+      sideParts.foot.position.z+=swing*0.62-planted*0.2;
+      sideParts.foot.rotation.x+=-swing*0.38+lifted*0.16;
+    }
+    if(sideParts.toePlate){
+      sideParts.toePlate.position.y+=lifted*0.38;
+      sideParts.toePlate.position.z+=swing*0.62-planted*0.2;
+      sideParts.toePlate.rotation.x+=-swing*0.44+lifted*0.22;
+    }
+    if(sideParts.upperArm){
+      sideParts.upperArm.rotation.x+=-swing*0.22;
+      sideParts.upperArm.rotation.z+=side*0.04*intensity;
+    }
+    if(sideParts.forearm){
+      sideParts.forearm.rotation.x+=-swing*0.16;
+    }
+    if(sideParts.hand){
+      sideParts.hand.position.z+=-swing*0.06;
+    }
+    if(sideParts.cannon){
+      sideParts.cannon.rotation.x+=-swing*0.06;
+    }
+    if(sideParts.shoulder){
+      sideParts.shoulder.rotation.z+=side*0.025*intensity;
+    }
+  }
+}
+
 function updateCar(car){
   let prevX=car.x;
   let prevZ=car.z;
@@ -297,7 +402,8 @@ function updateCar(car){
   let {forward,turn}=controlsFor(car);
   car.throttleInput=forward;
   let roadDist=roadDistance(car.x,car.z);
-  let localMaxSpeed=maxSpeedForRoadDistance(roadDist);
+  let terrainMaxSpeed=maxSpeedForRoadDistance(roadDist);
+  let localMaxSpeed=Math.min(terrainMaxSpeed,roadDist>42 ? mechOffroadMaxSpeed : mechRoadMaxSpeed);
   let carDisabled=car.health<=0;
 
   if(gameOver || carDisabled){
@@ -306,80 +412,62 @@ function updateCar(car){
     car.vy=0;
   }else{
     let speedAbs=Math.abs(car.speed);
-    let speedRatio=clamp(speedAbs/roadMaxSpeed,0,1);
+    let speedRatio=clamp(speedAbs/mechRoadMaxSpeed,0,1);
     let grip=1-clamp((roadDist-42)/95,0,1);
     let throttle=forward>0;
     let brakeOrReverse=forward<0;
     let throttlePower=Math.abs(forward);
 
     if(throttle){
-      car.speed+=0.018*throttlePower*(1-speedRatio*0.42);
+      car.speed+=0.0032*throttlePower*(1-speedRatio*0.35);
     }else if(brakeOrReverse){
-      car.speed+=(car.speed>0.08 ? -0.04 : -0.014)*throttlePower;
+      car.speed+=(car.speed>0.03 ? -0.02 : -0.0045)*throttlePower;
     }else{
-      car.speed*=grip>0.45 ? 0.992 : 0.982;
-      if(Math.abs(car.speed)<0.004) car.speed=0;
+      car.speed*=car.onGround ? 0.18 : 0.94;
+      if(Math.abs(car.speed)<0.035) car.speed=0;
     }
 
     car.speed=clamp(car.speed,-localMaxSpeed*0.42,localMaxSpeed);
 
-    let movingSteer=clamp(speedAbs/0.65,0,1);
-    let highSpeedCalm=1-clamp((speedAbs-1.05)/0.85,0,0.28);
-    let steeringResponse=(0.42+movingSteer*0.63)*highSpeedCalm;
+    let movingSteer=clamp(speedAbs/0.34,0,1);
+    let highSpeedCalm=1-clamp((speedAbs-0.32)/0.32,0,0.18);
+    let steeringResponse=(0.52+movingSteer*0.54)*highSpeedCalm;
     let reverseSteer=car.speed< -0.04 ? -1 : 1;
-    car.angle+=turn*reverseSteer*0.045*steeringResponse;
+    car.angle+=turn*reverseSteer*0.031*steeringResponse;
 
-    let angleDiff=normalizeAngle(car.angle-car.velAngle);
-    let slipAngle=Math.abs(angleDiff);
-    let brakingSlide=brakeOrReverse && speedAbs>0.45 ? 0.052 : 0;
-    let throttleSlide=throttle && turn!==0 && speedAbs>0.55 ? 0.052 : 0;
-    car.slipAmount=clamp(slipAngle*speedRatio*2.6+(brakingSlide+throttleSlide)*3.2,0,1);
-    let surfaceAlign=(0.072+grip*0.095)-speedRatio*0.068-brakingSlide-throttleSlide;
-    let velocityAlign=clamp(surfaceAlign,0.022,0.155);
-    car.velAngle+=angleDiff*velocityAlign;
-
-    let slipDrag=clamp(slipAngle*speedRatio*(grip>0.5 ? 0.008 : 0.018),0,0.03);
-    car.speed*=1-slipDrag;
+    car.velAngle=car.angle;
+    car.slipAmount=0;
   }
 
   if(!gameOver && !carDisabled){
-    car.x+=Math.sin(car.velAngle)*car.speed;
-    car.z+=Math.cos(car.velAngle)*car.speed;
+    car.x+=Math.sin(car.angle)*car.speed;
+    car.z+=Math.cos(car.angle)*car.speed;
   }
 
   roadDist=roadDistance(car.x,car.z);
   car.surfaceDistance=roadDist;
-  localMaxSpeed=maxSpeedForRoadDistance(roadDist);
+  terrainMaxSpeed=maxSpeedForRoadDistance(roadDist);
+  localMaxSpeed=Math.min(terrainMaxSpeed,roadDist>42 ? mechOffroadMaxSpeed : mechRoadMaxSpeed);
   car.speed=Math.max(-localMaxSpeed,Math.min(localMaxSpeed,car.speed));
 
   let surfaceY=drivingSurfaceHeight(car.x,car.z);
-
-  if(!gameOver && !carDisabled && roadDist<60 && Math.abs(car.speed)>0.05){
-    let t=1-roadDist/60;
-    t=t*t*(3-2*t);
-
-    let center=roadCenterX(car.z);
-    car.x+=(center-car.x)*0.006*t;
-    surfaceY=drivingSurfaceHeight(car.x,car.z);
-  }
 
   let aheadX=car.x+Math.sin(car.velAngle)*6;
   let aheadZ=car.z+Math.cos(car.velAngle)*6;
   let aheadY=drivingSurfaceHeight(aheadX,aheadZ);
   let slope=aheadY-surfaceY;
 
-  if(!gameOver && !carDisabled && car.y<=surfaceY+0.03 && car.speed>1.15 && slope>3.5){
+  if(!gameOver && !carDisabled && car.y<=surfaceY+0.03 && car.speed>0.36 && slope>3.7){
     car.vy=Math.max(car.vy,slope*jumpSlopeBoost+jumpBaseBoost);
   }
 
   if(!gameOver && !carDisabled && roadDist>60){
-    car.velAngle+=Math.sin(car.x*0.01+car.z*0.013)*0.0018;
-    car.speed*=0.992;
+    car.speed*=forward===0 && car.onGround ? 0.5 : 0.985;
   }
 
   let waterDrag=clamp(waterDepthAt(car.x,car.z)/3.5,0,1);
   if(!gameOver && !carDisabled && waterDrag>0){
-    car.speed*=1-0.045*waterDrag;
+    car.speed*=1-0.12*waterDrag;
   }
 
   if(!gameOver && !carDisabled) car.vy-=gravityStrength;
@@ -400,8 +488,9 @@ function updateCar(car){
     car.x=collision.safeX;
     car.z=collision.safeZ;
     car.y=prevY;
-    car.speed*=0.15;
-    car.velAngle+=collision.otherCar ? Math.PI*0.35 : Math.PI*0.5;
+    car.speed=0;
+    car.angle+=collision.otherCar ? Math.PI*0.12 : Math.PI*0.18;
+    car.velAngle=car.angle;
     damageCar(car,collision.otherCar ? 1 : 3);
     surfaceY=drivingSurfaceHeight(car.x,car.z);
     if(car.y<surfaceY) car.y=surfaceY;
@@ -409,30 +498,9 @@ function updateCar(car){
 
   let waterDepth=waterDepthAt(car.x,car.z);
   let inWater=waterDepth>0.15 && car.y<=waterLevel+1.1;
-  let emitDust=!carDisabled && !inWater && car.y<=surfaceY+0.1 && Math.abs(car.speed)>0.1;
   let emitSplash=!carDisabled && inWater && car.y<=waterLevel+1.1 && Math.abs(car.speed)>0.08;
   car.onGround=car.y<=surfaceY+0.18;
   wheelTracks.addCarTracks(car,surfaceY,inWater);
-  if(emitDust){
-    let dustAmount=Math.ceil(Math.abs(car.speed)*6);
-    for(let i=0;i<dustAmount;i++){
-      let side=(i%2===0 ? -1 : 1);
-      let spread=(Math.random()-.5)*0.6;
-      let offsetX=car.x-Math.sin(car.velAngle)*1.15+Math.cos(car.velAngle)*(side*1.05+spread);
-      let offsetZ=car.z-Math.cos(car.velAngle)*1.15-Math.sin(car.velAngle)*(side*1.05+spread);
-
-      dust.spawnDustParticle(
-        offsetX,
-        surfaceY+0.4+Math.random()*0.3,
-        offsetZ,
-        (Math.random()-.5)*0.18,
-        (Math.random()-.5)*0.18,
-        Math.random()*1.8+0.9,
-        2.0+Math.random()*1.6,
-        0.22+Math.random()*0.22
-      );
-    }
-  }
   if(emitSplash){
     let speedAbs=Math.abs(car.speed);
     let splashAmount=Math.ceil(speedAbs*18);
@@ -477,6 +545,7 @@ function updateCar(car){
   car.group.rotation.y=car.angle+car.trickYaw;
   car.group.rotation.x=car.pitch+car.trickPitch;
   car.group.rotation.z=car.trickRoll;
+  updateMechAnimation(car);
   car.shadow.update({carX:car.x,carZ:car.z,carY:car.y,surfaceY,carVelAngle:car.angle});
 }
 
@@ -622,57 +691,13 @@ if(startScreen){
   });
 }
 
-function tintSecondCar(model){
-  model.traverse(child=>{
-    if(!child.isMesh || !child.material) return;
+playerCar.group.clear();
+playerCar.group.add(makeMechModel(0xb83a32));
+secondCar.group.clear();
+secondCar.group.add(makeMechModel(0x2f66d8));
+setCarActive(playerCar,true);
+setCarActive(secondCar,false);
 
-    let materials=Array.isArray(child.material) ? child.material : [child.material];
-    let cloned=materials.map(material=>{
-      let next=material.clone();
-      if(next.color){
-        let brightness=next.color.r+next.color.g+next.color.b;
-        if(brightness>0.75){
-          next.color.lerp(new THREE.Color(0x2f66d8),0.55);
-        }
-      }
-      return next;
-    });
-
-    child.material=Array.isArray(child.material) ? cloned : cloned[0];
-  });
-  return model;
-}
-
-function cloneCarModelFor(car,model,tint=false){
-  car.group.clear();
-  let clone=model.clone(true);
-  car.group.add(tint ? tintSecondCar(clone) : clone);
-}
-
-function colorFallbackSecondCar(model){
-  model.traverse(child=>{
-    if(child.isMesh && child.material && child.material.color){
-      child.material=child.material.clone();
-      if(child.material.color.r>0.35 || child.material.color.g>0.35 || child.material.color.b>0.35){
-        child.material.color.set(0x3d6ee8);
-      }
-    }
-  });
-  return model;
-}
-
-loadCarModel()
-  .then(model=>{
-    cloneCarModelFor(playerCar,model);
-    cloneCarModelFor(secondCar,model,true);
-  })
-  .catch(error=>{
-    console.error("Failed to load Tinkercad car model:",error);
-    playerCar.group.clear();
-    playerCar.group.add(makeFallbackCarModel());
-    secondCar.group.clear();
-    secondCar.group.add(colorFallbackSecondCar(makeFallbackCarModel()));
-  });
 loadGasStationModel()
   .then(model=>{
     world.setGasStationTemplate(model);
@@ -710,11 +735,15 @@ function placeCarOnRoad(car,z){
   car.trickPitchVel=0;
   car.trickRollVel=0;
   car.trickYawVel=0;
+  car.walkCycle=0;
+  car.lastWalkX=car.x;
+  car.lastWalkZ=car.z;
   car.y=drivingSurfaceHeight(car.x,car.z);
   car.group.position.set(car.x,car.y,car.z);
   car.group.rotation.y=car.angle;
   car.group.rotation.x=0;
   car.group.rotation.z=0;
+  updateMechAnimation(car);
 }
 
 placeCarOnRoad(playerCar,0);

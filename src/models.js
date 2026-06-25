@@ -1,125 +1,4 @@
 import { MTLLoader, OBJLoader, THREE } from "./three.js";
-import { carModelPath } from "./assetPaths.js";
-
-export function makeReflectiveCarMaterial(source){
-  let color=(source && source.color) ? source.color.clone() : new THREE.Color(0xffffff);
-  let isRed=color.r>0.65 && color.g<0.25 && color.b<0.3;
-  let isGlass=color.b>0.45 && color.g>0.45 && color.r<0.6;
-  let isDark=color.r+color.g+color.b<0.75;
-  let isLight=color.r+color.g+color.b>2.1;
-  let material;
-
-  if(isGlass){
-    material=new THREE.MeshPhysicalMaterial({
-      color,
-      roughness:0.02,
-      metalness:0,
-      clearcoat:1,
-      clearcoatRoughness:0.02,
-      transparent:true,
-      opacity:0.62
-    });
-  }else if(isRed){
-    material=new THREE.MeshPhysicalMaterial({
-      color,
-      roughness:0.18,
-      metalness:0.08,
-      clearcoat:1,
-      clearcoatRoughness:0.04
-    });
-  }else if(isDark){
-    material=new THREE.MeshStandardMaterial({
-      color,
-      roughness:0.38,
-      metalness:0.12
-    });
-  }else{
-    material=new THREE.MeshPhysicalMaterial({
-      color,
-      roughness:isLight ? 0.16 : 0.24,
-      metalness:isLight ? 0.35 : 0.65,
-      clearcoat:0.45,
-      clearcoatRoughness:0.08
-    });
-  }
-
-  material.side=THREE.FrontSide;
-  material.envMapIntensity=0.7;
-  return material;
-}
-
-export function normalizeLoadedCarModel(car){
-  let model=new THREE.Group();
-  car.rotation.x=-Math.PI/2;
-  model.rotation.y=Math.PI/2;
-  model.add(car);
-  car=model;
-  car.updateMatrixWorld(true);
-
-  let box=new THREE.Box3().setFromObject(car);
-  let size=new THREE.Vector3();
-  let center=new THREE.Vector3();
-  box.getSize(size);
-  box.getCenter(center);
-
-  let targetLength=4.4;
-  let scale=targetLength/Math.max(size.z,0.001);
-  car.scale.setScalar(scale);
-  car.updateMatrixWorld(true);
-
-  box.setFromObject(car);
-  box.getCenter(center);
-
-  car.position.x-=center.x;
-  car.position.z-=center.z;
-  car.updateMatrixWorld(true);
-
-  box.setFromObject(car);
-  car.position.y-=box.min.y;
-
-  car.traverse(child=>{
-    if(child.isMesh){
-      child.castShadow=true;
-      child.receiveShadow=true;
-      if(child.geometry){
-        child.geometry.computeVertexNormals();
-      }
-      if(child.material){
-        child.material=Array.isArray(child.material)
-          ? child.material.map(makeReflectiveCarMaterial)
-          : makeReflectiveCarMaterial(child.material);
-      }
-    }
-  });
-
-  return car;
-}
-
-export function loadCarModel(){
-  let mtlLoader=new MTLLoader();
-  mtlLoader.setPath(carModelPath);
-
-  return new Promise((resolve,reject)=>{
-    mtlLoader.load(
-      "obj.mtl",
-      materials=>{
-        materials.preload();
-
-          let objLoader=new OBJLoader();
-          objLoader.setPath(carModelPath);
-        objLoader.setMaterials(materials);
-        objLoader.load(
-          "tinker.obj",
-          object=>resolve(normalizeLoadedCarModel(object)),
-          undefined,
-          reject
-        );
-      },
-      undefined,
-      reject
-    );
-  });
-}
 
 export function normalizeGasStationModel(station){
   let model=new THREE.Group();
@@ -263,94 +142,108 @@ export function loadGarageModel(){
   });
 }
 
-export function makeFallbackCarModel(){
-  let car=new THREE.Group();
+export function makeMechModel(accentColor=0xb83a32){
+  let mech=new THREE.Group();
+  let walkParts={left:{},right:{}};
 
-  let paintMat=new THREE.MeshPhysicalMaterial({
-    color:0xaa99A5,
-    roughness:1.28,
-    metalness:0.75,
-    clearcoat:0.1,
-    clearcoatRoughness:0.12
+  let armorMat=new THREE.MeshStandardMaterial({
+    color:0x3f474a,
+    roughness:0.58,
+    metalness:0.55
   });
-
-  let darkMat=new THREE.MeshStandardMaterial({color:0x111111,roughness:0.95});
+  let darkMat=new THREE.MeshStandardMaterial({
+    color:0x171b1d,
+    roughness:0.86,
+    metalness:0.35
+  });
+  let accentMat=new THREE.MeshStandardMaterial({
+    color:accentColor,
+    roughness:0.44,
+    metalness:0.4
+  });
+  let jointMat=new THREE.MeshStandardMaterial({
+    color:0x0d0f10,
+    roughness:0.72,
+    metalness:0.75
+  });
   let glassMat=new THREE.MeshStandardMaterial({
-    color:0x87bfff,
-    transparent:true,
-    opacity:0.55,
-    roughness:0.08,
-    metalness:0.15
+    color:0x78d7ff,
+    emissive:0x0a3a52,
+    emissiveIntensity:0.7,
+    roughness:0.12,
+    metalness:0.08
   });
-  let rimMat=new THREE.MeshStandardMaterial({color:0xb8b8b8,roughness:0.35,metalness:0.95});
 
-  // Main rounded body
-  let bodyGeo=new THREE.CapsuleGeometry(1.15,3.6,6,18);
-  let body=new THREE.Mesh(bodyGeo,paintMat);
-  body.rotation.x=Math.PI/2;
-  body.scale.set(1,0.52,1);
-  body.position.y=0.95;
-  car.add(body);
-
-  // Lower side skirt for a flatter profile
-  let skirtGeo=new THREE.CapsuleGeometry(1.05,3.0,4,14);
-  let skirt=new THREE.Mesh(skirtGeo,paintMat);
-  skirt.rotation.x=Math.PI/2;
-  skirt.scale.set(1,0.22,1);
-  skirt.position.y=0.45;
-  car.add(skirt);
-
-  // Cabin / roof
-  let cabinGeo=new THREE.CapsuleGeometry(0.9,1.4,6,16);
-  let cabin=new THREE.Mesh(cabinGeo,paintMat);
-  cabin.rotation.x=Math.PI/2;
-  cabin.scale.set(1,0.48,1);
-  cabin.position.set(0,1.65,0.15);
-  car.add(cabin);
-
-  // Windshield and rear window
-  let windshieldGeo=new THREE.BoxGeometry(1.7,0.7,0.08);
-  let windshield=new THREE.Mesh(windshieldGeo,glassMat);
-  windshield.position.set(0,1.55,-1.05);
-  windshield.rotation.x=-0.35;
-  car.add(windshield);
-
-  let backGlass=new THREE.Mesh(windshieldGeo,glassMat);
-  backGlass.position.set(0,1.55,1.05);
-  backGlass.rotation.x=0.35;
-  car.add(backGlass);
-
-  // Front and rear bumpers
-  let bumperGeo=new THREE.CylinderGeometry(0.18,0.18,1.55,14);
-  let frontBumper=new THREE.Mesh(bumperGeo,darkMat);
-  frontBumper.rotation.z=Math.PI/2;
-  frontBumper.position.set(0,0.62,-1.95);
-  car.add(frontBumper);
-
-  let rearBumper=new THREE.Mesh(bumperGeo,darkMat);
-  rearBumper.rotation.z=Math.PI/2;
-  rearBumper.position.set(0,0.62,1.95);
-  car.add(rearBumper);
-
-  // Wheels with more rounded geometry
-  let wheelGeo=new THREE.TorusGeometry(0.42,0.16,10,20);
-  let wheelPositions=[[-0.95,0.42,-1.25],[0.95,0.42,-1.25],[-0.95,0.42,1.25],[0.95,0.42,1.25]];
-  for(let pos of wheelPositions){
-    let wheel=new THREE.Mesh(wheelGeo,darkMat);
-    wheel.rotation.y=Math.PI/2;
-    wheel.rotation.x=Math.PI/2;
-    wheel.position.set(pos[0],pos[1],pos[2]);
-    car.add(wheel);
-
-    let rim=new THREE.Mesh(new THREE.TorusGeometry(0.22,0.06,8,16),rimMat);
-    rim.rotation.y=Math.PI/2;
-    rim.rotation.x=Math.PI/2;
-    rim.position.set(pos[0],pos[1],pos[2]);
-    car.add(rim);
+  function box(name,w,h,d,material,x,y,z,rx=0,ry=0,rz=0){
+    let mesh=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),material);
+    mesh.name=name;
+    mesh.position.set(x,y,z);
+    mesh.rotation.set(rx,ry,rz);
+    mech.add(mesh);
+    return mesh;
   }
 
-  // Slight overall shaping so it feels more car-like
-  car.scale.set(1.1,1.1,1.1);
+  function cylinder(name,radius,depth,material,x,y,z,rx=0,ry=0,rz=0,segments=16){
+    let mesh=new THREE.Mesh(new THREE.CylinderGeometry(radius,radius,depth,segments),material);
+    mesh.name=name;
+    mesh.position.set(x,y,z);
+    mesh.rotation.set(rx,ry,rz);
+    mech.add(mesh);
+    return mesh;
+  }
 
-  return car;
+  box("pelvis",1.55,0.72,1.05,darkMat,0,2.05,0);
+  box("torso",2.25,1.7,1.35,armorMat,0,3.25,0.08,-0.08,0,0);
+  box("chest-plate",2.0,0.62,0.18,accentMat,0,3.55,0.78,-0.12,0,0);
+  box("cockpit",0.9,0.58,0.16,glassMat,0,3.85,0.86,-0.18,0,0);
+  box("reactor-pack",1.45,1.2,0.42,darkMat,0,3.28,-0.72,0.05,0,0);
+
+  walkParts.torso=mech.getObjectByName("torso");
+  walkParts.pelvis=mech.getObjectByName("pelvis");
+  walkParts.reactorPack=mech.getObjectByName("reactor-pack");
+
+  for(let side of [-1,1]){
+    let sideName=side<0 ? "left" : "right";
+    let parts=walkParts[sideName];
+    parts.shoulder=box(`${sideName}-shoulder`,0.72,0.62,0.92,armorMat,side*1.55,3.55,0.03,0,0,side*0.08);
+    parts.upperArm=box(`${sideName}-upper-arm`,0.42,0.92,0.5,darkMat,side*1.92,2.92,0.02,0,0,side*0.14);
+    parts.elbow=cylinder(`${sideName}-elbow`,0.23,0.5,jointMat,side*1.96,2.42,0.03,Math.PI/2,0,0,14);
+    parts.forearm=box(`${sideName}-forearm`,0.5,0.88,0.58,armorMat,side*2.0,1.95,0.08,0,0,side*-0.08);
+    parts.hand=box(`${sideName}-hand`,0.45,0.28,0.52,darkMat,side*2.02,1.38,0.18);
+
+    let cannon=cylinder(`${sideName}-arm-cannon`,0.16,1.45,darkMat,side*2.04,1.94,0.82,Math.PI/2,0,0,18);
+    cannon.scale.x=0.75;
+    parts.cannon=cannon;
+    parts.cannonShroud=box(`${sideName}-cannon-shroud`,0.48,0.28,0.46,accentMat,side*2.04,2.08,0.48);
+
+    parts.hip=cylinder(`${sideName}-hip-joint`,0.3,0.65,jointMat,side*0.72,1.72,0,0,0,Math.PI/2,16);
+    parts.upperLeg=box(`${sideName}-upper-leg`,0.55,1.12,0.62,armorMat,side*0.72,1.12,0.05,0,0,side*0.05);
+    parts.knee=cylinder(`${sideName}-knee`,0.26,0.58,jointMat,side*0.72,0.48,0.05,0,0,Math.PI/2,16);
+    parts.shin=box(`${sideName}-shin`,0.62,1.05,0.56,darkMat,side*0.72,-0.02,0.08,0,0,side*-0.04);
+    parts.kneePlate=box(`${sideName}-knee-plate`,0.58,0.28,0.16,accentMat,side*0.72,0.52,0.45,-0.18,0,0);
+    parts.foot=box(`${sideName}-foot`,0.78,0.28,1.28,armorMat,side*0.72,-0.68,0.28,0,0,side*0.03);
+    parts.toePlate=box(`${sideName}-toe-plate`,0.72,0.16,0.52,accentMat,side*0.72,-0.52,0.95,0.08,0,0);
+  }
+
+  cylinder("neck",0.22,0.38,jointMat,0,4.22,0.05,0,0,0,14);
+  box("head",0.9,0.5,0.72,armorMat,0,4.52,0.12,-0.04,0,0);
+  box("visor",0.68,0.16,0.08,glassMat,0,4.56,0.51);
+  cylinder("antenna",0.035,0.78,darkMat,0.38,4.92,0.02,0.1,0,0,8);
+  walkParts.head=mech.getObjectByName("head");
+
+  mech.scale.set(1.05,1.05,1.05);
+  mech.position.y=0.72;
+  mech.traverse(child=>{
+    if(child.isMesh){
+      child.castShadow=true;
+      child.receiveShadow=true;
+      if(child.geometry) child.geometry.computeVertexNormals();
+      child.userData.basePosition=child.position.clone();
+      child.userData.baseRotation=child.rotation.clone();
+    }
+  });
+  mech.userData.walkParts=walkParts;
+  mech.userData.baseY=mech.position.y;
+
+  return mech;
 }

@@ -332,10 +332,6 @@ export function createDust(scene){
     });
   }
 
-  function spawnDustParticle(px,py,pz,vx,vz,vy,life,size){
-    spawnParticle(px,py,pz,vx,vz,vy,life,size);
-  }
-
   function spawnSplashParticle(px,py,pz,vx,vz,vy,life,size){
     spawnParticle(px,py,pz,vx,vz,vy,life,size,{
       color:0xbfefff,
@@ -372,7 +368,7 @@ export function createDust(scene){
     }
   }
 
-  return {spawnDustParticle,spawnSplashParticle,update};
+  return {spawnSplashParticle,update};
 }
 
 export function createWheelTracks(scene){
@@ -432,28 +428,26 @@ export function createWheelTracks(scene){
 
   function addCarTracks(car,surfaceY,inWater){
     let speed=Math.abs(car.speed || 0);
-    if(inWater || !car.onGround || speed<0.14 || car.health<=0) return;
+    if(inWater || !car.onGround || speed<0.08 || car.health<=0) return;
 
     let last=lastTrackByCar.get(car.id);
     let dx=last ? car.x-last.x : Infinity;
     let dz=last ? car.z-last.z : Infinity;
-    if(dx*dx+dz*dz<1.15*1.15) return;
-
-    lastTrackByCar.set(car.id,{x:car.x,z:car.z});
+    if(dx*dx+dz*dz<0.78*0.78) return;
 
     let offroad=Math.max(0,Math.min(1,((car.surfaceDistance || 0)-24)/70));
     let slip=Math.max(0,Math.min(1,car.slipAmount || 0));
-    let opacity=0.16+offroad*0.12+slip*0.18;
-    let length=0.9+Math.min(0.55,speed*0.28)+slip*0.35;
-    let width=0.46+offroad*0.16+slip*0.14;
-    let rear=1.55;
-    let trackHalfWidth=1.08;
+    let opacity=0.24+offroad*0.18+slip*0.14;
+    let length=0.98+Math.min(0.18,speed*0.08)+slip*0.16;
+    let width=0.62+offroad*0.14+slip*0.08;
+    let side=last && last.side ? -last.side : -1;
+    let footForward=0.12;
+    let trackHalfWidth=0.66;
+    let x=car.x+Math.sin(car.velAngle)*footForward+Math.cos(car.velAngle)*side*trackHalfWidth;
+    let z=car.z+Math.cos(car.velAngle)*footForward-Math.sin(car.velAngle)*side*trackHalfWidth;
 
-    for(let side of [-1,1]){
-      let x=car.x-Math.sin(car.velAngle)*rear+Math.cos(car.velAngle)*side*trackHalfWidth;
-      let z=car.z-Math.cos(car.velAngle)*rear-Math.sin(car.velAngle)*side*trackHalfWidth;
-      addTrack(x,surfaceY,z,car.velAngle,opacity,width,length);
-    }
+    lastTrackByCar.set(car.id,{x:car.x,z:car.z,side});
+    addTrack(x,surfaceY,z,car.velAngle,opacity,width,length);
   }
 
   return {addCarTracks};
