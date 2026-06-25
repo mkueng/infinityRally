@@ -23,7 +23,7 @@ scene.add(sun);
 
 let keys=createInput();
 let px=0,py=20,pz=0;
-let carX=0,carY=20,carZ=0,carAngle=0,carVelAngle=0,carSpeed=0.5,carVy=0;
+let carX=0,carY=20,carZ=0,carAngle=0,carVelAngle=0,carSpeed=0,carVy=0;
 let carPitch=0;
 let carHealth=100;
 let gameOver=false;
@@ -40,6 +40,10 @@ function normalizeAngle(angle){
   while(angle>Math.PI) angle-=Math.PI*2;
   while(angle<-Math.PI) angle+=Math.PI*2;
   return angle;
+}
+
+function roadYawAt(z){
+  return Math.atan2(roadCenterX(z+18)-roadCenterX(z-18),36);
 }
 
 function updateCameraProjection(){
@@ -327,9 +331,15 @@ loadGarageModel()
     console.error("Failed to load garage model:",error);
   });
 
-carX=0;
 carZ=0;
+carX=roadCenterX(carZ);
+carAngle=roadYawAt(carZ);
+carVelAngle=carAngle;
+cameraYaw=carAngle;
 carY=carSurfaceHeight(carX,carZ);
+px=carX-Math.sin(cameraYaw)*cameraFollowDistance;
+pz=carZ-Math.cos(cameraYaw)*cameraFollowDistance;
+py=carY+cameraFollowHeight;
 
 hud.init();
 world.updateChunks(px,pz);
