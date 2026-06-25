@@ -201,27 +201,30 @@ function updateAirTricks(car,airborne){
   let pressedY=buttons.y && !car.lastTrickButtons.y;
 
   if(airborne && !gameOver && car.health>0){
-    if(pressedA) car.trickRollVel+=0.26;
-    if(pressedB) car.trickRollVel-=0.26;
-    if(pressedX) car.trickYawVel+=0.22;
-    if(pressedY) car.trickPitchVel-=0.23;
+    if(pressedA) car.trickRollVel+=0.16;
+    if(pressedB) car.trickRollVel-=0.16;
+    if(pressedX) car.trickYawVel+=0.14;
+    if(pressedY) car.trickPitchVel-=0.145;
 
-    if(buttons.a) car.trickRollVel+=0.006;
-    if(buttons.b) car.trickRollVel-=0.006;
-    if(buttons.x) car.trickYawVel+=0.005;
-    if(buttons.y) car.trickPitchVel-=0.005;
+    if(buttons.a) car.trickRollVel+=0.0025;
+    if(buttons.b) car.trickRollVel-=0.0025;
+    if(buttons.x) car.trickYawVel+=0.002;
+    if(buttons.y) car.trickPitchVel-=0.002;
   }
 
   car.lastTrickButtons={...buttons};
+  car.trickPitchVel=clamp(car.trickPitchVel,-0.19,0.19);
+  car.trickRollVel=clamp(car.trickRollVel,-0.21,0.21);
+  car.trickYawVel=clamp(car.trickYawVel,-0.18,0.18);
 
   car.trickPitch=normalizeAngle(car.trickPitch+car.trickPitchVel);
   car.trickRoll=normalizeAngle(car.trickRoll+car.trickRollVel);
   car.trickYaw=normalizeAngle(car.trickYaw+car.trickYawVel);
 
   if(airborne){
-    car.trickPitchVel*=0.986;
-    car.trickRollVel*=0.986;
-    car.trickYawVel*=0.986;
+    car.trickPitchVel*=0.972;
+    car.trickRollVel*=0.972;
+    car.trickYawVel*=0.972;
   }else{
     car.trickPitchVel*=0.76;
     car.trickRollVel*=0.76;
