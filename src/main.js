@@ -93,6 +93,13 @@ function createCarState(id,lateralOffset,controls,camera,gamepadIndex){
     speed:0,
     vy:0,
     pitch:0,
+    trickPitch:0,
+    trickRoll:0,
+    trickYaw:0,
+    trickPitchVel:0,
+    trickRollVel:0,
+    trickYawVel:0,
+    lastTrickButtons:{a:false,b:false,x:false,y:false},
     health:100,
     lateralOffset
   };
@@ -180,6 +187,53 @@ function collidesWithOtherCars(car,nextX,nextZ){
     if(dx*dx+dz*dz<minGap*minGap) return other;
   }
   return null;
+}
+
+function settleTrickAngle(value,amount){
+  return value+normalizeAngle(-value)*amount;
+}
+
+function updateAirTricks(car,airborne){
+  let buttons=input.getGamepadFaceButtons(car.gamepadIndex);
+  let pressedA=buttons.a && !car.lastTrickButtons.a;
+  let pressedB=buttons.b && !car.lastTrickButtons.b;
+  let pressedX=buttons.x && !car.lastTrickButtons.x;
+  let pressedY=buttons.y && !car.lastTrickButtons.y;
+
+  if(airborne && !gameOver && car.health>0){
+    if(pressedA) car.trickRollVel+=0.26;
+    if(pressedB) car.trickRollVel-=0.26;
+    if(pressedX) car.trickYawVel+=0.22;
+    if(pressedY) car.trickPitchVel-=0.23;
+
+    if(buttons.a) car.trickRollVel+=0.006;
+    if(buttons.b) car.trickRollVel-=0.006;
+    if(buttons.x) car.trickYawVel+=0.005;
+    if(buttons.y) car.trickPitchVel-=0.005;
+  }
+
+  car.lastTrickButtons={...buttons};
+
+  car.trickPitch=normalizeAngle(car.trickPitch+car.trickPitchVel);
+  car.trickRoll=normalizeAngle(car.trickRoll+car.trickRollVel);
+  car.trickYaw=normalizeAngle(car.trickYaw+car.trickYawVel);
+
+  if(airborne){
+    car.trickPitchVel*=0.986;
+    car.trickRollVel*=0.986;
+    car.trickYawVel*=0.986;
+  }else{
+    car.trickPitchVel*=0.76;
+    car.trickRollVel*=0.76;
+    car.trickYawVel*=0.76;
+    car.trickPitch=settleTrickAngle(car.trickPitch,0.24);
+    car.trickRoll=settleTrickAngle(car.trickRoll,0.24);
+    car.trickYaw=settleTrickAngle(car.trickYaw,0.18);
+
+    if(Math.abs(car.trickPitch)<0.004) car.trickPitch=0;
+    if(Math.abs(car.trickRoll)<0.004) car.trickRoll=0;
+    if(Math.abs(car.trickYaw)<0.004) car.trickYaw=0;
+  }
 }
 
 function updateCar(car){
@@ -310,6 +364,9 @@ function updateCar(car){
     }
   }
 
+  let airborne=car.y>surfaceY+0.35;
+  updateAirTricks(car,airborne);
+
   let pitchSampleDist=2.2;
   let frontX=car.x+Math.sin(car.angle)*pitchSampleDist;
   let frontZ=car.z+Math.cos(car.angle)*pitchSampleDist;
@@ -321,8 +378,9 @@ function updateCar(car){
   car.pitch+=(targetPitch-car.pitch)*0.18;
 
   car.group.position.set(car.x,car.y,car.z);
-  car.group.rotation.y=car.angle;
-  car.group.rotation.x=car.pitch;
+  car.group.rotation.y=car.angle+car.trickYaw;
+  car.group.rotation.x=car.pitch+car.trickPitch;
+  car.group.rotation.z=car.trickRoll;
   car.shadow.update({carX:car.x,carZ:car.z,carY:car.y,surfaceY,carVelAngle:car.angle});
 }
 
@@ -479,9 +537,17 @@ function placeCarOnRoad(car,z){
   car.velAngle=yaw;
   car.speed=0;
   car.vy=0;
+  car.trickPitch=0;
+  car.trickRoll=0;
+  car.trickYaw=0;
+  car.trickPitchVel=0;
+  car.trickRollVel=0;
+  car.trickYawVel=0;
   car.y=carSurfaceHeight(car.x,car.z);
   car.group.position.set(car.x,car.y,car.z);
   car.group.rotation.y=car.angle;
+  car.group.rotation.x=0;
+  car.group.rotation.z=0;
 }
 
 placeCarOnRoad(playerCar,0);

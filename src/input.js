@@ -56,8 +56,22 @@ export function createInput(){
     };
   }
 
+  function getGamepadFaceButtons(index){
+    let pads=navigator.getGamepads ? navigator.getGamepads() : gamepads;
+    let pad=pads[index];
+    if(!pad) return {a:false,b:false,x:false,y:false};
+
+    return {
+      a:buttonValue(pad.buttons[0])>0.35,
+      b:buttonValue(pad.buttons[1])>0.35,
+      x:buttonValue(pad.buttons[2])>0.35,
+      y:buttonValue(pad.buttons[3])>0.35
+    };
+  }
+
   return {
     keys,
-    getGamepadControls
+    getGamepadControls,
+    getGamepadFaceButtons
   };
 }
