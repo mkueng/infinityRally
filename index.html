@@ -11,7 +11,7 @@
       overflow: hidden;
     }
 
-    body::after {
+    body.double-player::after {
       content: "";
       position: fixed;
       top: 0;
@@ -24,9 +24,66 @@
       z-index: 9;
       pointer-events: none;
     }
+
+    .start-screen {
+      position: fixed;
+      inset: 0;
+      z-index: 30;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(10, 16, 18, 0.54);
+      font-family: Arial, sans-serif;
+      color: white;
+    }
+
+    .start-panel {
+      width: min(420px, calc(100vw - 36px));
+      padding: 28px;
+      background: rgba(18, 25, 28, 0.78);
+      box-shadow: 0 18px 50px rgba(0,0,0,0.38);
+      border: 1px solid rgba(255,255,255,0.16);
+    }
+
+    .start-title {
+      margin: 0 0 22px;
+      font-size: 34px;
+      line-height: 1;
+      font-weight: 900;
+      letter-spacing: 0;
+    }
+
+    .start-actions {
+      display: grid;
+      gap: 12px;
+    }
+
+    .start-actions button {
+      height: 52px;
+      border: 0;
+      background: #d6b25a;
+      color: #1c211f;
+      font-size: 17px;
+      font-weight: 800;
+      letter-spacing: 0;
+      cursor: pointer;
+    }
+
+    .start-actions button:hover {
+      background: #efcf72;
+    }
   </style>
 </head>
 <body>
+<div id="startScreen" class="start-screen">
+  <div class="start-panel">
+    <h1 class="start-title">Infinity Rally</h1>
+    <div class="start-actions">
+      <button type="button" data-mode="single">Single Player</button>
+      <button type="button" data-mode="double">Double Player</button>
+    </div>
+  </div>
+</div>
 <script type="importmap">
   {
     "imports": {
@@ -34,6 +91,6 @@
     }
   }
 </script>
-<script type="module" src="./src/main.js?v=water-drag"></script>
+<script type="module" src="./src/main.js?v=start-screen"></script>
 </body>
 </html>

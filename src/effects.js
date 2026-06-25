@@ -32,7 +32,11 @@ export function createCarShadow(scene){
     carShadow.scale.set(shadowScale,shadowScale,1);
   }
 
-  return {update};
+  function setVisible(visible){
+    carShadowRoot.visible=visible;
+  }
+
+  return {update,setVisible};
 }
 
 export function createClouds(scene,getCarPosition){

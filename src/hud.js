@@ -7,6 +7,7 @@ export function createHud({getCarStates,getChunks}){
   let mapUpdateFrame=0;
 
   function panelOffset(panel){
+    if(panel.side==="full") return "0%";
     return panel.side==="left" ? 0 : "50%";
   }
 
@@ -15,9 +16,9 @@ export function createHud({getCarStates,getChunks}){
     healthHud.style.cssText=[
       "position:fixed",
       "top:18px",
-      `left:${panel.side==="left" ? "25%" : "75%"}`,
+      `left:${panel.side==="full" ? "50%" : panel.side==="left" ? "25%" : "75%"}`,
       "transform:translateX(-50%)",
-      "width:min(320px,34vw)",
+      `width:${panel.side==="full" ? "min(340px,72vw)" : "min(320px,34vw)"}`,
       "height:22px",
       "background:rgba(20,28,34,0.42)",
       "box-shadow:0 4px 14px rgba(0,0,0,0.24)",
@@ -395,8 +396,10 @@ export function createHud({getCarStates,getChunks}){
 
   function init(){
     panels=[
-      {side:"left",label:"P1",color:"#d62f2f"},
-      {side:"right",label:"P2",color:"#3d6ee8"}
+      getCarStates().length<=1
+        ? {side:"full",label:"P1",color:"#d62f2f"}
+        : {side:"left",label:"P1",color:"#d62f2f"},
+      ...(getCarStates().length<=1 ? [] : [{side:"right",label:"P2",color:"#3d6ee8"}])
     ];
 
     for(let panel of panels){

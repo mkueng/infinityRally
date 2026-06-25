@@ -32,6 +32,8 @@ let healthDamageCooldown=0;
 let cameraFollowDistance=18;
 let cameraFollowHeight=7.5;
 let cars=[];
+let gameStarted=false;
+let gameMode="single";
 let waterLevel=-20;
 
 function clamp(value,min,max){
@@ -58,7 +60,7 @@ function roadYawAt(z){
 }
 
 function updateCameraProjection(){
-  let splitAspect=Math.max(0.1,(innerWidth*0.5)/innerHeight);
+  let splitAspect=Math.max(0.1,(gameMode==="single" ? innerWidth : innerWidth*0.5)/innerHeight);
 
   let defaultVerticalFov=50;
   let minVerticalFov=38;
@@ -82,6 +84,10 @@ function updateCameraProjection(){
   cameraFollowHeight=7*Math.min(1.12,Math.sqrt(zoomCompensation));
 }
 updateCameraProjection();
+
+function activeCars(){
+  return gameMode==="single" ? [playerCar] : cars;
+}
 
 function createCarState(id,lateralOffset,controls,camera,gamepadIndex){
   let group=new THREE.Group();
@@ -124,6 +130,8 @@ function createCarState(id,lateralOffset,controls,camera,gamepadIndex){
 let playerCar=createCarState("car1",-4.2,{up:"w",down:"s",left:"a",right:"d"},playerCamera,0);
 let secondCar=createCarState("car2",4.2,{up:"arrowup",down:"arrowdown",left:"arrowleft",right:"arrowright"},secondCamera,1);
 cars=[playerCar,secondCar];
+secondCar.group.visible=false;
+secondCar.shadow.setVisible(false);
 
 let world=createWorld(scene);
 let clouds=createClouds(scene,()=>({carX:playerCar.x,carZ:playerCar.z}));
@@ -132,7 +140,7 @@ let dust=createDust(scene);
 let wheelTracks=createWheelTracks(scene);
 let motorAudio=createMotorAudio(cars);
 let hud=createHud({
-  getCarStates:()=>cars.map(car=>({
+  getCarStates:()=>activeCars().map(car=>({
     id:car.id,
     label:car.id==="car1" ? "P1" : "P2",
     color:car.id==="car1" ? "#d62f2f" : "#3d6ee8",
@@ -148,7 +156,7 @@ let hud=createHud({
 function showGameOver(){
   if(gameOver) return;
   gameOver=true;
-  for(let car of cars){
+  for(let car of activeCars()){
     car.speed=0;
     car.vy=0;
   }
@@ -161,7 +169,7 @@ function damageCar(car,amount){
   car.health=Math.max(0,car.health-amount);
   healthDamageCooldown=42;
   hud.updateHealthHud();
-  if(cars.every(item=>item.health<=0)) showGameOver();
+  if(activeCars().every(item=>item.health<=0)) showGameOver();
 }
 
 function landingDamageAmount(car,x,z,impactSpeed){
@@ -197,7 +205,7 @@ function controlsFor(car){
 }
 
 function collidesWithOtherCars(car,nextX,nextZ){
-  for(let other of cars){
+  for(let other of activeCars()){
     if(other===car) continue;
     let dx=nextX-other.x;
     let dz=nextZ-other.z;
@@ -492,16 +500,30 @@ function updateCameraForCar(car){
 
 function updateCameras(){
   updateCameraForCar(playerCar);
-  updateCameraForCar(secondCar);
+  if(gameMode==="double") updateCameraForCar(secondCar);
 
-  px=(playerCar.x+secondCar.x)*0.5;
-  py=(playerCar.y+secondCar.y)*0.5+cameraFollowHeight;
-  pz=(playerCar.z+secondCar.z)*0.5;
+  if(gameMode==="single"){
+    px=playerCar.x;
+    py=playerCar.y+cameraFollowHeight;
+    pz=playerCar.z;
+  }else{
+    px=(playerCar.x+secondCar.x)*0.5;
+    py=(playerCar.y+secondCar.y)*0.5+cameraFollowHeight;
+    pz=(playerCar.z+secondCar.z)*0.5;
+  }
 }
 
-function renderSplitScreen(){
+function renderGame(){
   let width=innerWidth;
   let height=innerHeight;
+
+  if(gameMode==="single"){
+    renderer.setViewport(0,0,width,height);
+    renderer.setScissor(0,0,width,height);
+    renderer.render(scene,playerCamera);
+    return;
+  }
+
   let halfWidth=Math.floor(width*0.5);
 
   renderer.setViewport(0,0,halfWidth,height);
@@ -516,7 +538,7 @@ function renderSplitScreen(){
 let lastChunkSignature="";
 
 function chunkSignatureForCars(){
-  return cars
+  return activeCars()
     .map(car=>Math.floor(car.x/chunkSize)+","+Math.floor(car.z/chunkSize))
     .join("|");
 }
@@ -524,8 +546,16 @@ function chunkSignatureForCars(){
 function loop(){
   requestAnimationFrame(loop);
 
-  updateCar(playerCar);
-  updateCar(secondCar);
+  if(!gameStarted){
+    updateCameras();
+    world.processChunkQueue();
+    renderGame();
+    return;
+  }
+
+  for(let car of activeCars()){
+    updateCar(car);
+  }
   if(healthDamageCooldown>0) healthDamageCooldown--;
 
   dust.update();
@@ -536,7 +566,7 @@ function loop(){
 
   if(chunkSignature!==lastChunkSignature){
     lastChunkSignature=chunkSignature;
-    world.updateChunksForCenters(cars.map(car=>({x:car.x,z:car.z})));
+    world.updateChunksForCenters(activeCars().map(car=>({x:car.x,z:car.z})));
   }
 
   clouds.update();
@@ -545,13 +575,52 @@ function loop(){
   hud.updateSpeedHud();
   hud.updateMapHud();
   world.processChunkQueue();
-  renderSplitScreen();
+  renderGame();
 }
 
 window.addEventListener("resize",()=>{
   updateCameraProjection();
   renderer.setSize(innerWidth,innerHeight);
 });
+
+function setCarActive(car,active){
+  car.group.visible=active;
+  car.shadow.setVisible(active);
+}
+
+function startGame(mode){
+  gameMode=mode;
+  gameStarted=true;
+  document.body.classList.toggle("single-player",mode==="single");
+  document.body.classList.toggle("double-player",mode==="double");
+
+  playerCar.lateralOffset=mode==="single" ? 0 : -4.2;
+  secondCar.lateralOffset=4.2;
+  placeCarOnRoad(playerCar,0);
+  placeCarOnRoad(secondCar,0);
+  setCarActive(playerCar,true);
+  setCarActive(secondCar,mode==="double");
+  playerCar.cameraYaw=playerCar.angle;
+  secondCar.cameraYaw=secondCar.angle;
+  updateCameraProjection();
+  updateCameras();
+
+  let startScreen=document.getElementById("startScreen");
+  if(startScreen) startScreen.style.display="none";
+
+  hud.init();
+  lastChunkSignature=chunkSignatureForCars();
+  world.updateChunksForCenters(activeCars().map(car=>({x:car.x,z:car.z})));
+}
+
+let startScreen=document.getElementById("startScreen");
+if(startScreen){
+  startScreen.addEventListener("click",event=>{
+    let button=event.target.closest("[data-mode]");
+    if(!button || gameStarted) return;
+    startGame(button.dataset.mode==="double" ? "double" : "single");
+  });
+}
 
 function tintSecondCar(model){
   model.traverse(child=>{
@@ -654,9 +723,8 @@ playerCar.cameraYaw=playerCar.angle;
 secondCar.cameraYaw=secondCar.angle;
 updateCameras();
 
-hud.init();
 lastChunkSignature=chunkSignatureForCars();
-world.updateChunksForCenters(cars.map(car=>({x:car.x,z:car.z})));
+world.updateChunksForCenters(activeCars().map(car=>({x:car.x,z:car.z})));
 clouds.makeClouds();
 birds.makeBirds();
 loop();
