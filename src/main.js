@@ -3,7 +3,7 @@ import { gravityStrength, jumpBaseBoost, jumpSlopeBoost, roadMaxSpeed, chunkSize
 import { carSurfaceHeight, maxSpeedForRoadDistance, roadCenterX, roadDistance } from "./terrain.js";
 import { createInput } from "./input.js";
 import { createHud } from "./hud.js";
-import { createCarShadow, createClouds, createDust } from "./effects.js";
+import { createBirds, createCarShadow, createClouds, createDust } from "./effects.js";
 import { createWorld } from "./world.js";
 import { loadCarModel, loadGarageModel, loadGasStationModel, makeFallbackCarModel } from "./models.js?v=cars-folder";
 import { updateSheep } from "./sheep.js";
@@ -70,6 +70,7 @@ scene.add(carGroup);
 let world=createWorld(scene);
 let carShadow=createCarShadow(scene);
 let clouds=createClouds(scene,()=>({carX,carZ}));
+let birds=createBirds(scene,()=>({carX,carZ}));
 let dust=createDust(scene);
 let hud=createHud({
   getCarState:()=>({carX,carZ,carVelAngle,carSpeed,carHealth}),
@@ -286,6 +287,7 @@ function loop(){
   );
 
   clouds.update();
+  birds.update();
   updateSheep(world.chunks);
   hud.updateSpeedHud();
   hud.updateMapHud();
@@ -332,4 +334,5 @@ carY=carSurfaceHeight(carX,carZ);
 hud.init();
 world.updateChunks(px,pz);
 clouds.makeClouds();
+birds.makeBirds();
 loop();

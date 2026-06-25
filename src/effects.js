@@ -120,6 +120,173 @@ export function createClouds(scene,getCarPosition){
   return {makeClouds,update};
 }
 
+export function createBirds(scene,getCarPosition){
+  let birdGroup=new THREE.Group();
+  scene.add(birdGroup);
+  let birds=[];
+  let birdTime=0;
+
+  let bodyGeo=new THREE.SphereGeometry(1,8,6);
+  let headGeo=new THREE.SphereGeometry(1,6,4);
+  let wingGeo=new THREE.BufferGeometry();
+  wingGeo.setAttribute(
+    "position",
+    new THREE.Float32BufferAttribute([
+      0,0,0,
+      1.45,0,0.18,
+      0.22,0,-0.64
+    ],3)
+  );
+  wingGeo.computeVertexNormals();
+
+  let bodyMat=new THREE.MeshStandardMaterial({
+    color:0x2b2b28,
+    roughness:0.88,
+    metalness:0,
+    flatShading:true
+  });
+  let wingMat=new THREE.MeshStandardMaterial({
+    color:0x1d1d1b,
+    roughness:0.9,
+    side:THREE.DoubleSide,
+    flatShading:true
+  });
+
+  function makeBird(scale){
+    let bird=new THREE.Group();
+    bird.rotation.order="YXZ";
+
+    let body=new THREE.Mesh(bodyGeo,bodyMat);
+    body.scale.set(0.22*scale,0.14*scale,0.48*scale);
+    body.position.y=0.02*scale;
+    bird.add(body);
+
+    let head=new THREE.Mesh(headGeo,bodyMat);
+    head.scale.set(0.12*scale,0.1*scale,0.12*scale);
+    head.position.set(0,0.04*scale,0.44*scale);
+    bird.add(head);
+
+    let leftWingPivot=new THREE.Group();
+    leftWingPivot.position.set(-0.12*scale,0,0.08*scale);
+    let leftWing=new THREE.Mesh(wingGeo,wingMat);
+    leftWing.scale.set(scale,scale,scale);
+    leftWingPivot.add(leftWing);
+    bird.add(leftWingPivot);
+
+    let rightWingPivot=new THREE.Group();
+    rightWingPivot.position.set(0.12*scale,0,0.08*scale);
+    let rightWing=new THREE.Mesh(wingGeo,wingMat);
+    rightWing.scale.set(-scale,scale,scale);
+    rightWingPivot.add(rightWing);
+    bird.add(rightWingPivot);
+
+    bird.userData.leftWingPivot=leftWingPivot;
+    bird.userData.rightWingPivot=rightWingPivot;
+    return bird;
+  }
+
+  function makeBirds(){
+    let birdRand=(a,b)=>rand(a,b)*0.5+0.5;
+    let flockCount=3;
+    let birdsPerFlock=3;
+    let range=3600;
+
+    for(let flock=0;flock<flockCount;flock++){
+      let flockX=(birdRand(flock*91,17)-0.5)*range;
+      let flockZ=(birdRand(flock*53,29)-0.5)*range;
+      let flockY=115+birdRand(flock*71,43)*150;
+      let heading=birdRand(flock*37,61)*Math.PI*2;
+      let speed=20+birdRand(flock*83,97)*22;
+      let circleRadius=180+birdRand(flock*101,31)*260;
+
+      for(let i=0;i<birdsPerFlock;i++){
+        let scale=3.8+Math.pow(birdRand(flock*211+i*19,flock*137-i),1.7)*8.5;
+        let bird=makeBird(scale);
+        let side=(i%2===0 ? -1 : 1);
+        let row=Math.floor(i/2);
+        let offsetX=side*(28+row*24)+birdRand(i*47,flock*13)*12;
+        let offsetZ=row*34+birdRand(i*71,flock*19)*18;
+        let phase=birdRand(flock*173+i*23,flock*199-i*11)*Math.PI*2;
+
+        bird.userData={
+          ...bird.userData,
+          flockX,
+          flockZ,
+          flockY,
+          heading,
+          speed,
+          circleRadius,
+          offsetX,
+          offsetZ,
+          phase,
+          flapSpeed:4.8+birdRand(i*89,flock*41)*2.2,
+          glidePhase:birdRand(i*109,flock*67)*Math.PI*2,
+          bankAmount:0.1+birdRand(i*131,flock*79)*0.18
+        };
+
+        birdGroup.add(bird);
+        birds.push(bird);
+      }
+    }
+  }
+
+  function wrapBirdCoord(value,center,range){
+    let half=range*0.5;
+    while(value<center-half) value+=range;
+    while(value>center+half) value-=range;
+    return value;
+  }
+
+  function update(){
+    if(birds.length===0) return;
+
+    let {carX,carZ}=getCarPosition();
+    birdTime+=0.016;
+    let range=3600;
+
+    for(let bird of birds){
+      let data=bird.userData;
+      let circle=birdTime*0.08+data.phase;
+      let heading=data.heading+Math.sin(circle)*0.32;
+      let windX=Math.sin(data.heading)*data.speed*birdTime;
+      let windZ=Math.cos(data.heading)*data.speed*birdTime;
+      let orbitX=Math.sin(circle)*data.circleRadius;
+      let orbitZ=Math.cos(circle)*data.circleRadius*0.55;
+
+      let rightX=Math.cos(heading);
+      let rightZ=-Math.sin(heading);
+      let fwdX=Math.sin(heading);
+      let fwdZ=Math.cos(heading);
+      let x=wrapBirdCoord(
+        data.flockX+windX+orbitX+rightX*data.offsetX+fwdX*data.offsetZ,
+        carX,
+        range
+      );
+      let z=wrapBirdCoord(
+        data.flockZ+windZ+orbitZ+rightZ*data.offsetX+fwdZ*data.offsetZ,
+        carZ,
+        range
+      );
+      let y=data.flockY+Math.sin(birdTime*0.7+data.phase)*12+Math.sin(circle*0.5)*18;
+      let flap=Math.sin(birdTime*data.flapSpeed+data.phase);
+      let gliding=Math.sin(birdTime*0.42+data.glidePhase)>0.58;
+      let flapAngle=gliding ? -0.08+flap*0.06 : flap*0.62;
+      let bank=Math.sin(circle)*data.bankAmount;
+
+      bird.position.set(x,y,z);
+      bird.rotation.y=heading;
+      bird.rotation.x=-0.06+Math.sin(circle*0.6)*0.03;
+      bird.rotation.z=bank;
+      bird.userData.leftWingPivot.rotation.z=0.16+flapAngle;
+      bird.userData.rightWingPivot.rotation.z=-(0.16+flapAngle);
+      bird.userData.leftWingPivot.rotation.x=gliding ? -0.02 : flap*0.08;
+      bird.userData.rightWingPivot.rotation.x=gliding ? -0.02 : -flap*0.08;
+    }
+  }
+
+  return {makeBirds,update};
+}
+
 export function createDust(scene){
   let maxDustParticles=450;
   let dustParticles=[];
