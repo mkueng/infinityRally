@@ -25,7 +25,6 @@ scene.add(sun);
 
 let keys=createInput();
 let px=0,py=20,pz=0;
-let carHealth=100;
 let gameOver=false;
 let healthDamageCooldown=0;
 let cameraFollowDistance=18;
@@ -92,12 +91,13 @@ function createCarState(id,lateralOffset,controls,camera){
     speed:0,
     vy:0,
     pitch:0,
+    health:100,
     lateralOffset
   };
 }
 
-let playerCar=createCarState("car1",-4.2,{up:"arrowup",down:"arrowdown",left:"arrowleft",right:"arrowright"},playerCamera);
-let secondCar=createCarState("car2",4.2,{up:"w",down:"s",left:"a",right:"d"},secondCamera);
+let playerCar=createCarState("car1",-4.2,{up:"w",down:"s",left:"a",right:"d"},playerCamera);
+let secondCar=createCarState("car2",4.2,{up:"arrowup",down:"arrowdown",left:"arrowleft",right:"arrowright"},secondCamera);
 cars=[playerCar,secondCar];
 
 let world=createWorld(scene);
@@ -105,20 +105,22 @@ let clouds=createClouds(scene,()=>({carX:playerCar.x,carZ:playerCar.z}));
 let birds=createBirds(scene,()=>({carX:playerCar.x,carZ:playerCar.z}));
 let dust=createDust(scene);
 let hud=createHud({
-  getCarState:()=>({
-    carX:playerCar.x,
-    carZ:playerCar.z,
-    carVelAngle:playerCar.velAngle,
-    carSpeed:playerCar.speed,
-    carHealth
-  }),
+  getCarStates:()=>cars.map(car=>({
+    id:car.id,
+    label:car.id==="car1" ? "P1" : "P2",
+    color:car.id==="car1" ? "#d62f2f" : "#3d6ee8",
+    carX:car.x,
+    carZ:car.z,
+    carVelAngle:car.velAngle,
+    carSpeed:car.speed,
+    carHealth:car.health
+  })),
   getChunks:()=>world.chunks
 });
 
 function showGameOver(){
   if(gameOver) return;
   gameOver=true;
-  carHealth=0;
   for(let car of cars){
     car.speed=0;
     car.vy=0;
@@ -127,12 +129,12 @@ function showGameOver(){
   hud.showGameOverOverlay();
 }
 
-function damageCar(amount){
-  if(healthDamageCooldown>0 || carHealth<=0) return;
-  carHealth=Math.max(0,carHealth-amount);
+function damageCar(car,amount){
+  if(healthDamageCooldown>0 || car.health<=0) return;
+  car.health=Math.max(0,car.health-amount);
   healthDamageCooldown=42;
   hud.updateHealthHud();
-  if(carHealth<=0) showGameOver();
+  if(cars.every(item=>item.health<=0)) showGameOver();
 }
 
 function landingDamageAmount(car,x,z,impactSpeed){
@@ -170,15 +172,16 @@ function collidesWithOtherCars(car,nextX,nextZ){
   return null;
 }
 
-function updateCar(car,canDamage){
+function updateCar(car){
   let prevX=car.x;
   let prevZ=car.z;
   let prevY=car.y;
   let {forward,turn}=controlsFor(car);
   let roadDist=roadDistance(car.x,car.z);
   let localMaxSpeed=maxSpeedForRoadDistance(roadDist);
+  let carDisabled=car.health<=0;
 
-  if(gameOver){
+  if(gameOver || carDisabled){
     car.speed=0;
     car.vy=0;
   }else{
@@ -217,7 +220,7 @@ function updateCar(car,canDamage){
     car.speed*=1-slipDrag;
   }
 
-  if(!gameOver){
+  if(!gameOver && !carDisabled){
     car.x+=Math.sin(car.velAngle)*car.speed;
     car.z+=Math.cos(car.velAngle)*car.speed;
   }
@@ -228,7 +231,7 @@ function updateCar(car,canDamage){
 
   let surfaceY=carSurfaceHeight(car.x,car.z);
 
-  if(!gameOver && roadDist<60 && Math.abs(car.speed)>0.05){
+  if(!gameOver && !carDisabled && roadDist<60 && Math.abs(car.speed)>0.05){
     let t=1-roadDist/60;
     t=t*t*(3-2*t);
 
@@ -242,39 +245,39 @@ function updateCar(car,canDamage){
   let aheadY=carSurfaceHeight(aheadX,aheadZ);
   let slope=aheadY-surfaceY;
 
-  if(!gameOver && car.y<=surfaceY+0.03 && car.speed>1.15 && slope>3.5){
+  if(!gameOver && !carDisabled && car.y<=surfaceY+0.03 && car.speed>1.15 && slope>3.5){
     car.vy=Math.max(car.vy,slope*jumpSlopeBoost+jumpBaseBoost);
   }
 
-  if(!gameOver && roadDist>60){
+  if(!gameOver && !carDisabled && roadDist>60){
     car.velAngle+=Math.sin(car.x*0.01+car.z*0.013)*0.0018;
     car.speed*=0.992;
   }
 
-  if(!gameOver) car.vy-=gravityStrength;
+  if(!gameOver && !carDisabled) car.vy-=gravityStrength;
   let landingVy=car.vy;
   car.y+=car.vy;
 
   if(car.y<surfaceY){
-    if(!gameOver && canDamage && landingVy<-0.9){
+    if(!gameOver && landingVy<-0.9){
       let landingDamage=landingDamageAmount(car,car.x,car.z,-landingVy);
-      if(landingDamage>0) damageCar(landingDamage);
+      if(landingDamage>0) damageCar(car,landingDamage);
     }
     car.y=surfaceY;
     car.vy=0;
   }
 
   let otherCar=collidesWithOtherCars(car,car.x,car.z);
-  if(!gameOver && (world.collidesWithObstacles(car.x,car.z) || otherCar)){
+  if(!gameOver && !carDisabled && (world.collidesWithObstacles(car.x,car.z) || otherCar)){
     car.x=prevX;
     car.z=prevZ;
     car.y=prevY;
     car.speed*=0.15;
     car.velAngle+=otherCar ? Math.PI*0.35 : Math.PI*0.5;
-    if(canDamage) damageCar(otherCar ? 1 : 3);
+    damageCar(car,otherCar ? 1 : 3);
   }
 
-  let emitDust=car.y<=surfaceY+0.1 && Math.abs(car.speed)>0.1;
+  let emitDust=!carDisabled && car.y<=surfaceY+0.1 && Math.abs(car.speed)>0.1;
   if(emitDust){
     let dustAmount=Math.ceil(Math.abs(car.speed)*6);
     for(let i=0;i<dustAmount;i++){
@@ -358,8 +361,8 @@ let lastCX=999999,lastCZ=999999;
 function loop(){
   requestAnimationFrame(loop);
 
-  updateCar(playerCar,true);
-  updateCar(secondCar,false);
+  updateCar(playerCar);
+  updateCar(secondCar);
   if(healthDamageCooldown>0) healthDamageCooldown--;
 
   dust.update();
