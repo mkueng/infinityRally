@@ -7,6 +7,7 @@ import { createBirds, createCarShadow, createClouds, createDust } from "./effect
 import { createWorld } from "./world.js";
 import { loadCarModel, loadGarageModel, loadGasStationModel, makeFallbackCarModel } from "./models.js?v=cars-folder";
 import { updateSheep } from "./sheep.js";
+import { makeSkyTexture } from "./textures.js";
 
 let scene=new THREE.Scene();
 let playerCamera=new THREE.PerspectiveCamera(45,innerWidth/innerHeight,.1,1e6);
@@ -15,8 +16,8 @@ let renderer=new THREE.WebGLRenderer({antialias:true});
 renderer.setSize(innerWidth,innerHeight);
 renderer.setScissorTest(true);
 document.body.appendChild(renderer.domElement);
-scene.background=new THREE.Color(0x87ceeb);
-scene.fog=new THREE.FogExp2(0x87ceeb,0.0003);
+scene.background=makeSkyTexture();
+scene.fog=new THREE.FogExp2(0x9fcbe6,0.00022);
 
 scene.add(new THREE.HemisphereLight(0xbfdfff,0x445533,1.4));
 let sun=new THREE.DirectionalLight(0xffffff,2.15);

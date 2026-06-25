@@ -1,5 +1,25 @@
 import { THREE } from "./three.js";
 
+export function makeSkyTexture(){
+  let canvas=document.createElement("canvas");
+  canvas.width=16;
+  canvas.height=512;
+  let ctx=canvas.getContext("2d");
+  let gradient=ctx.createLinearGradient(0,0,0,512);
+  gradient.addColorStop(0,"#2f69b5");
+  gradient.addColorStop(0.42,"#66a9dc");
+  gradient.addColorStop(0.78,"#bfe5fb");
+  gradient.addColorStop(1,"#eef8ff");
+  ctx.fillStyle=gradient;
+  ctx.fillRect(0,0,16,512);
+
+  let tex=new THREE.CanvasTexture(canvas);
+  tex.minFilter=THREE.LinearFilter;
+  tex.magFilter=THREE.LinearFilter;
+  tex.generateMipmaps=false;
+  return tex;
+}
+
 export function makeDustTexture(){
   let canvas=document.createElement("canvas");
   canvas.width=128;
