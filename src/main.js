@@ -147,16 +147,16 @@ function loop(){
 
     let movingSteer=clamp(speedAbs/0.65,0,1);
     let highSpeedCalm=1-clamp((speedAbs-1.05)/0.85,0,0.28);
-    let steeringResponse=(0.48+movingSteer*0.72)*highSpeedCalm;
+    let steeringResponse=(0.42+movingSteer*0.63)*highSpeedCalm;
     let reverseSteer=carSpeed< -0.04 ? -1 : 1;
-    carAngle+=turn*reverseSteer*0.052*steeringResponse;
+    carAngle+=turn*reverseSteer*0.045*steeringResponse;
 
     let angleDiff=normalizeAngle(carAngle-carVelAngle);
     let slipAngle=Math.abs(angleDiff);
-    let brakingSlide=brakeOrReverse && speedAbs>0.45 ? 0.045 : 0;
-    let throttleSlide=throttle && turn!==0 && speedAbs>0.62 ? 0.04 : 0;
-    let surfaceAlign=(0.08+grip*0.105)-speedRatio*0.06-brakingSlide-throttleSlide;
-    let velocityAlign=clamp(surfaceAlign,0.028,0.17);
+    let brakingSlide=brakeOrReverse && speedAbs>0.45 ? 0.052 : 0;
+    let throttleSlide=throttle && turn!==0 && speedAbs>0.55 ? 0.052 : 0;
+    let surfaceAlign=(0.072+grip*0.095)-speedRatio*0.068-brakingSlide-throttleSlide;
+    let velocityAlign=clamp(surfaceAlign,0.022,0.155);
     carVelAngle+=angleDiff*velocityAlign;
 
     let slipDrag=clamp(slipAngle*speedRatio*(grip>0.5 ? 0.008 : 0.018),0,0.03);
