@@ -10,6 +10,20 @@
       margin: 0;
       overflow: hidden;
     }
+
+    body::after {
+      content: "";
+      position: fixed;
+      top: 0;
+      bottom: 0;
+      left: 50%;
+      width: 2px;
+      transform: translateX(-1px);
+      background: rgba(255,255,255,0.42);
+      box-shadow: 0 0 12px rgba(0,0,0,0.35);
+      z-index: 9;
+      pointer-events: none;
+    }
   </style>
 </head>
 <body>
@@ -20,6 +34,6 @@
     }
   }
 </script>
-<script type="module" src="./src/main.js?v=road-aligned-spawn"></script>
+<script type="module" src="./src/main.js?v=split-screen-cars"></script>
 </body>
 </html>
