@@ -3,9 +3,9 @@ import { gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize } from "./con
 import { carSurfaceHeight, groundHeight, maxSpeedForRoadDistance, roadCenterX, roadDistance } from "./terrain.js?v=no-ramps";
 import { createInput } from "./input.js";
 import { createHud } from "./hud.js";
-import { createBirds, createCarShadow, createClouds, createDust, createWheelTracks } from "./effects.js?v=stride-matched-mech";
+import { createBirds, createCarShadow, createClouds, createDust, createWheelTracks } from "./effects.js?v=flight-exhaust-mech";
 import { createWorld } from "./world.js?v=no-ramps";
-import { createMotorAudio } from "./audio.js?v=stride-matched-mech";
+import { createMotorAudio } from "./audio.js?v=flight-exhaust-mech";
 import { loadGarageModel, loadGasStationModel, makeMechModel } from "./models.js?v=walking-mech";
 import { updateSheep } from "./sheep.js";
 import { makeSkyTexture } from "./textures.js";
@@ -254,18 +254,15 @@ function updateAirTricks(car,airborne){
   let buttons=input.getGamepadFaceButtons(car.gamepadIndex);
   let pressedA=buttons.a && !car.lastTrickButtons.a;
   let pressedB=buttons.b && !car.lastTrickButtons.b;
-  let pressedX=buttons.x && !car.lastTrickButtons.x;
   let pressedY=buttons.y && !car.lastTrickButtons.y;
 
   if(airborne && !gameOver && car.health>0){
     if(pressedA) car.trickRollVel+=0.16;
     if(pressedB) car.trickRollVel-=0.16;
-    if(pressedX) car.trickYawVel+=0.14;
     if(pressedY) car.trickPitchVel-=0.145;
 
     if(buttons.a) car.trickRollVel+=0.0025;
     if(buttons.b) car.trickRollVel-=0.0025;
-    if(buttons.x) car.trickYawVel+=0.002;
     if(buttons.y) car.trickPitchVel-=0.002;
   }
 
@@ -293,6 +290,61 @@ function updateAirTricks(car,airborne){
     if(Math.abs(car.trickPitch)<0.004) car.trickPitch=0;
     if(Math.abs(car.trickRoll)<0.004) car.trickRoll=0;
     if(Math.abs(car.trickYaw)<0.004) car.trickYaw=0;
+  }
+}
+
+function updateGroundJump(car,surfaceY){
+  let buttons=input.getGamepadFaceButtons(car.gamepadIndex);
+  let pressedA=buttons.a && !car.lastTrickButtons.a;
+  let grounded=car.y<=surfaceY+0.08 && car.vy<=0.02;
+
+  if(pressedA && grounded && !gameOver && car.health>0){
+    car.vy=Math.max(car.vy,0.82);
+    car.y=surfaceY+0.06;
+    car.onGround=false;
+    car.lastTrickButtons={...car.lastTrickButtons,a:true};
+  }
+}
+
+function updateFlightThrust(car,surfaceY){
+  let buttons=input.getGamepadFaceButtons(car.gamepadIndex);
+  if(!buttons.x || gameOver || car.health<=0) return false;
+
+  let altitude=car.y-surfaceY;
+  if(altitude<0.12){
+    car.y=surfaceY+0.12;
+    car.vy=Math.max(car.vy,0.18);
+  }
+
+  let altitudeLift=altitude<18 ? 0.052 : 0.018;
+  car.vy=clamp(car.vy+altitudeLift,-0.08,0.62);
+  car.onGround=false;
+  return true;
+}
+
+function emitFlightExhaust(car){
+  let speedAbs=Math.abs(car.speed || 0);
+  for(let side of [-1,1]){
+    let footX=car.x+Math.cos(car.angle)*side*0.72-Math.sin(car.angle)*0.08;
+    let footZ=car.z-Math.sin(car.angle)*side*0.72-Math.cos(car.angle)*0.08;
+
+    for(let i=0;i<3;i++){
+      let lateral=(Math.random()-.5)*0.24;
+      let rear=(Math.random()-.5)*0.18;
+      let px=footX+Math.cos(car.angle)*lateral-Math.sin(car.angle)*rear;
+      let pz=footZ-Math.sin(car.angle)*lateral-Math.cos(car.angle)*rear;
+
+      dust.spawnThrusterParticle(
+        px,
+        car.y+0.12+Math.random()*0.12,
+        pz,
+        (Math.random()-.5)*0.24-Math.sin(car.angle)*speedAbs*0.28,
+        (Math.random()-.5)*0.24-Math.cos(car.angle)*speedAbs*0.28,
+        -2.2-Math.random()*1.8,
+        0.28+Math.random()*0.18,
+        0.12+Math.random()*0.08
+      );
+    }
   }
 }
 
@@ -460,6 +512,9 @@ function updateCar(car){
   if(!gameOver && !carDisabled && car.y<=surfaceY+0.03 && car.speed>0.36 && slope>3.7){
     car.vy=Math.max(car.vy,slope*jumpSlopeBoost+jumpBaseBoost);
   }
+  updateGroundJump(car,surfaceY);
+  let flying=updateFlightThrust(car,surfaceY);
+  if(flying) emitFlightExhaust(car);
 
   if(!gameOver && !carDisabled && roadDist>60){
     car.speed*=forward===0 && car.onGround ? 0.5 : 0.985;
@@ -470,7 +525,7 @@ function updateCar(car){
     car.speed*=1-0.12*waterDrag;
   }
 
-  if(!gameOver && !carDisabled) car.vy-=gravityStrength;
+  if(!gameOver && !carDisabled) car.vy-=flying ? gravityStrength*0.22 : gravityStrength;
   let landingVy=car.vy;
   car.y+=car.vy;
 

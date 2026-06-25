@@ -342,6 +342,16 @@ export function createDust(scene){
     });
   }
 
+  function spawnThrusterParticle(px,py,pz,vx,vz,vy,life,size){
+    spawnParticle(px,py,pz,vx,vz,vy,life,size,{
+      color:Math.random()>0.45 ? 0xfff1a8 : 0xff8a2a,
+      gravity:-0.012,
+      growth:1.35,
+      opacity:0.88,
+      fadePower:1.35
+    });
+  }
+
   function update(){
     for(let i=dustParticles.length-1;i>=0;i--){
       let p=dustParticles[i];
@@ -368,7 +378,7 @@ export function createDust(scene){
     }
   }
 
-  return {spawnSplashParticle,update};
+  return {spawnSplashParticle,spawnThrusterParticle,update};
 }
 
 export function createWheelTracks(scene){
