@@ -9,7 +9,7 @@ import { loadCarModel, loadGarageModel, loadGasStationModel, makeFallbackCarMode
 import { updateSheep } from "./sheep.js";
 
 let scene=new THREE.Scene();
-let cam=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,.1,1e6);
+let cam=new THREE.PerspectiveCamera(45,innerWidth/innerHeight,.1,1e6);
 let renderer=new THREE.WebGLRenderer({antialias:true});
 renderer.setSize(innerWidth,innerHeight);
 document.body.appendChild(renderer.domElement);
@@ -28,6 +28,29 @@ let carPitch=0;
 let carHealth=100;
 let gameOver=false;
 let healthDamageCooldown=0;
+let cameraFollowDistance=18;
+let cameraFollowHeight=7.5;
+
+function updateCameraProjection(){
+  cam.aspect=innerWidth/innerHeight;
+
+  let defaultVerticalFov=50;
+  let minVerticalFov=38;
+  let maxHorizontalFov=82;
+  let horizontalFovRad=THREE.MathUtils.degToRad(maxHorizontalFov);
+  let verticalFovForWidth=THREE.MathUtils.radToDeg(
+    2*Math.atan(Math.tan(horizontalFovRad*0.5)/cam.aspect)
+  );
+
+  cam.fov=Math.max(minVerticalFov,Math.min(defaultVerticalFov,verticalFovForWidth));
+  cam.updateProjectionMatrix();
+
+  let zoomCompensation=Math.tan(THREE.MathUtils.degToRad(defaultVerticalFov*0.5))
+    / Math.tan(THREE.MathUtils.degToRad(cam.fov*0.5));
+  cameraFollowDistance=16*Math.min(1.2,zoomCompensation);
+  cameraFollowHeight=7*Math.min(1.12,Math.sqrt(zoomCompensation));
+}
+updateCameraProjection();
 
 let carGroup=new THREE.Group();
 carGroup.rotation.order="YXZ";
@@ -206,8 +229,8 @@ function loop(){
 
   carShadow.update({carX,carZ,carY,surfaceY,carVelAngle});
 
-  let camDist=12;
-  let camHeight=6;
+  let camDist=cameraFollowDistance;
+  let camHeight=cameraFollowHeight;
   px=carX-Math.sin(carAngle)*camDist;
   pz=carZ-Math.cos(carAngle)*camDist;
   py=carY+camHeight;
@@ -221,8 +244,13 @@ function loop(){
     world.updateChunks(px,pz);
   }
 
+  let lookAhead=16;
   cam.position.set(px,py,pz);
-  cam.lookAt(carX,carY+1,carZ);
+  cam.lookAt(
+    carX+Math.sin(carVelAngle)*lookAhead,
+    carY+3.8,
+    carZ+Math.cos(carVelAngle)*lookAhead
+  );
 
   clouds.update();
   updateSheep(world.chunks);
@@ -233,8 +261,7 @@ function loop(){
 }
 
 window.addEventListener("resize",()=>{
-  cam.aspect=innerWidth/innerHeight;
-  cam.updateProjectionMatrix();
+  updateCameraProjection();
   renderer.setSize(innerWidth,innerHeight);
 });
 
