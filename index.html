@@ -1,0 +1,2407 @@
+<body style="margin:0;overflow:hidden">
+<script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.165.0/build/three.module.js"
+    }
+  }
+</script>
+<script type="module">
+  import * as THREE from "three";
+  import { MTLLoader } from "https://unpkg.com/three@0.165.0/examples/jsm/loaders/MTLLoader.js";
+  import { OBJLoader } from "https://unpkg.com/three@0.165.0/examples/jsm/loaders/OBJLoader.js";
+
+  let scene=new THREE.Scene();
+  let cam=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,.1,1e6);
+  let renderer=new THREE.WebGLRenderer({antialias:true});
+  renderer.setSize(innerWidth,innerHeight);
+  document.body.appendChild(renderer.domElement);
+  scene.background=new THREE.Color(0x87ceeb);
+  scene.fog=new THREE.FogExp2(0x87ceeb,0.0003);
+
+  scene.add(new THREE.HemisphereLight(0xbfdfff,0x445533,1.4));
+  let sun=new THREE.DirectionalLight(0xffffff,2.15);
+  sun.position.set(4,7,2.5);
+  scene.add(sun);
+  let chunkQueue=[];
+  let neededChunks=new Set();
+  let keys={},px=0,py=20,pz=0;
+  let carX=0,carY=20,carZ=0,carAngle=0,carVelAngle=0,carSpeed=0.5,carVy=0;
+  let carPitch=0;
+  let carHealth=100;
+  let gameOver=false;
+  let healthDamageCooldown=0;
+  let healthFill,healthLabel,healthHud,speedCanvas,speedCtx,speedLabel,speedHud,mapCanvas,mapCtx,mapHud,gameOverOverlay;
+  // Jump tuning: increase impulse + reduce gravity for a floatier feel.
+  const jumpSlopeBoost=0.28;
+  const jumpBaseBoost=1.05;
+  const gravityStrength=0.07;
+  const roadMaxSpeed=1.6;
+  const offroadMaxSpeed=0.8;
+  let carGroup=new THREE.Group();
+  carGroup.rotation.order="YXZ";
+  scene.add(carGroup);
+  let carShadowRoot=new THREE.Group();
+  let carShadow=new THREE.Mesh(
+    new THREE.PlaneGeometry(4.8,7.0),
+    new THREE.MeshBasicMaterial({
+      map:makeCarShadowTexture(),
+      transparent:true,
+      opacity:0.48,
+      depthWrite:false,
+      depthTest:true,
+      blending:THREE.NormalBlending,
+      polygonOffset:true,
+      polygonOffsetFactor:-1,
+      polygonOffsetUnits:-1
+    })
+  );
+  carShadow.rotation.x=-Math.PI/2;
+  carShadow.renderOrder=1;
+  carShadowRoot.add(carShadow);
+  scene.add(carShadowRoot);
+  let cloudGroup=new THREE.Group();
+  scene.add(cloudGroup);
+  let cloudSprites=[];
+  let cloudTime=0;
+
+  // Dust particle system: soft billboard sprites instead of point sprites
+  let maxDustParticles=450;
+  let dustParticles=[];
+
+  function makeDustTexture(){
+    let canvas=document.createElement("canvas");
+    canvas.width=128;
+    canvas.height=128;
+    let ctx=canvas.getContext("2d");
+    let gradient=ctx.createRadialGradient(64,64,0,64,64,64);
+    gradient.addColorStop(0,"rgba(255,255,255,0.95)");
+    gradient.addColorStop(0.35,"rgba(255,255,255,0.7)");
+    gradient.addColorStop(0.7,"rgba(255,255,255,0.18)");
+    gradient.addColorStop(1,"rgba(255,255,255,0)");
+    ctx.fillStyle=gradient;
+    ctx.fillRect(0,0,128,128);
+
+    let tex=new THREE.CanvasTexture(canvas);
+    tex.minFilter=THREE.LinearFilter;
+    tex.magFilter=THREE.LinearFilter;
+    tex.generateMipmaps=false;
+    return tex;
+  }
+
+  let dustTexture=makeDustTexture();
+  let dustBaseMaterial=new THREE.SpriteMaterial({
+    map:dustTexture,
+    color:0xffffff,
+    transparent:true,
+    opacity:0.85,
+    depthWrite:false,
+    blending:THREE.NormalBlending,
+    fog:false
+  });
+
+  function makeCarShadowTexture(){
+    let canvas=document.createElement("canvas");
+    canvas.width=256;
+    canvas.height=256;
+    let ctx=canvas.getContext("2d");
+    let gradient=ctx.createRadialGradient(128,128,12,128,128,124);
+    gradient.addColorStop(0,"rgba(0,0,0,0.72)");
+    gradient.addColorStop(0.42,"rgba(0,0,0,0.4)");
+    gradient.addColorStop(0.78,"rgba(0,0,0,0.12)");
+    gradient.addColorStop(1,"rgba(0,0,0,0)");
+    ctx.fillStyle=gradient;
+    ctx.fillRect(0,0,256,256);
+
+    let tex=new THREE.CanvasTexture(canvas);
+    tex.minFilter=THREE.LinearFilter;
+    tex.magFilter=THREE.LinearFilter;
+    tex.generateMipmaps=false;
+    return tex;
+  }
+
+  function makeCloudTexture(){
+    let canvas=document.createElement("canvas");
+    canvas.width=512;
+    canvas.height=256;
+    let ctx=canvas.getContext("2d");
+    ctx.clearRect(0,0,512,256);
+
+    function puff(x,y,r,alpha){
+      let gradient=ctx.createRadialGradient(x,y,0,x,y,r);
+      gradient.addColorStop(0,`rgba(255,255,255,${alpha})`);
+      gradient.addColorStop(0.55,`rgba(255,255,255,${alpha*0.48})`);
+      gradient.addColorStop(1,"rgba(255,255,255,0)");
+      ctx.fillStyle=gradient;
+      ctx.beginPath();
+      ctx.arc(x,y,r,0,Math.PI*2);
+      ctx.fill();
+    }
+
+    puff(120,145,78,0.82);
+    puff(190,112,92,0.9);
+    puff(270,132,104,0.84);
+    puff(360,142,82,0.72);
+    puff(250,160,150,0.48);
+
+    let tex=new THREE.CanvasTexture(canvas);
+    tex.minFilter=THREE.LinearFilter;
+    tex.magFilter=THREE.LinearFilter;
+    tex.generateMipmaps=false;
+    return tex;
+  }
+
+  function makeClouds(){
+    let cloudTexture=makeCloudTexture();
+    let cloudRange=5200;
+    let cloudCount=16;
+    let cloudRand=(a,b)=>rand(a,b)*0.5+0.5;
+
+    for(let i=0;i<cloudCount;i++){
+      let material=new THREE.SpriteMaterial({
+        map:cloudTexture,
+        color:0xffffff,
+        transparent:true,
+        opacity:0.32+cloudRand(i*17,91)*0.28,
+        depthWrite:false,
+        fog:false
+      });
+      let cloud=new THREE.Sprite(material);
+      let baseX=(cloudRand(i*23,7)-0.5)*cloudRange;
+      let baseZ=(cloudRand(i*31,11)-0.5)*cloudRange;
+      let baseY=155+cloudRand(i*43,19)*210;
+      let width=430+cloudRand(i*59,29)*520;
+      let height=145+cloudRand(i*61,31)*155;
+
+      cloud.position.set(baseX,baseY,baseZ);
+      cloud.scale.set(width,height,1);
+      cloud.userData={baseX,baseZ,baseY,width,height,speed:2+cloudRand(i*71,37)*4};
+      cloudGroup.add(cloud);
+      cloudSprites.push(cloud);
+    }
+  }
+
+  function wrapCloudCoord(value,center,range){
+    let half=range*0.5;
+    while(value<center-half) value+=range;
+    while(value>center+half) value-=range;
+    return value;
+  }
+
+  function updateClouds(){
+    cloudTime+=0.016;
+    let range=5200;
+
+    for(let cloud of cloudSprites){
+      let data=cloud.userData;
+      let x=wrapCloudCoord(data.baseX+cloudTime*data.speed,carX,range);
+      let z=wrapCloudCoord(data.baseZ+Math.sin(cloudTime*0.08+data.baseX)*45,carZ,range);
+      let dx=x-carX;
+      let dz=z-carZ;
+      let minDist=850;
+      if(dx*dx+dz*dz<minDist*minDist){
+        let angle=Math.atan2(dz || 1,dx || 1);
+        x=carX+Math.cos(angle)*minDist;
+        z=carZ+Math.sin(angle)*minDist;
+      }
+      cloud.position.set(x,data.baseY,z);
+    }
+  }
+
+  function spawnDustParticle(px,py,pz,vx,vz,vy,life,size){
+    if(dustParticles.length>=maxDustParticles) return;
+
+    let sprite=new THREE.Sprite(dustBaseMaterial.clone());
+    sprite.position.set(px,py,pz);
+    sprite.scale.set(size,size,size);
+    scene.add(sprite);
+
+    dustParticles.push({
+      sprite,
+      px,
+      py,
+      pz,
+      vx,
+      vz,
+      vy,
+      age:0,
+      life,
+      baseSize:size
+    });
+  }
+
+  onkeydown=e=>{
+    keys[e.key.toLowerCase()]=1;
+  };
+  onkeyup=e=>keys[e.key.toLowerCase()]=0;
+
+  function makeHealthHud(){
+    healthHud=document.createElement("div");
+    healthHud.style.cssText=[
+      "position:fixed",
+      "top:18px",
+      "left:50%",
+      "transform:translateX(-50%)",
+      "width:min(420px,70vw)",
+      "height:22px",
+      "background:rgba(20,28,34,0.38)",
+      "box-shadow:0 4px 14px rgba(0,0,0,0.24)",
+      "z-index:10",
+      "overflow:hidden",
+      "font-family:Arial,sans-serif"
+    ].join(";");
+
+    healthFill=document.createElement("div");
+    healthFill.style.cssText=[
+      "height:100%",
+      "width:100%",
+      "background:linear-gradient(90deg,#2fd36b,#a8e85d)",
+      "transition:width 160ms ease,background 160ms ease"
+    ].join(";");
+
+    healthLabel=document.createElement("div");
+    healthLabel.style.cssText=[
+      "position:absolute",
+      "inset:0",
+      "display:flex",
+      "align-items:center",
+      "justify-content:center",
+      "font-size:12px",
+      "font-weight:700",
+      "letter-spacing:0",
+      "color:white",
+      "text-shadow:0 1px 2px rgba(0,0,0,0.6)",
+      "pointer-events:none"
+    ].join(";");
+
+    healthHud.appendChild(healthFill);
+    healthHud.appendChild(healthLabel);
+    document.body.appendChild(healthHud);
+    updateHealthHud();
+  }
+
+  function makeSpeedHud(){
+    speedHud=document.createElement("div");
+    speedHud.style.cssText=[
+      "position:fixed",
+      "top:18px",
+      "left:18px",
+      "width:136px",
+      "height:112px",
+      "background:rgba(20,28,34,0.38)",
+      "box-shadow:0 4px 14px rgba(0,0,0,0.2)",
+      "z-index:10",
+      "overflow:hidden",
+      "font-family:Arial,sans-serif",
+      "letter-spacing:0",
+      "color:white",
+      "pointer-events:none"
+    ].join(";");
+
+    speedCanvas=document.createElement("canvas");
+    speedCanvas.width=136;
+    speedCanvas.height=112;
+    speedCanvas.style.cssText="display:block;width:136px;height:112px";
+    speedCtx=speedCanvas.getContext("2d");
+
+    speedLabel=document.createElement("div");
+    speedLabel.style.cssText=[
+      "position:absolute",
+      "left:0",
+      "right:0",
+      "bottom:13px",
+      "text-align:center",
+      "font-size:18px",
+      "font-weight:800",
+      "line-height:1",
+      "text-shadow:0 1px 2px rgba(0,0,0,0.7)"
+    ].join(";");
+
+    speedHud.appendChild(speedCanvas);
+    speedHud.appendChild(speedLabel);
+    document.body.appendChild(speedHud);
+    updateSpeedHud();
+  }
+
+  function updateSpeedHud(){
+    if(!speedCtx || !speedLabel) return;
+
+    let speed=Math.round(Math.abs(carSpeed)*50);
+    let maxSpeed=80;
+    let pct=Math.max(0,Math.min(1,speed/maxSpeed));
+    let start=Math.PI*0.82;
+    let end=Math.PI*2.18;
+    let angle=start+(end-start)*pct;
+    let cx=68;
+    let cy=62;
+    let radius=46;
+
+    speedCtx.clearRect(0,0,speedCanvas.width,speedCanvas.height);
+    speedCtx.lineCap="round";
+
+    speedCtx.strokeStyle="rgba(255,255,255,0.18)";
+    speedCtx.lineWidth=8;
+    speedCtx.beginPath();
+    speedCtx.arc(cx,cy,radius,start,end);
+    speedCtx.stroke();
+
+    speedCtx.strokeStyle="#68d96e";
+    speedCtx.lineWidth=8;
+    speedCtx.beginPath();
+    speedCtx.arc(cx,cy,radius,start,angle);
+    speedCtx.stroke();
+
+    for(let i=0;i<=8;i++){
+      let t=i/8;
+      let tickAngle=start+(end-start)*t;
+      let inner=radius-(i%2===0 ? 13 : 9);
+      let outer=radius-2;
+      speedCtx.strokeStyle=i%2===0 ? "rgba(255,255,255,0.8)" : "rgba(255,255,255,0.42)";
+      speedCtx.lineWidth=i%2===0 ? 2 : 1.5;
+      speedCtx.beginPath();
+      speedCtx.moveTo(cx+Math.cos(tickAngle)*inner,cy+Math.sin(tickAngle)*inner);
+      speedCtx.lineTo(cx+Math.cos(tickAngle)*outer,cy+Math.sin(tickAngle)*outer);
+      speedCtx.stroke();
+    }
+
+    speedCtx.strokeStyle="#f1f4f0";
+    speedCtx.lineWidth=3;
+    speedCtx.beginPath();
+    speedCtx.moveTo(cx,cy);
+    speedCtx.lineTo(cx+Math.cos(angle)*(radius-16),cy+Math.sin(angle)*(radius-16));
+    speedCtx.stroke();
+
+    speedCtx.fillStyle="#f1f4f0";
+    speedCtx.beginPath();
+    speedCtx.arc(cx,cy,4,0,Math.PI*2);
+    speedCtx.fill();
+
+    speedCtx.fillStyle="rgba(255,255,255,0.72)";
+    speedCtx.font="700 9px Arial";
+    speedCtx.textAlign="center";
+    speedCtx.fillText("0",25,74);
+    speedCtx.fillText("80",111,74);
+
+    speedLabel.textContent=speed;
+  }
+
+  function makeMapHud(){
+    mapHud=document.createElement("div");
+    mapHud.style.cssText=[
+      "position:fixed",
+      "top:18px",
+      "right:18px",
+      "width:240px",
+      "height:240px",
+      "background:rgba(20,28,34,0.38)",
+      "box-shadow:0 4px 14px rgba(0,0,0,0.2)",
+      "z-index:10",
+      "overflow:hidden",
+      "pointer-events:none"
+    ].join(";");
+
+    mapCanvas=document.createElement("canvas");
+    mapCanvas.width=240;
+    mapCanvas.height=240;
+    mapCanvas.style.cssText="display:block;width:240px;height:240px";
+    mapCtx=mapCanvas.getContext("2d");
+    mapHud.appendChild(mapCanvas);
+    document.body.appendChild(mapHud);
+    updateMapHud();
+  }
+
+  function mapToCanvas(wx,wz,cx,cz,radius,size){
+    return {
+      x:(wx-(cx-radius))/(radius*2)*size,
+      y:(wz-(cz-radius))/(radius*2)*size
+    };
+  }
+
+  function updateMapHud(){
+    if(!mapCtx) return;
+
+    let size=mapCanvas.width;
+    let centerX=carX;
+    let centerZ=carZ;
+    let radius=chunkSize*2.3;
+
+    mapCtx.clearRect(0,0,size,size);
+    let cells=40;
+    let cellSize=size/cells;
+    for(let gy=0;gy<cells;gy++){
+      for(let gx=0;gx<cells;gx++){
+        let wx=centerX-radius+((gx+0.5)/cells)*radius*2;
+        let wz=centerZ-radius+((gy+0.5)/cells)*radius*2;
+        let h=carSurfaceHeight(wx,wz);
+        if(h>34) mapCtx.fillStyle="rgba(118,122,113,0.95)";
+        else if(h>22) mapCtx.fillStyle="rgba(88,106,80,0.95)";
+        else if(h>8) mapCtx.fillStyle="rgba(58,121,78,0.94)";
+        else if(h>-19) mapCtx.fillStyle="rgba(48,112,80,0.92)";
+        else mapCtx.fillStyle="rgba(55,101,128,0.9)";
+        mapCtx.fillRect(gx*cellSize,gy*cellSize,cellSize+1,cellSize+1);
+      }
+    }
+
+    mapCtx.strokeStyle="rgba(255,255,255,0.12)";
+    mapCtx.lineWidth=1;
+    mapCtx.strokeRect(0.5,0.5,size-1,size-1);
+
+    mapCtx.lineCap="round";
+    mapCtx.lineJoin="round";
+    mapCtx.strokeStyle="rgba(94,72,47,0.92)";
+    mapCtx.lineWidth=6;
+    mapCtx.beginPath();
+    for(let i=0;i<=80;i++){
+      let z=centerZ-radius+(i/80)*radius*2;
+      let x=roadCenterX(z);
+      let p=mapToCanvas(x,z,centerX,centerZ,radius,size);
+      if(i===0) mapCtx.moveTo(p.x,p.y);
+      else mapCtx.lineTo(p.x,p.y);
+    }
+    mapCtx.stroke();
+
+    mapCtx.strokeStyle="rgba(218,196,145,0.9)";
+    mapCtx.lineWidth=1.5;
+    mapCtx.beginPath();
+    for(let i=0;i<=80;i++){
+      let z=centerZ-radius+(i/80)*radius*2;
+      let x=roadCenterX(z);
+      let p=mapToCanvas(x,z,centerX,centerZ,radius,size);
+      if(i===0) mapCtx.moveTo(p.x,p.y);
+      else mapCtx.lineTo(p.x,p.y);
+    }
+    mapCtx.stroke();
+
+    mapCtx.fillStyle="#f2d04e";
+    mapCtx.strokeStyle="rgba(20,28,34,0.82)";
+    mapCtx.lineWidth=1.5;
+    for(let chunk of chunks.values()){
+      if(!chunk.gasStationAdded || !chunk.gasStationSpawn) continue;
+      let spawn=chunk.gasStationSpawn;
+      let p=mapToCanvas(spawn.x,spawn.z,centerX,centerZ,radius,size);
+      if(p.x<-8 || p.x>size+8 || p.y<-8 || p.y>size+8) continue;
+
+      mapCtx.beginPath();
+      mapCtx.rect(p.x-4,p.y-5,8,10);
+      mapCtx.fill();
+      mapCtx.stroke();
+      mapCtx.beginPath();
+      mapCtx.moveTo(p.x+4,p.y-2);
+      mapCtx.lineTo(p.x+7,p.y+1);
+      mapCtx.lineTo(p.x+7,p.y+5);
+      mapCtx.stroke();
+    }
+
+    mapCtx.fillStyle="#d9edf2";
+    mapCtx.strokeStyle="rgba(20,28,34,0.82)";
+    mapCtx.lineWidth=1.5;
+    for(let chunk of chunks.values()){
+      if(!chunk.garageAdded || !chunk.garageSpawn) continue;
+      let spawn=chunk.garageSpawn;
+      let p=mapToCanvas(spawn.x,spawn.z,centerX,centerZ,radius,size);
+      if(p.x<-8 || p.x>size+8 || p.y<-8 || p.y>size+8) continue;
+
+      mapCtx.beginPath();
+      mapCtx.moveTo(p.x-5,p.y-1);
+      mapCtx.lineTo(p.x,p.y-6);
+      mapCtx.lineTo(p.x+5,p.y-1);
+      mapCtx.lineTo(p.x+5,p.y+5);
+      mapCtx.lineTo(p.x-5,p.y+5);
+      mapCtx.closePath();
+      mapCtx.fill();
+      mapCtx.stroke();
+      mapCtx.beginPath();
+      mapCtx.moveTo(p.x-2.5,p.y+5);
+      mapCtx.lineTo(p.x-2.5,p.y+1);
+      mapCtx.lineTo(p.x+2.5,p.y+1);
+      mapCtx.lineTo(p.x+2.5,p.y+5);
+      mapCtx.stroke();
+    }
+
+    mapCtx.save();
+    mapCtx.translate(size*0.5,size*0.5);
+    mapCtx.rotate(-carVelAngle+Math.PI);
+    mapCtx.fillStyle="#d62f2f";
+    mapCtx.strokeStyle="white";
+    mapCtx.lineWidth=2;
+    mapCtx.beginPath();
+    mapCtx.moveTo(0,-8);
+    mapCtx.lineTo(6,7);
+    mapCtx.lineTo(0,4);
+    mapCtx.lineTo(-6,7);
+    mapCtx.closePath();
+    mapCtx.fill();
+    mapCtx.stroke();
+    mapCtx.restore();
+  }
+
+  function makeGameOverOverlay(){
+    gameOverOverlay=document.createElement("div");
+    gameOverOverlay.textContent="GAME OVER";
+    gameOverOverlay.style.cssText=[
+      "position:fixed",
+      "inset:0",
+      "display:none",
+      "align-items:center",
+      "justify-content:center",
+      "z-index:20",
+      "font-family:Arial,sans-serif",
+      "font-size:clamp(52px,10vw,140px)",
+      "font-weight:900",
+      "letter-spacing:0",
+      "color:white",
+      "background:rgba(0,0,0,0.32)",
+      "text-shadow:0 6px 22px rgba(0,0,0,0.72)",
+      "pointer-events:none"
+    ].join(";");
+    document.body.appendChild(gameOverOverlay);
+  }
+
+  function showGameOver(){
+    if(gameOver) return;
+    gameOver=true;
+    carHealth=0;
+    carSpeed=0;
+    carVy=0;
+    updateHealthHud();
+    if(gameOverOverlay){
+      gameOverOverlay.style.display="flex";
+    }
+  }
+
+  function updateHealthHud(){
+    if(!healthFill || !healthLabel) return;
+    let pct=Math.max(0,Math.min(100,carHealth));
+    healthFill.style.width=pct+"%";
+    healthFill.style.background=pct>55
+      ? "linear-gradient(90deg,#2fd36b,#a8e85d)"
+      : pct>25
+        ? "linear-gradient(90deg,#f0b83f,#f4df65)"
+        : "linear-gradient(90deg,#d83a34,#f0715c)";
+    healthLabel.textContent="Health "+Math.round(pct)+"%";
+  }
+
+  function damageCar(amount){
+    if(healthDamageCooldown>0 || carHealth<=0) return;
+    carHealth=Math.max(0,carHealth-amount);
+    healthDamageCooldown=42;
+    updateHealthHud();
+    if(carHealth<=0) showGameOver();
+  }
+
+  function landingDamageAmount(x,z,impactSpeed){
+    let front=carSurfaceHeight(x+Math.sin(carVelAngle)*3,z+Math.cos(carVelAngle)*3);
+    let back=carSurfaceHeight(x-Math.sin(carVelAngle)*3,z-Math.cos(carVelAngle)*3);
+    let side=carSurfaceHeight(x+Math.cos(carVelAngle)*2.2,z-Math.sin(carVelAngle)*2.2);
+    let roughness=Math.max(Math.abs(front-back),Math.abs(side-carSurfaceHeight(x,z)));
+    let impactDamage=Math.max(0,impactSpeed-1.05)*7;
+    let roughDamage=Math.max(0,roughness-2.0)*1.4;
+    return Math.min(12,Math.round(impactDamage+roughDamage));
+  }
+
+  function rand(x,z){
+    return Math.sin(x*127.1+z*311.7)*43355.5453%1;
+  }
+
+  function smooth(t){
+    return t*t*(3-2*t);
+  }
+
+  function noise(x,z){
+    let X=Math.floor(x),Z=Math.floor(z);
+    let fx=x-X,fz=z-Z;
+
+    let a=rand(X,Z);
+    let b=rand(X+1,Z);
+    let c=rand(X,Z+1);
+    let d=rand(X+1,Z+1);
+
+    fx=smooth(fx);
+    fz=smooth(fz);
+
+    return a+(b-a)*fx+(c-a)*fz+(a-b-c+d)*fx*fz;
+  }
+
+  function fbm(x,z){
+    let h=0,amp=1,freq=1;
+    for(let i=0;i<5;i++){
+      h+=noise(x*freq,z*freq)*amp;
+      amp*=0.5;
+      freq*=2;
+    }
+    return h;
+  }
+
+  function height(x,z){
+    let continent=fbm(x*.0012,z*.0012);
+    let hills=fbm(x*.004,z*.004);
+    let mountains=fbm(x*.006,z*.006);
+
+    mountains=1-Math.abs(mountains*2-1);
+    mountains=Math.pow(mountains,2);
+
+    let mountainMask=Math.max(0,continent-.45)*2.2;
+    mountainMask=Math.min(1,mountainMask);
+
+    return continent*14
+      + hills*5
+      + mountains*40*mountainMask
+      - 14;
+  }
+
+  function groundHeight(x,z){
+    return height(x,z);
+  }
+
+  function roadCenterX(z){
+    return Math.sin(z*.002)*220
+      + Math.sin(z*.006)*80
+      + Math.sin(z*.013)*25;
+  }
+
+  function roadDistance(x,z){
+    return Math.abs(x-roadCenterX(z));
+  }
+
+  function maxSpeedForRoadDistance(d){
+    if(d<45) return roadMaxSpeed;
+    let t=Math.min(1,(d-45)/55);
+    t=t*t*(3-2*t);
+    return roadMaxSpeed*(1-t)+offroadMaxSpeed*t;
+  }
+
+
+  function roadHeight(x,z){
+    let center=roadCenterX(z);
+    return groundHeight(center,z)+.25;
+  }
+
+  function carSurfaceHeight(x,z){
+    let y=groundHeight(x,z);
+    let d=roadDistance(x,z);
+
+    if(d<60){
+      let t=1-d/60;
+      t=t*t*(3-2*t);
+      y=y*(1-t)+roadHeight(x,z)*t;
+    }
+
+    return y;
+  }
+
+  const chunkSize=500;
+  const segments=80;
+  const viewDistance=12;
+  let chunks=new Map();
+  let gasStationTemplate=null;
+  let garageTemplate=null;
+
+  let landMat=new THREE.MeshStandardMaterial({
+    map:makeGroundTexture(),
+    vertexColors:true,
+    roughness:0.8
+  });
+
+  let roadMat=new THREE.MeshStandardMaterial({
+    map:makeRoadTexture(),
+    roughness:1
+  });
+  let waterMat=new THREE.MeshStandardMaterial({
+    color:0x3366cc,
+    transparent:true,
+    opacity:.45
+  });
+
+  let barkMat=new THREE.MeshStandardMaterial({color:0x5a321b});
+  let leafMat=new THREE.MeshStandardMaterial({color:0x1f6b2a});
+  let grassMat=new THREE.MeshStandardMaterial({color:0x2f8f35});
+  let rockMat=new THREE.MeshStandardMaterial({color:0x777777,roughness:1});
+  let buildingWallMat=new THREE.MeshStandardMaterial({color:0xe3ded3,roughness:0.9,metalness:0.02});
+  let buildingRoofMat=new THREE.MeshStandardMaterial({color:0x9e3f32,roughness:0.92,metalness:0.01});
+  let windowMat=new THREE.MeshStandardMaterial({color:0xa9d8ff,emissive:0x1a2d40,emissiveIntensity:0.4,roughness:0.25});
+  let doorMat=new THREE.MeshStandardMaterial({color:0x5f3b23,roughness:0.9});
+  let chimneyMat=new THREE.MeshStandardMaterial({color:0x6f6a66,roughness:1});
+  let houseTrimMat=new THREE.MeshStandardMaterial({color:0xf2efe8,roughness:0.78});
+  let brickWallMat=new THREE.MeshStandardMaterial({color:0x9f4e3e,roughness:0.95});
+
+  let trunkGeo=new THREE.CylinderGeometry(.45,.85,9,7);
+  let crownGeo=new THREE.ConeGeometry(4.2,5.4,9);
+  let grassGeo=new THREE.ConeGeometry(.04,1.2,2);
+  let rockGeo=new THREE.DodecahedronGeometry(1,0);
+  let buildingGeo=new THREE.BoxGeometry(1,1,1);
+  let buildingRoofGeo=new THREE.CylinderGeometry(1.05,1.25,1,4);
+  let windowGeo=new THREE.BoxGeometry(1,1,1);
+  let doorGeo=new THREE.BoxGeometry(1,1,1);
+  let chimneyGeo=new THREE.BoxGeometry(1,1,1);
+  let trimGeo=new THREE.BoxGeometry(1,1,1);
+  let porchGeo=new THREE.BoxGeometry(1,1,1);
+  let brickWallGeo=new THREE.BoxGeometry(1,1,1);
+  let sheepCoreGeo=new THREE.CapsuleGeometry(0.55,1.35,8,18);
+  let sheepWoolGeo=new THREE.SphereGeometry(0.42,12,8);
+  let sheepHeadGeo=new THREE.SphereGeometry(0.34,14,10);
+  let sheepMuzzleGeo=new THREE.SphereGeometry(0.18,10,8);
+  let sheepLegGeo=new THREE.CylinderGeometry(0.09,0.11,0.72,8);
+  let sheepEarGeo=new THREE.ConeGeometry(0.09,0.24,6);
+  let sheepTailGeo=new THREE.SphereGeometry(0.16,8,6);
+  let sheepWoolMat=new THREE.MeshStandardMaterial({color:0xf1eee2,roughness:0.96});
+  let sheepWoolShadowMat=new THREE.MeshStandardMaterial({color:0xd8d3c5,roughness:0.98});
+  let sheepFaceMat=new THREE.MeshStandardMaterial({color:0x1d1b18,roughness:0.9});
+  let sheepNoseMat=new THREE.MeshStandardMaterial({color:0x3a312b,roughness:0.92});
+
+  function chunkKey(cx,cz){
+    return cx+","+cz;
+  }
+
+  const carRadius=1.55;
+
+  function collidesWithObstacles(x,z){
+    let pcx=Math.floor(x/chunkSize);
+    let pcz=Math.floor(z/chunkSize);
+
+    for(let dx=-1;dx<=1;dx++){
+      for(let dz=-1;dz<=1;dz++){
+        let chunk=chunks.get(chunkKey(pcx+dx,pcz+dz));
+        if(!chunk || !chunk.colliders) continue;
+
+        for(let obstacle of chunk.colliders){
+          let ox=obstacle.x;
+          let oz=obstacle.z;
+          let r=obstacle.r+carRadius;
+          let dist=x-ox;
+          let distz=z-oz;
+
+          if(dist*dist+distz*distz<r*r) return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  function makeReflectiveCarMaterial(source){
+    let color=(source && source.color) ? source.color.clone() : new THREE.Color(0xffffff);
+    let isRed=color.r>0.65 && color.g<0.25 && color.b<0.3;
+    let isGlass=color.b>0.45 && color.g>0.45 && color.r<0.6;
+    let isDark=color.r+color.g+color.b<0.75;
+    let isLight=color.r+color.g+color.b>2.1;
+    let material;
+
+    if(isGlass){
+      material=new THREE.MeshPhysicalMaterial({
+        color,
+        roughness:0.02,
+        metalness:0,
+        clearcoat:1,
+        clearcoatRoughness:0.02,
+        transparent:true,
+        opacity:0.62
+      });
+    }else if(isRed){
+      material=new THREE.MeshPhysicalMaterial({
+        color,
+        roughness:0.18,
+        metalness:0.08,
+        clearcoat:1,
+        clearcoatRoughness:0.04
+      });
+    }else if(isDark){
+      material=new THREE.MeshStandardMaterial({
+        color,
+        roughness:0.38,
+        metalness:0.12
+      });
+    }else{
+      material=new THREE.MeshPhysicalMaterial({
+        color,
+        roughness:isLight ? 0.16 : 0.24,
+        metalness:isLight ? 0.35 : 0.65,
+        clearcoat:0.45,
+        clearcoatRoughness:0.08
+      });
+    }
+
+    material.side=THREE.FrontSide;
+    material.envMapIntensity=0.7;
+    return material;
+  }
+
+  function normalizeLoadedCarModel(car){
+    let model=new THREE.Group();
+    car.rotation.x=-Math.PI/2;
+    model.rotation.y=Math.PI/2;
+    model.add(car);
+    car=model;
+    car.updateMatrixWorld(true);
+
+    let box=new THREE.Box3().setFromObject(car);
+    let size=new THREE.Vector3();
+    let center=new THREE.Vector3();
+    box.getSize(size);
+    box.getCenter(center);
+
+    let targetLength=4.4;
+    let scale=targetLength/Math.max(size.z,0.001);
+    car.scale.setScalar(scale);
+    car.updateMatrixWorld(true);
+
+    box.setFromObject(car);
+    box.getCenter(center);
+
+    car.position.x-=center.x;
+    car.position.z-=center.z;
+    car.updateMatrixWorld(true);
+
+    box.setFromObject(car);
+    car.position.y-=box.min.y;
+
+    car.traverse(child=>{
+      if(child.isMesh){
+        child.castShadow=true;
+        child.receiveShadow=true;
+        if(child.geometry){
+          child.geometry.computeVertexNormals();
+        }
+        if(child.material){
+          child.material=Array.isArray(child.material)
+            ? child.material.map(makeReflectiveCarMaterial)
+            : makeReflectiveCarMaterial(child.material);
+        }
+      }
+    });
+
+    return car;
+  }
+
+  function loadCarModel(){
+    let mtlLoader=new MTLLoader();
+    mtlLoader.setPath("assets/");
+
+    return new Promise((resolve,reject)=>{
+      mtlLoader.load(
+        "obj.mtl",
+        materials=>{
+          materials.preload();
+
+          let objLoader=new OBJLoader();
+          objLoader.setPath("assets/");
+          objLoader.setMaterials(materials);
+          objLoader.load(
+            "tinker.obj",
+            object=>resolve(normalizeLoadedCarModel(object)),
+            undefined,
+            reject
+          );
+        },
+        undefined,
+        reject
+      );
+    });
+  }
+
+  function normalizeGasStationModel(station){
+    let model=new THREE.Group();
+    let asset=new THREE.Group();
+    station.rotation.x=-Math.PI/2;
+    asset.add(station);
+    model.add(asset);
+    model.updateMatrixWorld(true);
+
+    let box=new THREE.Box3().setFromObject(model);
+    let size=new THREE.Vector3();
+    let center=new THREE.Vector3();
+    box.getSize(size);
+    box.getCenter(center);
+
+    let scale=24/Math.max(size.x,size.z,0.001);
+    model.scale.setScalar(scale);
+    model.updateMatrixWorld(true);
+
+    box.setFromObject(model);
+    box.getCenter(center);
+    asset.position.x-=center.x/scale;
+    asset.position.z-=center.z/scale;
+    model.updateMatrixWorld(true);
+
+    box.setFromObject(model);
+    asset.position.y-=box.min.y/scale;
+
+    model.traverse(child=>{
+      if(child.isMesh){
+        child.castShadow=true;
+        child.receiveShadow=true;
+        if(child.geometry) child.geometry.computeVertexNormals();
+        if(child.material){
+          let materials=Array.isArray(child.material) ? child.material : [child.material];
+          for(let material of materials){
+            material.side=THREE.FrontSide;
+            material.roughness=material.roughness ?? 0.72;
+          }
+        }
+      }
+    });
+
+    return model;
+  }
+
+  function loadGasStationModel(){
+    let mtlLoader=new MTLLoader();
+    mtlLoader.setPath("assets/gasStation/");
+
+    return new Promise((resolve,reject)=>{
+      mtlLoader.load(
+        "obj.mtl",
+        materials=>{
+          materials.preload();
+
+          let objLoader=new OBJLoader();
+          objLoader.setPath("assets/gasStation/");
+          objLoader.setMaterials(materials);
+          objLoader.load(
+            "tinker.obj",
+            object=>resolve(normalizeGasStationModel(object)),
+            undefined,
+            reject
+          );
+        },
+        undefined,
+        reject
+      );
+    });
+  }
+
+  function cloneGasStation(){
+    if(!gasStationTemplate) return null;
+    return gasStationTemplate.clone(true);
+  }
+
+  function normalizeGarageModel(garage){
+    let model=new THREE.Group();
+    let asset=new THREE.Group();
+    garage.rotation.x=-Math.PI/2;
+    asset.add(garage);
+    model.add(asset);
+    model.updateMatrixWorld(true);
+
+    let box=new THREE.Box3().setFromObject(model);
+    let size=new THREE.Vector3();
+    let center=new THREE.Vector3();
+    box.getSize(size);
+    box.getCenter(center);
+
+    let scale=20/Math.max(size.x,size.z,0.001);
+    model.scale.setScalar(scale);
+    model.updateMatrixWorld(true);
+
+    box.setFromObject(model);
+    box.getCenter(center);
+    asset.position.x-=center.x/scale;
+    asset.position.z-=center.z/scale;
+    model.updateMatrixWorld(true);
+
+    box.setFromObject(model);
+    asset.position.y-=box.min.y/scale;
+
+    model.traverse(child=>{
+      if(child.isMesh){
+        child.castShadow=true;
+        child.receiveShadow=true;
+        if(child.geometry) child.geometry.computeVertexNormals();
+        if(child.material){
+          let materials=Array.isArray(child.material) ? child.material : [child.material];
+          for(let material of materials){
+            material.side=THREE.FrontSide;
+            material.roughness=material.roughness ?? 0.74;
+          }
+        }
+      }
+    });
+
+    return model;
+  }
+
+  function loadGarageModel(){
+    let mtlLoader=new MTLLoader();
+    mtlLoader.setPath("assets/garage/");
+
+    return new Promise((resolve,reject)=>{
+      mtlLoader.load(
+        "obj.mtl",
+        materials=>{
+          materials.preload();
+
+          let objLoader=new OBJLoader();
+          objLoader.setPath("assets/garage/");
+          objLoader.setMaterials(materials);
+          objLoader.load(
+            "tinker.obj",
+            object=>resolve(normalizeGarageModel(object)),
+            undefined,
+            reject
+          );
+        },
+        undefined,
+        reject
+      );
+    });
+  }
+
+  function cloneGarage(){
+    if(!garageTemplate) return null;
+    return garageTemplate.clone(true);
+  }
+
+  function makeSheepModel(seed){
+    let sheep=new THREE.Group();
+
+    let core=new THREE.Mesh(sheepCoreGeo,sheepWoolShadowMat);
+    core.rotation.z=Math.PI/2;
+    core.scale.set(1.08,1.05,0.9);
+    core.position.y=0.95;
+    sheep.add(core);
+
+    let woolPuffs=[
+      [-0.9,1.08,-0.28,0.82,0.7,0.7],
+      [-0.45,1.22,-0.34,0.88,0.78,0.74],
+      [0.02,1.25,-0.36,0.92,0.82,0.74],
+      [0.5,1.2,-0.32,0.86,0.74,0.7],
+      [0.92,1.04,-0.24,0.72,0.62,0.62],
+      [-0.95,1.05,0.28,0.82,0.7,0.7],
+      [-0.48,1.24,0.34,0.9,0.78,0.74],
+      [0.02,1.3,0.36,0.94,0.84,0.76],
+      [0.5,1.22,0.32,0.86,0.74,0.7],
+      [0.92,1.04,0.24,0.72,0.62,0.62],
+      [-0.45,1.48,0,0.86,0.62,0.72],
+      [0.12,1.55,0,0.98,0.66,0.78],
+      [0.7,1.38,0,0.78,0.58,0.66]
+    ];
+
+    for(let i=0;i<woolPuffs.length;i++){
+      let puff=new THREE.Mesh(sheepWoolGeo,i%3===0 ? sheepWoolShadowMat : sheepWoolMat);
+      let jitter=(rand(seed+i*19,seed-i*23)*0.5+0.5-0.5)*0.08;
+      puff.position.set(woolPuffs[i][0]+jitter,woolPuffs[i][1],woolPuffs[i][2]-jitter);
+      puff.scale.set(woolPuffs[i][3],woolPuffs[i][4],woolPuffs[i][5]);
+      sheep.add(puff);
+    }
+
+    let headGroup=new THREE.Group();
+    headGroup.position.set(1.34,1.0,0);
+    sheep.add(headGroup);
+
+    let head=new THREE.Mesh(sheepHeadGeo,sheepFaceMat);
+    head.scale.set(0.82,1.02,0.78);
+    headGroup.add(head);
+
+    let forehead=new THREE.Mesh(sheepWoolGeo,sheepWoolMat);
+    forehead.position.set(-0.12,0.28,0);
+    forehead.scale.set(0.48,0.32,0.42);
+    headGroup.add(forehead);
+
+    let muzzle=new THREE.Mesh(sheepMuzzleGeo,sheepNoseMat);
+    muzzle.position.set(0.29,-0.1,0);
+    muzzle.scale.set(1.0,0.7,0.75);
+    headGroup.add(muzzle);
+
+    for(let side of [-1,1]){
+      let ear=new THREE.Mesh(sheepEarGeo,sheepFaceMat);
+      ear.rotation.x=side*Math.PI*0.52;
+      ear.rotation.z=-Math.PI*0.48;
+      ear.position.set(-0.04,0.1,side*0.34);
+      headGroup.add(ear);
+    }
+
+    let legs=[];
+    for(let x of [-0.65,0.62]){
+      for(let z of [-0.3,0.3]){
+        let leg=new THREE.Mesh(sheepLegGeo,sheepFaceMat);
+        leg.position.set(x,0.34,z);
+        sheep.add(leg);
+        legs.push(leg);
+      }
+    }
+
+    let tail=new THREE.Mesh(sheepTailGeo,sheepWoolMat);
+    tail.position.set(-1.24,1.05,0);
+    tail.scale.set(0.9,0.75,0.75);
+    sheep.add(tail);
+
+    sheep.userData.legs=legs;
+    sheep.userData.head=headGroup;
+    sheep.userData.tail=tail;
+    let size=0.5+(rand(seed+101,seed-73)*0.5+0.5)*0.28;
+    sheep.scale.set(size,size,size);
+    sheep.userData.size=size;
+    return sheep;
+  }
+
+  function makeSheep(x,z,seed,collider){
+    let sheep=makeSheepModel(seed);
+    let y=groundHeight(x,z);
+    let angle=(rand(seed,seed+17)*0.5+0.5)*Math.PI*2;
+    sheep.position.set(x,y,z);
+    sheep.rotation.y=angle-Math.PI/2;
+    sheep.userData={
+      ...sheep.userData,
+      seed,
+      centerX:x,
+      centerZ:z,
+      angle,
+      speed:0.022+(rand(seed+23,seed-11)*0.5+0.5)*0.018,
+      phase:(rand(seed-31,seed+5)*0.5+0.5)*Math.PI*2,
+      roamRadius:38+(rand(seed+7,seed+19)*0.5+0.5)*48,
+      lineTimer:170+(rand(seed+13,seed+71)*0.5+0.5)*230,
+      grazeTimer:220+(rand(seed+41,seed-29)*0.5+0.5)*330,
+      collider
+    };
+    return sheep;
+  }
+
+  function updateSheep(){
+    for(let chunk of chunks.values()){
+      if(!chunk.sheep) continue;
+
+      for(let sheep of chunk.sheep){
+        let data=sheep.userData;
+        data.phase+=0.045;
+        data.grazeTimer-=1;
+        data.lineTimer-=1;
+
+        let x=sheep.position.x;
+        let z=sheep.position.z;
+        let dx=x-data.centerX;
+        let dz=z-data.centerZ;
+        let dist=Math.sqrt(dx*dx+dz*dz);
+        let roadD=roadDistance(x,z);
+        let grazing=data.grazeTimer<0;
+
+        if(data.grazeTimer<-170){
+          grazing=false;
+          data.grazeTimer=240+(rand(data.seed+data.phase,data.seed-3)*0.5+0.5)*340;
+          data.lineTimer=170+(rand(data.seed-data.phase,data.seed+11)*0.5+0.5)*230;
+          data.angle+=((rand(data.seed+data.phase,data.seed+29)*0.5+0.5)-0.5)*Math.PI*0.75;
+        }
+
+        if(!grazing && (data.lineTimer<=0 || dist>data.roamRadius || roadD<42)){
+          if(dist>data.roamRadius || roadD<42){
+            data.angle=Math.atan2(data.centerX-x,data.centerZ-z);
+          }else{
+            data.angle+=((rand(data.seed+data.phase,data.seed-17)*0.5+0.5)-0.5)*Math.PI*0.7;
+          }
+          data.lineTimer=160+(rand(data.seed-data.phase,data.seed+53)*0.5+0.5)*280;
+        }
+
+        let moveSpeed=grazing ? 0 : data.speed;
+        let nextX=x+Math.sin(data.angle)*moveSpeed;
+        let nextZ=z+Math.cos(data.angle)*moveSpeed;
+        let nextY=groundHeight(nextX,nextZ);
+
+        if(nextY<-15 || nextY>30 || roadDistance(nextX,nextZ)<35){
+          data.angle+=Math.PI*0.74;
+          data.lineTimer=140+(rand(data.seed+data.phase,data.seed+91)*0.5+0.5)*190;
+          nextX=x;
+          nextZ=z;
+          nextY=groundHeight(x,z);
+        }
+
+        sheep.position.set(nextX,nextY,nextZ);
+        sheep.rotation.y=data.angle-Math.PI/2;
+        sheep.rotation.z=Math.sin(data.phase*0.32)*0.01;
+
+        if(data.head){
+          data.head.rotation.z=grazing ? -0.58 : Math.sin(data.phase*0.08)*0.04;
+        }
+
+        if(data.legs){
+          for(let i=0;i<data.legs.length;i++){
+            data.legs[i].rotation.z=grazing ? 0 : Math.sin(data.phase*1.5+i*Math.PI)*0.22;
+          }
+        }
+
+        if(data.tail){
+          data.tail.rotation.x=Math.sin(data.phase*0.35)*0.12;
+        }
+
+        if(data.collider){
+          data.collider.x=nextX;
+          data.collider.z=nextZ;
+        }
+      }
+    }
+  }
+
+  function roadYawAt(z){
+    return Math.atan2(roadCenterX(z+18)-roadCenterX(z-18),36);
+  }
+
+  function makeGasStationSpawn(cx,cz){
+    let chance=0.152;
+    if(Math.abs(cx)%4!==1 || Math.abs(cz)%4!==2) return null;
+    if((rand(cx*827,cz*463)*0.5+0.5)>chance) return null;
+
+    let r01=(a,b)=>rand(a,b)*0.5+0.5;
+    let z=cz*chunkSize+(r01(cx*311,cz*907)-0.5)*chunkSize*0.7;
+    let yaw=roadYawAt(z);
+    let side=r01(cx*541,cz*167)<0.5 ? -1 : 1;
+    let offset=48;
+    let x=roadCenterX(z)+Math.cos(yaw)*side*offset;
+    let placeZ=z-Math.sin(yaw)*side*offset;
+    let y=groundHeight(x,placeZ);
+
+    if(y<-12 || y>24) return null;
+
+    return {
+      x,
+      z:placeZ,
+      y,
+      yaw:yaw+(side>0 ? -Math.PI/2 : Math.PI/2),
+      r:24
+    };
+  }
+
+  function addGasStationToChunk(chunk){
+    if(!gasStationTemplate || !chunk.gasStationSpawn || chunk.gasStationAdded) return;
+
+    let spawn=chunk.gasStationSpawn;
+    if(gasStationBlocked(spawn,chunk.colliders)){
+      chunk.gasStationSpawn=null;
+      chunk.gasStationAdded=true;
+      return;
+    }
+    let station=cloneGasStation();
+    if(!station) return;
+
+    station.position.set(spawn.x,spawn.y,spawn.z);
+    station.rotation.y=spawn.yaw;
+    scene.add(station);
+
+    chunk.gasStations.push(station);
+    chunk.colliders.push({x:spawn.x,z:spawn.z,r:spawn.r});
+    chunk.gasStationAdded=true;
+  }
+
+  function addGasStationsToExistingChunks(){
+    for(let chunk of chunks.values()){
+      addGasStationToChunk(chunk);
+    }
+  }
+
+  function gasStationBlocked(spawn,colliders){
+    for(let obstacle of colliders){
+      let dx=spawn.x-obstacle.x;
+      let dz=spawn.z-obstacle.z;
+      let gap=spawn.r+obstacle.r+4;
+      if(dx*dx+dz*dz<gap*gap) return true;
+    }
+    return false;
+  }
+
+  function makeGarageSpawn(cx,cz){
+    let chance=0.13;
+    if(Math.abs(cx)%5!==3 || Math.abs(cz)%5!==1) return null;
+    if((rand(cx*619,cz*1249)*0.5+0.5)>chance) return null;
+
+    let r01=(a,b)=>rand(a,b)*0.5+0.5;
+    let z=cz*chunkSize+(r01(cx*947,cz*313)-0.5)*chunkSize*0.72;
+    let yaw=roadYawAt(z);
+    let side=r01(cx*149,cz*1051)<0.5 ? -1 : 1;
+    let offset=42;
+    let x=roadCenterX(z)+Math.cos(yaw)*side*offset;
+    let placeZ=z-Math.sin(yaw)*side*offset;
+    let y=groundHeight(x,placeZ);
+
+    if(y<-12 || y>26) return null;
+
+    return {
+      x,
+      z:placeZ,
+      y,
+      yaw:yaw+(side>0 ? -Math.PI/2 : Math.PI/2),
+      r:17
+    };
+  }
+
+  function addGarageToChunk(chunk){
+    if(!garageTemplate || !chunk.garageSpawn || chunk.garageAdded) return;
+
+    let spawn=chunk.garageSpawn;
+    if(gasStationBlocked(spawn,chunk.colliders)){
+      chunk.garageSpawn=null;
+      chunk.garageAdded=true;
+      return;
+    }
+    let garage=cloneGarage();
+    if(!garage) return;
+
+    garage.position.set(spawn.x,spawn.y,spawn.z);
+    garage.rotation.y=spawn.yaw;
+    scene.add(garage);
+
+    chunk.garages.push(garage);
+    chunk.colliders.push({x:spawn.x,z:spawn.z,r:spawn.r});
+    chunk.garageAdded=true;
+  }
+
+  function addGaragesToExistingChunks(){
+    for(let chunk of chunks.values()){
+      addGarageToChunk(chunk);
+    }
+  }
+
+  function makeFallbackCarModel(){
+    let car=new THREE.Group();
+
+    let paintMat=new THREE.MeshPhysicalMaterial({
+      color:0xaa99A5,
+      roughness:1.28,
+      metalness:0.75,
+      clearcoat:0.1,
+      clearcoatRoughness:0.12
+    });
+
+    let darkMat=new THREE.MeshStandardMaterial({color:0x111111,roughness:0.95});
+    let glassMat=new THREE.MeshStandardMaterial({
+      color:0x87bfff,
+      transparent:true,
+      opacity:0.55,
+      roughness:0.08,
+      metalness:0.15
+    });
+    let rimMat=new THREE.MeshStandardMaterial({color:0xb8b8b8,roughness:0.35,metalness:0.95});
+
+    // Main rounded body
+    let bodyGeo=new THREE.CapsuleGeometry(1.15,3.6,6,18);
+    let body=new THREE.Mesh(bodyGeo,paintMat);
+    body.rotation.x=Math.PI/2;
+    body.scale.set(1,0.52,1);
+    body.position.y=0.95;
+    car.add(body);
+
+    // Lower side skirt for a flatter profile
+    let skirtGeo=new THREE.CapsuleGeometry(1.05,3.0,4,14);
+    let skirt=new THREE.Mesh(skirtGeo,paintMat);
+    skirt.rotation.x=Math.PI/2;
+    skirt.scale.set(1,0.22,1);
+    skirt.position.y=0.45;
+    car.add(skirt);
+
+    // Cabin / roof
+    let cabinGeo=new THREE.CapsuleGeometry(0.9,1.4,6,16);
+    let cabin=new THREE.Mesh(cabinGeo,paintMat);
+    cabin.rotation.x=Math.PI/2;
+    cabin.scale.set(1,0.48,1);
+    cabin.position.set(0,1.65,0.15);
+    car.add(cabin);
+
+    // Windshield and rear window
+    let windshieldGeo=new THREE.BoxGeometry(1.7,0.7,0.08);
+    let windshield=new THREE.Mesh(windshieldGeo,glassMat);
+    windshield.position.set(0,1.55,-1.05);
+    windshield.rotation.x=-0.35;
+    car.add(windshield);
+
+    let backGlass=new THREE.Mesh(windshieldGeo,glassMat);
+    backGlass.position.set(0,1.55,1.05);
+    backGlass.rotation.x=0.35;
+    car.add(backGlass);
+
+    // Front and rear bumpers
+    let bumperGeo=new THREE.CylinderGeometry(0.18,0.18,1.55,14);
+    let frontBumper=new THREE.Mesh(bumperGeo,darkMat);
+    frontBumper.rotation.z=Math.PI/2;
+    frontBumper.position.set(0,0.62,-1.95);
+    car.add(frontBumper);
+
+    let rearBumper=new THREE.Mesh(bumperGeo,darkMat);
+    rearBumper.rotation.z=Math.PI/2;
+    rearBumper.position.set(0,0.62,1.95);
+    car.add(rearBumper);
+
+    // Wheels with more rounded geometry
+    let wheelGeo=new THREE.TorusGeometry(0.42,0.16,10,20);
+    let wheelPositions=[[-0.95,0.42,-1.25],[0.95,0.42,-1.25],[-0.95,0.42,1.25],[0.95,0.42,1.25]];
+    for(let pos of wheelPositions){
+      let wheel=new THREE.Mesh(wheelGeo,darkMat);
+      wheel.rotation.y=Math.PI/2;
+      wheel.rotation.x=Math.PI/2;
+      wheel.position.set(pos[0],pos[1],pos[2]);
+      car.add(wheel);
+
+      let rim=new THREE.Mesh(new THREE.TorusGeometry(0.22,0.06,8,16),rimMat);
+      rim.rotation.y=Math.PI/2;
+      rim.rotation.x=Math.PI/2;
+      rim.position.set(pos[0],pos[1],pos[2]);
+      car.add(rim);
+    }
+
+    // Slight overall shaping so it feels more car-like
+    car.scale.set(1.1,1.1,1.1);
+
+    return car;
+  }
+
+  function makeGroundTexture(){
+    let canvas=document.createElement("canvas");
+    canvas.width=1024;
+    canvas.height=1024;
+
+    let ctx=canvas.getContext("2d");
+
+    // Base grass color
+    ctx.fillStyle="#3a7d44";
+    ctx.fillRect(0,0,1024,1024);
+
+    // Subtle darker patches
+    for(let i=0;i<800;i++){
+      let size=Math.random()*60+30;
+      let c=40+Math.random()*30;
+
+      ctx.fillStyle=`rgba(${c*0.7},${c*1.2},${c*0.6},0.08)`;
+      ctx.fillRect(
+        Math.random()*1024,
+        Math.random()*1024,
+        size,
+        size
+      );
+    }
+
+    // Subtle lighter patches
+    for(let i=0;i<600;i++){
+      let size=Math.random()*50+25;
+      let c=120+Math.random()*40;
+
+      ctx.fillStyle=`rgba(${c},${c*1.1},${c*0.9},0.07)`;
+      ctx.fillRect(
+        Math.random()*1024,
+        Math.random()*1024,
+        size,
+        size
+      );
+    }
+
+
+    let tex=new THREE.CanvasTexture(canvas);
+    tex.wrapS=THREE.RepeatWrapping;
+    tex.wrapT=THREE.RepeatWrapping;
+    tex.repeat.set(4,4);
+
+    return tex;
+  }
+
+  function makeRoadTexture(){
+
+    let canvas=document.createElement("canvas");
+    canvas.width=512;
+    canvas.height=512;
+
+    let ctx=canvas.getContext("2d");
+
+    ctx.fillStyle="#8b6f47";
+    ctx.fillRect(0,0,512,512);
+
+    for(let i=0;i<8000;i++){
+
+      let size=Math.random()*8+2;
+
+      let c=90+Math.random()*80;
+
+      ctx.fillStyle=
+        `rgba(${c},${c*0.8},${c*0.5},0.4)`;
+
+      ctx.fillRect(
+        Math.random()*512,
+        Math.random()*512,
+        size,
+        size
+      );
+    }
+
+    for(let i=0;i<2000;i++){
+
+      let c=40+Math.random()*30;
+
+      ctx.fillStyle=
+        `rgba(${c},${c},${c},0.25)`;
+
+      ctx.fillRect(
+        Math.random()*512,
+        Math.random()*512,
+        2,
+        2
+      );
+    }
+
+    let tex=new THREE.CanvasTexture(canvas);
+
+    tex.wrapS=THREE.RepeatWrapping;
+    tex.wrapT=THREE.RepeatWrapping;
+
+    tex.repeat.set(2,30);
+
+    return tex;
+  }
+
+
+
+  function makeChunk(cx,cz){
+    let colors=[];
+    let colliders=[];
+    let sheep=[];
+    let gasStations=[];
+    let gasStationSpawn=makeGasStationSpawn(cx,cz);
+    let gasStationAdded=false;
+    let garages=[];
+    let garageSpawn=makeGarageSpawn(cx,cz);
+    let garageAdded=false;
+    let geo=new THREE.PlaneGeometry(chunkSize,chunkSize,segments,segments);
+    geo.rotateX(-Math.PI/2);
+
+    let pos=geo.attributes.position;
+
+    for(let i=0;i<pos.count;i++){
+      let wx=pos.getX(i)+cx*chunkSize;
+      let wz=pos.getZ(i)+cz*chunkSize;
+      let h=groundHeight(wx,wz);
+
+      let d=roadDistance(wx,wz);
+      let shoulder=55;
+
+      if(d<shoulder){
+        let t=Math.min(1,d/shoulder);
+        t=t*t*(3-2*t);
+
+        let rh=roadHeight(wx,wz);
+        h=rh*(1-t)+h*t;
+      }
+
+      pos.setY(i,h);
+
+      let color=new THREE.Color();
+
+      if(d<18) color.set(0x8b6f47);
+      else if(h<-20) color.set(0xc2b280);
+      else if(h<15) color.set(0x55aa44);
+      else if(h<30) color.set(0x667744);
+      else color.set(0x888888);
+
+      colors.push(color.r,color.g,color.b);
+    }
+
+    geo.setAttribute("color",new THREE.Float32BufferAttribute(colors,3));
+    geo.computeVertexNormals();
+
+    let land=new THREE.Mesh(geo,landMat);
+    land.position.set(cx*chunkSize,0,cz*chunkSize);
+    scene.add(land);
+
+    let roadGeo=new THREE.PlaneGeometry(chunkSize,chunkSize,segments,segments);
+    roadGeo.rotateX(-Math.PI/2);
+
+    let rpos=roadGeo.attributes.position;
+
+    for(let i=0;i<rpos.count;i++){
+      let wx=rpos.getX(i)+cx*chunkSize;
+      let wz=rpos.getZ(i)+cz*chunkSize;
+      let d=roadDistance(wx,wz);
+
+      if(d<19){
+        rpos.setY(i,roadHeight(wx,wz)+.12);
+      }else{
+        rpos.setY(i,-9999);
+      }
+    }
+
+    roadGeo.computeVertexNormals();
+
+    let road=new THREE.Mesh(roadGeo,roadMat);
+    road.position.set(cx*chunkSize,0,cz*chunkSize);
+    //scene.add(road);
+
+    let water=new THREE.Mesh(
+      new THREE.PlaneGeometry(chunkSize,chunkSize),
+      waterMat
+    );
+    water.rotation.x=-Math.PI/2;
+    water.position.set(cx*chunkSize,-20,cz*chunkSize);
+    scene.add(water);
+
+    let clusterCount=2;
+    let treesPerCluster=8;
+    let clusterRadius=25;
+    let maxTrees=clusterCount*treesPerCluster;
+
+    let trunks=new THREE.InstancedMesh(trunkGeo,barkMat,maxTrees);
+    let crowns=new THREE.InstancedMesh(crownGeo,leafMat,maxTrees*5);
+
+    let dummy=new THREE.Object3D();
+    let treeUsed=0;
+    let crownUsed=0;
+
+    for(let c=0;c<clusterCount;c++){
+      let crx=rand(cx*91+c,cz*37-c);
+      let crz=rand(cx*53-c,cz*79+c);
+
+      let centerX=cx*chunkSize+(crx-.5)*chunkSize;
+      let centerZ=cz*chunkSize+(crz-.5)*chunkSize;
+      let centerY=groundHeight(centerX,centerZ);
+
+      if(centerY<-15 || centerY>32) continue;
+      if(roadDistance(centerX,centerZ)<70) continue;
+
+      colliders.push({x:centerX,z:centerZ,r:6});
+
+      for(let i=0;i<treesPerCluster;i++){
+        let a=rand(cx*999+c*17+i,cz*777-i)*Math.PI*2;
+        let r=Math.pow(rand(cx*333+i,cz*555+c),.6)*clusterRadius;
+
+        let wx=centerX+Math.cos(a)*r;
+        let wz=centerZ+Math.sin(a)*r;
+        let wy=groundHeight(wx,wz);
+
+        if(wy<-15 || wy>32) continue;
+        if(roadDistance(wx,wz)<45) continue;
+
+        colliders.push({x:wx,z:wz,r:2.4});
+
+        let scale=.55+rand(i+cx+c,cz-i)*.9;
+        let rot=rand(i,cx+cz+c)*Math.PI*2;
+
+        dummy.position.set(wx,wy+4.5*scale,wz);
+        dummy.rotation.set(0,rot,0);
+        dummy.scale.set(scale,scale,scale);
+        dummy.updateMatrix();
+        trunks.setMatrixAt(treeUsed,dummy.matrix);
+
+        for(let j=0;j<5;j++){
+          let crownScale=scale*(1-j*.1);
+
+          dummy.position.set(wx,wy+(7+j*2.1)*scale,wz);
+          dummy.rotation.set(0,rot+rand(i+j,c)*Math.PI*2,0);
+          dummy.scale.set(crownScale,scale,crownScale);
+          dummy.updateMatrix();
+
+          crowns.setMatrixAt(crownUsed,dummy.matrix);
+          crownUsed++;
+        }
+
+        treeUsed++;
+      }
+    }
+
+    trunks.count=treeUsed;
+    crowns.count=crownUsed;
+    trunks.instanceMatrix.needsUpdate=true;
+    crowns.instanceMatrix.needsUpdate=true;
+    scene.add(trunks,crowns);
+
+    let grassClusterCount=20;
+    let grassPerCluster=400;
+    let grassClusterRadius=10;
+    let maxGrasses=grassClusterCount*grassPerCluster;
+
+    let grasses=new THREE.InstancedMesh(grassGeo,grassMat,maxGrasses);
+    let grassUsed=0;
+
+    for(let c=0;c<grassClusterCount;c++){
+      let crx=rand(cx*234+c,cz*567-c);
+      let crz=rand(cx*890-c,cz*12+c);
+
+      let centerX=cx*chunkSize+(crx-.5)*chunkSize;
+      let centerZ=cz*chunkSize+(crz-.5)*chunkSize;
+      let centerY=groundHeight(centerX,centerZ);
+
+      if(centerY<-15 || centerY>28) continue;
+      if(roadDistance(centerX,centerZ)<35) continue;
+
+      for(let i=0;i<grassPerCluster;i++){
+        let a=rand(cx*345+c*11+i,cz*678-i)*Math.PI*2;
+        let r=Math.pow(rand(cx*901+i,cz*234+c),.5)*grassClusterRadius;
+
+        let wx=centerX+Math.cos(a)*r;
+        let wz=centerZ+Math.sin(a)*r;
+        let wy=groundHeight(wx,wz);
+
+        if(wy<-15 || wy>28) continue;
+        if(roadDistance(wx,wz)<35) continue;
+
+        let scale=.4+rand(i,cx-cz)*.8;
+
+        dummy.position.set(wx,wy+1.2*scale,wz);
+        dummy.rotation.set(0,rand(i*3,cx+cz)*Math.PI*2,0);
+        dummy.scale.set(scale,.7+scale,scale);
+        dummy.updateMatrix();
+
+        grasses.setMatrixAt(grassUsed,dummy.matrix);
+        grassUsed++;
+      }
+    }
+
+    grasses.count=grassUsed;
+    grasses.instanceMatrix.needsUpdate=true;
+    scene.add(grasses);
+
+    let rockCount=30;
+    let rocks=new THREE.InstancedMesh(rockGeo,rockMat,rockCount);
+    let rockUsed=0;
+
+    for(let i=0;i<rockCount;i++){
+      let rx=rand(cx*222+i,cz*888-i);
+      let rz=rand(cx*444-i,cz*666+i);
+
+      let wx=cx*chunkSize+(rx-.5)*chunkSize;
+      let wz=cz*chunkSize+(rz-.5)*chunkSize;
+      let wy=groundHeight(wx,wz);
+      let scale=.8+rand(i+9,cx-cz)*3;
+
+      if(wy<-18) continue;
+      if(roadDistance(wx,wz)<40) continue;
+
+      colliders.push({x:wx,z:wz,r:2.1+scale*0.55});
+
+
+      dummy.position.set(wx,wy+scale*.5,wz);
+      dummy.rotation.set(
+        rand(i,cx)*Math.PI,
+        rand(i,cz)*Math.PI,
+        rand(cx,cz+i)*Math.PI
+      );
+      dummy.scale.set(scale,scale*.55,scale*.8);
+      dummy.updateMatrix();
+
+      rocks.setMatrixAt(rockUsed,dummy.matrix);
+      rockUsed++;
+    }
+
+    rocks.count=rockUsed;
+    rocks.instanceMatrix.needsUpdate=true;
+    scene.add(rocks);
+
+    let maxBuildings=120;
+    let buildingBodies=new THREE.InstancedMesh(buildingGeo,buildingWallMat,maxBuildings);
+    let buildingRoofs=new THREE.InstancedMesh(buildingRoofGeo,buildingRoofMat,maxBuildings);
+    let buildingWindows=new THREE.InstancedMesh(windowGeo,windowMat,maxBuildings*8);
+    let buildingDoors=new THREE.InstancedMesh(doorGeo,doorMat,maxBuildings);
+    let buildingChimneys=new THREE.InstancedMesh(chimneyGeo,chimneyMat,maxBuildings);
+    let buildingTrims=new THREE.InstancedMesh(trimGeo,houseTrimMat,maxBuildings*2);
+    let buildingPorches=new THREE.InstancedMesh(porchGeo,houseTrimMat,maxBuildings);
+    let villagesPerChunk=1;
+    let villageSpawnChance=0.45;
+    let villageWalls=new THREE.InstancedMesh(brickWallGeo,brickWallMat,villagesPerChunk*18);
+    let buildingUsed=0;
+    let windowUsed=0;
+    let doorUsed=0;
+    let chimneyUsed=0;
+    let trimUsed=0;
+    let porchUsed=0;
+    let wallUsed=0;
+    let r01=(a,b)=>rand(a,b)*0.5+0.5;
+    let villageCenters=[];
+
+    for(let v=0;v<villagesPerChunk;v++){
+      if(r01(cx*37+v*101,cz*53-v*17)>villageSpawnChance) continue;
+      let rr1=r01(cx*701+v*13,cz*409-v*11);
+      let rr2=r01(cx*157-v*19,cz*991+v*23);
+      let centerX=cx*chunkSize+(rr1-.5)*chunkSize;
+      let centerZ=cz*chunkSize+(rr2-.5)*chunkSize;
+      let centerY=groundHeight(centerX,centerZ);
+      let centerRoadD=roadDistance(centerX,centerZ);
+
+      if(centerY<-12 || centerY>30) continue;
+      if(centerRoadD<24) continue;
+
+      villageCenters.push({x:centerX,z:centerZ,y:centerY});
+
+      let housesInVillage=12+Math.floor(r01(cx+v*7,cz-v*5)*10);
+      let villageRadius=20+(r01(cx-v*3,cz+v*9)*24);
+      let placed=[];
+
+      // Brick wall ring around each village with a front opening toward the road.
+      let gateAngle=roadCenterX(centerZ)>centerX ? 0 : Math.PI;
+      let wallSegments=14;
+      for(let s=0;s<wallSegments && wallUsed<villagesPerChunk*18;s++){
+        let t=s/wallSegments;
+        let a=t*Math.PI*2;
+        let diff=Math.abs(Math.atan2(Math.sin(a-gateAngle),Math.cos(a-gateAngle)));
+        if(diff<0.32) continue;
+
+        let radius=villageRadius*1.22;
+        let wx=centerX+Math.cos(a)*radius;
+        let wz=centerZ+Math.sin(a)*radius;
+        let wy=groundHeight(wx,wz);
+        let segLen=Math.max(3.2,(Math.PI*2*radius)/wallSegments*0.9);
+
+        dummy.position.set(wx,wy+1.1,wz);
+        dummy.rotation.set(0,a+Math.PI*0.5,0);
+        dummy.scale.set(segLen,2.2,0.55);
+        dummy.updateMatrix();
+        villageWalls.setMatrixAt(wallUsed,dummy.matrix);
+        wallUsed++;
+
+        colliders.push({x:wx,z:wz,r:Math.max(1.2,segLen*0.32)});
+      }
+
+      for(let i=0;i<housesInVillage && buildingUsed<maxBuildings;i++){
+        let angle=(i/housesInVillage)*Math.PI*2 + r01(i+v*31,cx-cz)*0.9;
+        let dist=(0.2+r01(i+cx*3,cz+v)*0.8)*villageRadius;
+
+        let wx=centerX+Math.cos(angle)*dist;
+        let wz=centerZ+Math.sin(angle)*dist;
+        let wy=groundHeight(wx,wz);
+        let roadD=roadDistance(wx,wz);
+
+        if(wy<-12 || wy>30) continue;
+        if(roadD<20) continue;
+
+        let width=8+r01(i+cx*5,cz+v*2)*8;
+        let depth=8+r01(i+cz*6,cx-v*2)*8;
+        let height=4.8+r01(cx-i,cz+i+v*17)*5.6;
+        let minGap=Math.max(width,depth)*1.35;
+
+        let tooClose=false;
+        for(let p of placed){
+          let dx=wx-p.x;
+          let dz=wz-p.z;
+          let gap=minGap+p.r;
+          if(dx*dx+dz*dz<gap*gap){
+            tooClose=true;
+            break;
+          }
+        }
+        if(tooClose) continue;
+
+        colliders.push({x:wx,z:wz,r:Math.max(width,depth)*0.62});
+
+        let yaw=r01(i+v*13,cx-cz)*Math.PI*2;
+        dummy.position.set(wx,wy+height*0.5,wz);
+        dummy.rotation.set(0,yaw,0);
+        dummy.scale.set(width,height,depth);
+        dummy.updateMatrix();
+        buildingBodies.setMatrixAt(buildingUsed,dummy.matrix);
+
+        let roofHeight=1.4+r01(i+99+v,cx+cz)*1.3;
+        let roofScale=Math.max(width,depth)*0.72;
+        dummy.position.set(wx,wy+height+roofHeight*0.5,wz);
+        dummy.rotation.set(0,yaw+Math.PI*0.25,0);
+        dummy.scale.set(roofScale,roofHeight,roofScale);
+        dummy.updateMatrix();
+        buildingRoofs.setMatrixAt(buildingUsed,dummy.matrix);
+
+        // Details: front door, four windows, and a roof chimney.
+        let fwdX=Math.sin(yaw),fwdZ=Math.cos(yaw);
+        let rightX=Math.cos(yaw),rightZ=-Math.sin(yaw);
+        let frontX=wx+fwdX*(depth*0.5+0.02);
+        let frontZ=wz+fwdZ*(depth*0.5+0.02);
+
+        if(doorUsed<maxBuildings){
+          dummy.position.set(frontX,wy+1.45,frontZ);
+          dummy.rotation.set(0,yaw,0);
+          dummy.scale.set(Math.max(1.0,width*0.14),2.8,0.35);
+          dummy.updateMatrix();
+          buildingDoors.setMatrixAt(doorUsed,dummy.matrix);
+          doorUsed++;
+        }
+
+        if(porchUsed<maxBuildings){
+          dummy.position.set(frontX,wy+0.25,frontZ);
+          dummy.rotation.set(0,yaw,0);
+          dummy.scale.set(Math.max(1.8,width*0.3),0.45,1.1);
+          dummy.updateMatrix();
+          buildingPorches.setMatrixAt(porchUsed,dummy.matrix);
+          porchUsed++;
+        }
+
+        if(trimUsed<maxBuildings*2){
+          dummy.position.set(wx,wy+height+0.05,wz);
+          dummy.rotation.set(0,yaw,0);
+          dummy.scale.set(width*1.02,0.24,depth*1.02);
+          dummy.updateMatrix();
+          buildingTrims.setMatrixAt(trimUsed,dummy.matrix);
+          trimUsed++;
+        }
+        if(trimUsed<maxBuildings*2){
+          dummy.position.set(wx,wy+0.35,wz);
+          dummy.rotation.set(0,yaw,0);
+          dummy.scale.set(width*1.03,0.24,depth*1.03);
+          dummy.updateMatrix();
+          buildingTrims.setMatrixAt(trimUsed,dummy.matrix);
+          trimUsed++;
+        }
+
+        for(let w=0;w<6 && windowUsed<maxBuildings*8;w++){
+          let side=(w%2===0?-1:1);
+          let row=(w<2?0:(w<4?1:2));
+          let lift=height*(0.46+row*0.2);
+          let lateral=(width*0.22)*side;
+          dummy.position.set(
+            frontX+rightX*lateral,
+            wy+lift,
+            frontZ+rightZ*lateral
+          );
+          dummy.rotation.set(0,yaw,0);
+          dummy.scale.set(Math.max(0.9,width*0.13),1.1,0.2);
+          dummy.updateMatrix();
+          buildingWindows.setMatrixAt(windowUsed,dummy.matrix);
+          windowUsed++;
+        }
+
+        // Side windows (two per side) to avoid flat facades.
+        for(let sideSign of [-1,1]){
+          for(let row=0;row<2 && windowUsed<maxBuildings*8;row++){
+            let sideX=wx+rightX*(width*0.5+0.05)*sideSign;
+            let sideZ=wz+rightZ*(width*0.5+0.05)*sideSign;
+            let along=(row===0?-depth*0.18:depth*0.18);
+            dummy.position.set(
+              sideX+fwdX*along,
+              wy+height*(0.52+row*0.18),
+              sideZ+fwdZ*along
+            );
+            dummy.rotation.set(0,yaw+Math.PI*0.5,0);
+            dummy.scale.set(Math.max(0.85,depth*0.11),0.95,0.2);
+            dummy.updateMatrix();
+            buildingWindows.setMatrixAt(windowUsed,dummy.matrix);
+            windowUsed++;
+          }
+        }
+
+        if(chimneyUsed<maxBuildings){
+          dummy.position.set(
+            wx+rightX*(width*0.22)-fwdX*(depth*0.15),
+            wy+height+roofHeight*0.7,
+            wz+rightZ*(width*0.22)-fwdZ*(depth*0.15)
+          );
+          dummy.rotation.set(0,yaw,0);
+          dummy.scale.set(0.6,1.6,0.6);
+          dummy.updateMatrix();
+          buildingChimneys.setMatrixAt(chimneyUsed,dummy.matrix);
+          chimneyUsed++;
+        }
+
+        placed.push({x:wx,z:wz,r:minGap*0.5});
+
+        buildingUsed++;
+      }
+    }
+
+    buildingBodies.count=buildingUsed;
+    buildingRoofs.count=buildingUsed;
+    buildingWindows.count=windowUsed;
+    buildingDoors.count=doorUsed;
+    buildingChimneys.count=chimneyUsed;
+    buildingTrims.count=trimUsed;
+    buildingPorches.count=porchUsed;
+    villageWalls.count=wallUsed;
+    buildingBodies.instanceMatrix.needsUpdate=true;
+    buildingRoofs.instanceMatrix.needsUpdate=true;
+    buildingWindows.instanceMatrix.needsUpdate=true;
+    buildingDoors.instanceMatrix.needsUpdate=true;
+    buildingChimneys.instanceMatrix.needsUpdate=true;
+    buildingTrims.instanceMatrix.needsUpdate=true;
+    buildingPorches.instanceMatrix.needsUpdate=true;
+    villageWalls.instanceMatrix.needsUpdate=true;
+    scene.add(buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls);
+
+    if(gasStationTemplate && gasStationSpawn && !gasStationBlocked(gasStationSpawn,colliders)){
+      let station=cloneGasStation();
+      if(station){
+        station.position.set(gasStationSpawn.x,gasStationSpawn.y,gasStationSpawn.z);
+        station.rotation.y=gasStationSpawn.yaw;
+        scene.add(station);
+        gasStations.push(station);
+        colliders.push({x:gasStationSpawn.x,z:gasStationSpawn.z,r:gasStationSpawn.r});
+        gasStationAdded=true;
+      }
+    }else if(gasStationTemplate && gasStationSpawn){
+      gasStationSpawn=null;
+      gasStationAdded=true;
+    }
+
+    if(garageTemplate && garageSpawn && !gasStationBlocked(garageSpawn,colliders)){
+      let garage=cloneGarage();
+      if(garage){
+        garage.position.set(garageSpawn.x,garageSpawn.y,garageSpawn.z);
+        garage.rotation.y=garageSpawn.yaw;
+        scene.add(garage);
+        garages.push(garage);
+        colliders.push({x:garageSpawn.x,z:garageSpawn.z,r:garageSpawn.r});
+        garageAdded=true;
+      }
+    }else if(garageTemplate && garageSpawn){
+      garageSpawn=null;
+      garageAdded=true;
+    }
+
+    let herdChance=0.18;
+    if((rand(cx*421,cz*733)*0.5+0.5)<herdChance){
+      let herdRand=(a,b)=>rand(a,b)*0.5+0.5;
+      let centerZ=cz*chunkSize+(herdRand(cx*617,cz*1543)-.5)*chunkSize*0.78;
+      let side=herdRand(cx*271,cz*643)<0.5 ? -1 : 1;
+      let offset=58+herdRand(cx*1201,cz*811)*86;
+      let centerX=roadCenterX(centerZ)+side*offset;
+      let centerY=groundHeight(centerX,centerZ);
+      if(centerY<-12 || centerY>28){
+        centerX=roadCenterX(centerZ)-side*offset;
+        centerY=groundHeight(centerX,centerZ);
+      }
+      let herdSize=2+Math.floor(herdRand(cx*991,cz*379)*3);
+      let herdHeading=herdRand(cx*233,cz*887)*Math.PI*2;
+
+      if(centerY<-12 || centerY>28 || roadDistance(centerX,centerZ)<52){
+        herdSize=0;
+      }
+
+      for(let i=0;i<herdSize;i++){
+        let angle=herdRand(cx*1709+i*31,cz*1301-i*17)*Math.PI*2;
+        let radius=Math.sqrt(herdRand(cx*1877-i*11,cz*2221+i*13))*20;
+        let wx=centerX+Math.cos(angle)*radius;
+        let wz=centerZ+Math.sin(angle)*radius;
+        let wy=groundHeight(wx,wz);
+
+        if(wy<-12 || wy>28) continue;
+        if(roadDistance(wx,wz)<42) continue;
+        let blocked=false;
+        for(let obstacle of colliders){
+          let dx=wx-obstacle.x;
+          let dz=wz-obstacle.z;
+          let gap=obstacle.r+3.5;
+          if(dx*dx+dz*dz<gap*gap){
+            blocked=true;
+            break;
+          }
+        }
+        if(blocked) continue;
+
+        let collider={x:wx,z:wz,r:0.95};
+        let animal=makeSheep(wx,wz,cx*10000+cz*97+i*31,collider);
+        collider.r=animal.userData.size*1.55;
+        animal.userData.centerX=centerX;
+        animal.userData.centerZ=centerZ;
+        animal.userData.angle=herdHeading+(herdRand(cx*307+i*7,cz*509-i*5)-0.5)*0.5;
+        animal.userData.roamRadius=34+herdSize*4;
+        animal.rotation.y=animal.userData.angle-Math.PI/2;
+        sheep.push(animal);
+        colliders.push(collider);
+        scene.add(animal);
+      }
+    }
+
+    return {land,road,water,trunks,crowns,grasses,rocks,buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,gasStations,gasStationSpawn,gasStationAdded,garages,garageSpawn,garageAdded,sheep,colliders};
+  }
+
+  function updateChunks(){
+    let pcx=Math.floor(px/chunkSize);
+    let pcz=Math.floor(pz/chunkSize);
+
+    neededChunks.clear();
+    chunkQueue=[];
+
+    for(let x=-viewDistance;x<=viewDistance;x++){
+      for(let z=-viewDistance;z<=viewDistance;z++){
+        let cx=pcx+x;
+        let cz=pcz+z;
+        let key=chunkKey(cx,cz);
+
+        neededChunks.add(key);
+
+        if(!chunks.has(key)){
+          chunkQueue.push({cx,cz,key});
+        }
+      }
+    }
+
+    for(let [key,chunk] of chunks){
+      if(!neededChunks.has(key)){
+        scene.remove(
+          chunk.land,
+          chunk.road,
+          chunk.water,
+          chunk.trunks,
+          chunk.crowns,
+          chunk.grasses,
+          chunk.rocks,
+          chunk.buildingBodies,
+          chunk.buildingRoofs,
+          chunk.buildingWindows,
+          chunk.buildingDoors,
+          chunk.buildingChimneys,
+          chunk.buildingTrims,
+          chunk.buildingPorches,
+          chunk.villageWalls,
+          ...chunk.gasStations,
+          ...chunk.garages,
+          ...chunk.sheep
+        );
+
+        chunk.land.geometry.dispose();
+        chunk.road.geometry.dispose();
+        chunk.water.geometry.dispose();
+        chunk.trunks.dispose();
+        chunk.crowns.dispose();
+        chunk.grasses.dispose();
+        chunk.rocks.dispose();
+        chunk.buildingBodies.dispose();
+        chunk.buildingRoofs.dispose();
+        chunk.buildingWindows.dispose();
+        chunk.buildingDoors.dispose();
+        chunk.buildingChimneys.dispose();
+        chunk.buildingTrims.dispose();
+        chunk.buildingPorches.dispose();
+        chunk.villageWalls.dispose();
+
+        chunks.delete(key);
+      }
+    }
+  }
+
+  function processChunkQueue(){
+    let chunksPerFrame=1;
+
+    for(let i=0;i<chunksPerFrame && chunkQueue.length>0;i++){
+      let item=chunkQueue.shift();
+
+      if(!chunks.has(item.key)){
+        chunks.set(item.key,makeChunk(item.cx,item.cz));
+      }
+    }
+  }
+
+  let lastCX=999999,lastCZ=999999;
+
+  function loop(){
+    requestAnimationFrame(loop);
+
+    let prevX=carX;
+    let prevZ=carZ;
+    let prevY=carY;
+
+    // Car controls
+    let forward=0,turn=0;
+    if(!gameOver){
+      if(keys.w || keys.arrowup) forward=1;
+      if(keys.s || keys.arrowdown) forward=-1;
+      if(keys.a || keys.arrowleft) turn=1;
+      if(keys.d || keys.arrowright) turn=-1;
+    }
+
+    let roadDist=roadDistance(carX,carZ);
+    let localMaxSpeed=maxSpeedForRoadDistance(roadDist);
+
+    if(gameOver){
+      carSpeed=0;
+      carVy=0;
+    }else{
+      carSpeed=Math.max(-localMaxSpeed,Math.min(localMaxSpeed,carSpeed+forward*0.01));
+      carAngle+=turn*0.03;
+    }
+
+    // Drift: velocity angle lags behind steering angle
+    let angleDiff=carAngle-carVelAngle;
+    while(angleDiff>Math.PI) angleDiff-=Math.PI*2;
+    while(angleDiff<-Math.PI) angleDiff+=Math.PI*2;
+    let roadGrip=1-Math.min(1,Math.max(0,(roadDist-45)/80));
+    let speedRatio=Math.min(1,Math.abs(carSpeed)/roadMaxSpeed);
+    let speedDrift=speedRatio*speedRatio*(3-2*speedRatio);
+    let onRoadAlign=0.24-speedDrift*0.2;
+    let offRoadAlign=0.22;
+    let velocityAlign=offRoadAlign*(1-roadGrip)+onRoadAlign*roadGrip;
+    carVelAngle+=angleDiff*velocityAlign;
+
+    // Move in velocity direction (creates rear drift effect)
+    if(!gameOver){
+      carX+=Math.sin(carVelAngle)*carSpeed;
+      carZ+=Math.cos(carVelAngle)*carSpeed;
+    }
+
+    roadDist=roadDistance(carX,carZ);
+    localMaxSpeed=maxSpeedForRoadDistance(roadDist);
+    carSpeed=Math.max(-localMaxSpeed,Math.min(localMaxSpeed,carSpeed));
+
+    let surfaceY=carSurfaceHeight(carX,carZ);
+
+    // Stay near the road when close, but allow clean off-road movement
+    if(!gameOver && roadDist<60){
+      let t=1-roadDist/60;
+      t=t*t*(3-2*t);
+
+      let center=roadCenterX(carZ);
+      carX+=(center-carX)*0.02*t;
+      surfaceY=carSurfaceHeight(carX,carZ);
+    }
+
+    let aheadX=carX+Math.sin(carVelAngle)*6;
+    let aheadZ=carZ+Math.cos(carVelAngle)*6;
+    let aheadY=carSurfaceHeight(aheadX,aheadZ);
+    let slope=aheadY-surfaceY;
+
+    if(!gameOver && carY<=surfaceY+0.03 && carSpeed>1.15 && slope>3.5){
+      carVy=Math.max(carVy,slope*jumpSlopeBoost+jumpBaseBoost);
+    }
+
+    // Reduce velocity slightly on rough/off-road terrain so it doesn't jitter
+    if(!gameOver && roadDist>60){
+      carVelAngle+=Math.sin(carX*0.01+carZ*0.013)*0.003;
+      carSpeed*=0.985;
+    }
+
+    if(!gameOver) carVy-=gravityStrength;
+    let landingVy=carVy;
+    carY+=carVy;
+
+    if(carY<surfaceY){
+      if(!gameOver && landingVy<-0.9){
+        let landingDamage=landingDamageAmount(carX,carZ,-landingVy);
+        if(landingDamage>0) damageCar(landingDamage);
+      }
+      carY=surfaceY;
+      carVy=0;
+    }
+
+    if(!gameOver && collidesWithObstacles(carX,carZ)){
+      carX=prevX;
+      carZ=prevZ;
+      carY=prevY;
+      carSpeed*=0.15;
+      carVelAngle+=Math.PI*0.5;
+      damageCar(3);
+    }
+    if(healthDamageCooldown>0) healthDamageCooldown--;
+
+    // Emit dust when driving
+    let emitDust=carY<=surfaceY+0.1 && Math.abs(carSpeed)>0.1;
+    if(emitDust){
+      let dustAmount=Math.ceil(Math.abs(carSpeed)*6);
+      for(let i=0;i<dustAmount;i++){
+        let side=(i%2===0 ? -1 : 1);
+        let spread=(Math.random()-.5)*0.6;
+        let offsetX=carX-Math.sin(carVelAngle)*1.15+Math.cos(carVelAngle)*(side*1.05+spread);
+        let offsetZ=carZ-Math.cos(carVelAngle)*1.15-Math.sin(carVelAngle)*(side*1.05+spread);
+
+        spawnDustParticle(
+          offsetX,
+          surfaceY+0.4+Math.random()*0.3,
+          offsetZ,
+          (Math.random()-.5)*0.18,
+          (Math.random()-.5)*0.18,
+          Math.random()*1.8+0.9,
+          2.0+Math.random()*1.6,
+          0.22+Math.random()*0.22
+        );
+      }
+    }
+
+    // Update dust particles
+    for(let i=dustParticles.length-1;i>=0;i--){
+      let p=dustParticles[i];
+      p.age+=0.016;
+
+      p.px+=p.vx*0.016;
+      p.pz+=p.vz*0.016;
+      p.py+=p.vy*0.016;
+      p.vx*=0.995;
+      p.vz*=0.995;
+      p.vy-=0.018;
+
+      let t=Math.min(1,p.age/p.life);
+      let puff=p.baseSize*(1+t*2.4);
+      p.sprite.position.set(p.px,p.py,p.pz);
+      p.sprite.scale.set(puff,puff,puff);
+      p.sprite.material.opacity=Math.max(0,0.78*(1-t)*(1-t));
+
+      if(p.age>=p.life){
+        scene.remove(p.sprite);
+        p.sprite.material.dispose();
+        dustParticles.splice(i,1);
+      }
+    }
+
+    let pitchSampleDist=2.2;
+    let frontX=carX+Math.sin(carVelAngle)*pitchSampleDist;
+    let frontZ=carZ+Math.cos(carVelAngle)*pitchSampleDist;
+    let backX=carX-Math.sin(carVelAngle)*pitchSampleDist;
+    let backZ=carZ-Math.cos(carVelAngle)*pitchSampleDist;
+    let frontY=carSurfaceHeight(frontX,frontZ);
+    let backY=carSurfaceHeight(backX,backZ);
+    let targetPitch=-Math.atan2(frontY-backY,pitchSampleDist*2);
+    carPitch+=(targetPitch-carPitch)*0.18;
+
+    carGroup.position.set(carX,carY,carZ);
+    carGroup.rotation.y=carVelAngle;
+    carGroup.rotation.x=carPitch;
+
+    let shadowLift=Math.max(0,carY-surfaceY);
+    carShadowRoot.position.set(carX,surfaceY+0.16,carZ);
+    carShadowRoot.rotation.y=carVelAngle;
+    carShadow.material.opacity=Math.max(0.24,0.48-shadowLift*0.014);
+    let shadowScale=1+Math.min(0.55,shadowLift*0.025);
+    carShadow.scale.set(shadowScale,shadowScale,1);
+
+    // Third-person camera follow
+    let camDist=12;
+    let camHeight=6;
+    px=carX-Math.sin(carAngle)*camDist;
+    pz=carZ-Math.cos(carAngle)*camDist;
+    py=carY+camHeight;
+
+    let pcx=Math.floor(carX/chunkSize);
+    let pcz=Math.floor(carZ/chunkSize);
+
+    if(pcx!==lastCX || pcz!==lastCZ){
+      lastCX=pcx;
+      lastCZ=pcz;
+      updateChunks();
+    }
+
+    cam.position.set(px,py,pz);
+    cam.lookAt(carX,carY+1,carZ);
+
+    updateClouds();
+    updateSheep();
+    updateSpeedHud();
+    updateMapHud();
+    processChunkQueue();
+    renderer.render(scene,cam);
+  }
+
+  onresize=()=>{
+    cam.aspect=innerWidth/innerHeight;
+    cam.updateProjectionMatrix();
+    renderer.setSize(innerWidth,innerHeight);
+  };
+
+   // Initialize car
+   loadCarModel()
+     .then(model=>{
+       carGroup.clear();
+       carGroup.add(model);
+     })
+     .catch(error=>{
+       console.error("Failed to load Tinkercad car model:",error);
+       carGroup.clear();
+       carGroup.add(makeFallbackCarModel());
+     });
+   loadGasStationModel()
+     .then(model=>{
+       gasStationTemplate=model;
+       addGasStationsToExistingChunks();
+     })
+     .catch(error=>{
+       console.error("Failed to load gas station model:",error);
+     });
+   loadGarageModel()
+     .then(model=>{
+       garageTemplate=model;
+       addGaragesToExistingChunks();
+     })
+     .catch(error=>{
+       console.error("Failed to load garage model:",error);
+     });
+   carX=0;
+   carZ=0;
+   carY=carSurfaceHeight(carX,carZ);
+
+
+   makeHealthHud();
+   makeSpeedHud();
+   makeMapHud();
+   makeGameOverOverlay();
+   updateChunks();
+   makeClouds();
+   loop();
+</script></body>
