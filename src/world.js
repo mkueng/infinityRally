@@ -82,6 +82,8 @@ function collidesWithObstacles(x,z){
       if(!chunk || !chunk.colliders) continue;
 
       for(let obstacle of chunk.colliders){
+        if(obstacle.type==="smallRock") continue;
+
         let ox=obstacle.x;
         let oz=obstacle.z;
         let r=obstacle.r+carRadius;
@@ -298,7 +300,7 @@ function makeChunk(cx,cz){
     if(centerY<-15 || centerY>32) continue;
     if(roadDistance(centerX,centerZ)<70) continue;
 
-    colliders.push({x:centerX,z:centerZ,r:6});
+    colliders.push({x:centerX,z:centerZ,r:6,type:"treeCluster"});
 
     for(let i=0;i<treesPerCluster;i++){
       let a=rand(cx*999+c*17+i,cz*777-i)*Math.PI*2;
@@ -311,7 +313,7 @@ function makeChunk(cx,cz){
       if(wy<-15 || wy>32) continue;
       if(roadDistance(wx,wz)<45) continue;
 
-      colliders.push({x:wx,z:wz,r:2.4});
+      colliders.push({x:wx,z:wz,r:2.4,type:"tree"});
 
       let scale=.55+rand(i+cx+c,cz-i)*.9;
       let rot=rand(i,cx+cz+c)*Math.PI*2;
@@ -406,7 +408,12 @@ function makeChunk(cx,cz){
     if(wy<-18) continue;
     if(roadDistance(wx,wz)<40) continue;
 
-    colliders.push({x:wx,z:wz,r:2.1+scale*0.55});
+    colliders.push({
+      x:wx,
+      z:wz,
+      r:2.1+scale*0.55,
+      type:scale<1.65 ? "smallRock" : "rock"
+    });
 
 
     dummy.position.set(wx,wy+scale*.5,wz);
@@ -487,7 +494,7 @@ function makeChunk(cx,cz){
       villageWalls.setMatrixAt(wallUsed,dummy.matrix);
       wallUsed++;
 
-      colliders.push({x:wx,z:wz,r:Math.max(1.2,segLen*0.32)});
+      colliders.push({x:wx,z:wz,r:Math.max(1.2,segLen*0.32),type:"wall"});
     }
 
     for(let i=0;i<housesInVillage && buildingUsed<maxBuildings;i++){
@@ -519,7 +526,7 @@ function makeChunk(cx,cz){
       }
       if(tooClose) continue;
 
-      colliders.push({x:wx,z:wz,r:Math.max(width,depth)*0.62});
+      colliders.push({x:wx,z:wz,r:Math.max(width,depth)*0.78,type:"building"});
 
       let yaw=r01(i+v*13,cx-cz)*Math.PI*2;
       dummy.position.set(wx,wy+height*0.5,wz);
@@ -657,7 +664,7 @@ function makeChunk(cx,cz){
       station.rotation.y=gasStationSpawn.yaw;
       scene.add(station);
       gasStations.push(station);
-      colliders.push({x:gasStationSpawn.x,z:gasStationSpawn.z,r:gasStationSpawn.r});
+      colliders.push({x:gasStationSpawn.x,z:gasStationSpawn.z,r:gasStationSpawn.r,type:"gasStation"});
       gasStationAdded=true;
     }
   }else if(gasStationTemplate && gasStationSpawn){
@@ -672,7 +679,7 @@ function makeChunk(cx,cz){
       garage.rotation.y=garageSpawn.yaw;
       scene.add(garage);
       garages.push(garage);
-      colliders.push({x:garageSpawn.x,z:garageSpawn.z,r:garageSpawn.r});
+      colliders.push({x:garageSpawn.x,z:garageSpawn.z,r:garageSpawn.r,type:"garage"});
       garageAdded=true;
     }
   }else if(garageTemplate && garageSpawn){
@@ -720,9 +727,9 @@ function makeChunk(cx,cz){
       }
       if(blocked) continue;
 
-      let collider={x:wx,z:wz,r:0.95};
+      let collider={x:wx,z:wz,r:1.85,type:"sheep"};
       let animal=makeSheep(wx,wz,cx*10000+cz*97+i*31,collider);
-      collider.r=animal.userData.size*1.55;
+      collider.r=Math.max(1.85,animal.userData.size*2.2);
       animal.userData.centerX=centerX;
       animal.userData.centerZ=centerZ;
       animal.userData.angle=herdHeading+(herdRand(cx*307+i*7,cz*509-i*5)-0.5)*0.5;

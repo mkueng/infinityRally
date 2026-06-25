@@ -4,7 +4,7 @@ import { carSurfaceHeight, maxSpeedForRoadDistance, roadCenterX, roadDistance } 
 import { createInput } from "./input.js";
 import { createHud } from "./hud.js";
 import { createBirds, createCarShadow, createClouds, createDust } from "./effects.js";
-import { createWorld } from "./world.js";
+import { createWorld } from "./world.js?v=blocking-colliders";
 import { loadCarModel, loadGarageModel, loadGasStationModel, makeFallbackCarModel } from "./models.js?v=cars-folder";
 import { updateSheep } from "./sheep.js";
 import { makeSkyTexture } from "./textures.js";
@@ -189,6 +189,31 @@ function collidesWithOtherCars(car,nextX,nextZ){
   return null;
 }
 
+function movementCollision(car,fromX,fromZ,toX,toZ){
+  let dx=toX-fromX;
+  let dz=toZ-fromZ;
+  let distance=Math.hypot(dx,dz);
+  let steps=Math.max(1,Math.min(24,Math.ceil(distance/0.45)));
+  let safeX=fromX;
+  let safeZ=fromZ;
+
+  for(let i=1;i<=steps;i++){
+    let t=i/steps;
+    let x=fromX+dx*t;
+    let z=fromZ+dz*t;
+    let otherCar=collidesWithOtherCars(car,x,z);
+
+    if(world.collidesWithObstacles(x,z) || otherCar){
+      return {hit:true,otherCar,safeX,safeZ};
+    }
+
+    safeX=x;
+    safeZ=z;
+  }
+
+  return {hit:false,otherCar:null,safeX:toX,safeZ:toZ};
+}
+
 function settleTrickAngle(value,amount){
   return value+normalizeAngle(-value)*amount;
 }
@@ -335,14 +360,16 @@ function updateCar(car){
     car.vy=0;
   }
 
-  let otherCar=collidesWithOtherCars(car,car.x,car.z);
-  if(!gameOver && !carDisabled && (world.collidesWithObstacles(car.x,car.z) || otherCar)){
-    car.x=prevX;
-    car.z=prevZ;
+  let collision=movementCollision(car,prevX,prevZ,car.x,car.z);
+  if(!gameOver && !carDisabled && collision.hit){
+    car.x=collision.safeX;
+    car.z=collision.safeZ;
     car.y=prevY;
     car.speed*=0.15;
-    car.velAngle+=otherCar ? Math.PI*0.35 : Math.PI*0.5;
-    damageCar(car,otherCar ? 1 : 3);
+    car.velAngle+=collision.otherCar ? Math.PI*0.35 : Math.PI*0.5;
+    damageCar(car,collision.otherCar ? 1 : 3);
+    surfaceY=carSurfaceHeight(car.x,car.z);
+    if(car.y<surfaceY) car.y=surfaceY;
   }
 
   let emitDust=!carDisabled && car.y<=surfaceY+0.1 && Math.abs(car.speed)>0.1;
