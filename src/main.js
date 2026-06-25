@@ -24,7 +24,7 @@ let sun=new THREE.DirectionalLight(0xffffff,2.15);
 sun.position.set(4,7,2.5);
 scene.add(sun);
 
-let keys=createInput();
+let input=createInput();
 let px=0,py=20,pz=0;
 let gameOver=false;
 let healthDamageCooldown=0;
@@ -72,7 +72,7 @@ function updateCameraProjection(){
 }
 updateCameraProjection();
 
-function createCarState(id,lateralOffset,controls,camera){
+function createCarState(id,lateralOffset,controls,camera,gamepadIndex){
   let group=new THREE.Group();
   group.rotation.order="YXZ";
   scene.add(group);
@@ -80,6 +80,7 @@ function createCarState(id,lateralOffset,controls,camera){
   return {
     id,
     controls,
+    gamepadIndex,
     camera,
     cameraYaw:0,
     group,
@@ -97,8 +98,8 @@ function createCarState(id,lateralOffset,controls,camera){
   };
 }
 
-let playerCar=createCarState("car1",-4.2,{up:"w",down:"s",left:"a",right:"d"},playerCamera);
-let secondCar=createCarState("car2",4.2,{up:"arrowup",down:"arrowdown",left:"arrowleft",right:"arrowright"},secondCamera);
+let playerCar=createCarState("car1",-4.2,{up:"w",down:"s",left:"a",right:"d"},playerCamera,0);
+let secondCar=createCarState("car2",4.2,{up:"arrowup",down:"arrowdown",left:"arrowleft",right:"arrowright"},secondCamera,1);
 cars=[playerCar,secondCar];
 
 let world=createWorld(scene);
@@ -153,10 +154,18 @@ function controlsFor(car){
   let turn=0;
 
   if(!gameOver){
-    if(keys[car.controls.up]) forward=1;
-    if(keys[car.controls.down]) forward=-1;
-    if(keys[car.controls.left]) turn=1;
-    if(keys[car.controls.right]) turn=-1;
+    if(input.keys[car.controls.up]) forward=1;
+    if(input.keys[car.controls.down]) forward=-1;
+    if(input.keys[car.controls.left]) turn=1;
+    if(input.keys[car.controls.right]) turn=-1;
+
+    let gamepadControls=input.getGamepadControls(car.gamepadIndex);
+    if(Math.abs(gamepadControls.forward)>Math.abs(forward)){
+      forward=gamepadControls.forward;
+    }
+    if(Math.abs(gamepadControls.turn)>Math.abs(turn)){
+      turn=-gamepadControls.turn;
+    }
   }
 
   return {forward,turn};
@@ -191,11 +200,12 @@ function updateCar(car){
     let grip=1-clamp((roadDist-42)/95,0,1);
     let throttle=forward>0;
     let brakeOrReverse=forward<0;
+    let throttlePower=Math.abs(forward);
 
     if(throttle){
-      car.speed+=0.018*(1-speedRatio*0.42);
+      car.speed+=0.018*throttlePower*(1-speedRatio*0.42);
     }else if(brakeOrReverse){
-      car.speed+=car.speed>0.08 ? -0.04 : -0.014;
+      car.speed+=(car.speed>0.08 ? -0.04 : -0.014)*throttlePower;
     }else{
       car.speed*=grip>0.45 ? 0.992 : 0.982;
       if(Math.abs(car.speed)<0.004) car.speed=0;
