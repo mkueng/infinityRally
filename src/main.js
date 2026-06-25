@@ -1,10 +1,11 @@
 import { THREE } from "./three.js";
 import { gravityStrength, jumpBaseBoost, jumpSlopeBoost, roadMaxSpeed, chunkSize } from "./constants.js";
-import { carSurfaceHeight, maxSpeedForRoadDistance, roadCenterX, roadDistance } from "./terrain.js";
+import { carSurfaceHeight, groundHeight, maxSpeedForRoadDistance, roadCenterX, roadDistance } from "./terrain.js?v=no-ramps";
 import { createInput } from "./input.js";
 import { createHud } from "./hud.js";
-import { createBirds, createCarShadow, createClouds, createDust } from "./effects.js";
-import { createWorld } from "./world.js?v=blocking-colliders";
+import { createBirds, createCarShadow, createClouds, createDust, createWheelTracks } from "./effects.js";
+import { createWorld } from "./world.js?v=no-ramps";
+import { createMotorAudio } from "./audio.js?v=airborne-rev-audio";
 import { loadCarModel, loadGarageModel, loadGasStationModel, makeFallbackCarModel } from "./models.js?v=cars-folder";
 import { updateSheep } from "./sheep.js";
 import { makeSkyTexture } from "./textures.js";
@@ -31,9 +32,19 @@ let healthDamageCooldown=0;
 let cameraFollowDistance=18;
 let cameraFollowHeight=7.5;
 let cars=[];
+let waterLevel=-20;
 
 function clamp(value,min,max){
   return Math.max(min,Math.min(max,value));
+}
+
+function waterDepthAt(x,z){
+  return waterLevel-groundHeight(x,z);
+}
+
+function drivingSurfaceHeight(x,z){
+  let surfaceY=carSurfaceHeight(x,z);
+  return waterDepthAt(x,z)>0.15 ? Math.max(surfaceY,waterLevel-0.34) : surfaceY;
 }
 
 function normalizeAngle(angle){
@@ -91,6 +102,11 @@ function createCarState(id,lateralOffset,controls,camera,gamepadIndex){
     angle:0,
     velAngle:0,
     speed:0,
+    throttleInput:0,
+    surfaceDistance:0,
+    slipAmount:0,
+    onGround:false,
+    airborne:false,
     vy:0,
     pitch:0,
     trickPitch:0,
@@ -113,6 +129,8 @@ let world=createWorld(scene);
 let clouds=createClouds(scene,()=>({carX:playerCar.x,carZ:playerCar.z}));
 let birds=createBirds(scene,()=>({carX:playerCar.x,carZ:playerCar.z}));
 let dust=createDust(scene);
+let wheelTracks=createWheelTracks(scene);
+let motorAudio=createMotorAudio(cars);
 let hud=createHud({
   getCarStates:()=>cars.map(car=>({
     id:car.id,
@@ -269,12 +287,14 @@ function updateCar(car){
   let prevZ=car.z;
   let prevY=car.y;
   let {forward,turn}=controlsFor(car);
+  car.throttleInput=forward;
   let roadDist=roadDistance(car.x,car.z);
   let localMaxSpeed=maxSpeedForRoadDistance(roadDist);
   let carDisabled=car.health<=0;
 
   if(gameOver || carDisabled){
     car.speed=0;
+    car.slipAmount=0;
     car.vy=0;
   }else{
     let speedAbs=Math.abs(car.speed);
@@ -305,6 +325,7 @@ function updateCar(car){
     let slipAngle=Math.abs(angleDiff);
     let brakingSlide=brakeOrReverse && speedAbs>0.45 ? 0.052 : 0;
     let throttleSlide=throttle && turn!==0 && speedAbs>0.55 ? 0.052 : 0;
+    car.slipAmount=clamp(slipAngle*speedRatio*2.6+(brakingSlide+throttleSlide)*3.2,0,1);
     let surfaceAlign=(0.072+grip*0.095)-speedRatio*0.068-brakingSlide-throttleSlide;
     let velocityAlign=clamp(surfaceAlign,0.022,0.155);
     car.velAngle+=angleDiff*velocityAlign;
@@ -319,10 +340,11 @@ function updateCar(car){
   }
 
   roadDist=roadDistance(car.x,car.z);
+  car.surfaceDistance=roadDist;
   localMaxSpeed=maxSpeedForRoadDistance(roadDist);
   car.speed=Math.max(-localMaxSpeed,Math.min(localMaxSpeed,car.speed));
 
-  let surfaceY=carSurfaceHeight(car.x,car.z);
+  let surfaceY=drivingSurfaceHeight(car.x,car.z);
 
   if(!gameOver && !carDisabled && roadDist<60 && Math.abs(car.speed)>0.05){
     let t=1-roadDist/60;
@@ -330,12 +352,12 @@ function updateCar(car){
 
     let center=roadCenterX(car.z);
     car.x+=(center-car.x)*0.006*t;
-    surfaceY=carSurfaceHeight(car.x,car.z);
+    surfaceY=drivingSurfaceHeight(car.x,car.z);
   }
 
   let aheadX=car.x+Math.sin(car.velAngle)*6;
   let aheadZ=car.z+Math.cos(car.velAngle)*6;
-  let aheadY=carSurfaceHeight(aheadX,aheadZ);
+  let aheadY=drivingSurfaceHeight(aheadX,aheadZ);
   let slope=aheadY-surfaceY;
 
   if(!gameOver && !carDisabled && car.y<=surfaceY+0.03 && car.speed>1.15 && slope>3.5){
@@ -345,6 +367,11 @@ function updateCar(car){
   if(!gameOver && !carDisabled && roadDist>60){
     car.velAngle+=Math.sin(car.x*0.01+car.z*0.013)*0.0018;
     car.speed*=0.992;
+  }
+
+  let waterDrag=clamp(waterDepthAt(car.x,car.z)/3.5,0,1);
+  if(!gameOver && !carDisabled && waterDrag>0){
+    car.speed*=1-0.045*waterDrag;
   }
 
   if(!gameOver && !carDisabled) car.vy-=gravityStrength;
@@ -368,11 +395,16 @@ function updateCar(car){
     car.speed*=0.15;
     car.velAngle+=collision.otherCar ? Math.PI*0.35 : Math.PI*0.5;
     damageCar(car,collision.otherCar ? 1 : 3);
-    surfaceY=carSurfaceHeight(car.x,car.z);
+    surfaceY=drivingSurfaceHeight(car.x,car.z);
     if(car.y<surfaceY) car.y=surfaceY;
   }
 
-  let emitDust=!carDisabled && car.y<=surfaceY+0.1 && Math.abs(car.speed)>0.1;
+  let waterDepth=waterDepthAt(car.x,car.z);
+  let inWater=waterDepth>0.15 && car.y<=waterLevel+1.1;
+  let emitDust=!carDisabled && !inWater && car.y<=surfaceY+0.1 && Math.abs(car.speed)>0.1;
+  let emitSplash=!carDisabled && inWater && car.y<=waterLevel+1.1 && Math.abs(car.speed)>0.08;
+  car.onGround=car.y<=surfaceY+0.18;
+  wheelTracks.addCarTracks(car,surfaceY,inWater);
   if(emitDust){
     let dustAmount=Math.ceil(Math.abs(car.speed)*6);
     for(let i=0;i<dustAmount;i++){
@@ -393,8 +425,34 @@ function updateCar(car){
       );
     }
   }
+  if(emitSplash){
+    let speedAbs=Math.abs(car.speed);
+    let splashAmount=Math.ceil(speedAbs*18);
+    for(let i=0;i<splashAmount;i++){
+      let side=(i%2===0 ? -1 : 1);
+      let spread=(Math.random()-.5)*0.55;
+      let rear=1.15+Math.random()*1.3;
+      let lateral=side*(0.75+Math.random()*0.55)+spread;
+      let offsetX=car.x-Math.sin(car.velAngle)*rear+Math.cos(car.velAngle)*lateral;
+      let offsetZ=car.z-Math.cos(car.velAngle)*rear-Math.sin(car.velAngle)*lateral;
+      let wakePush=Math.max(0.22,speedAbs)*2.7;
+      let sideSpray=side*(0.7+Math.random()*1.2)*speedAbs;
+
+      dust.spawnSplashParticle(
+        offsetX,
+        waterLevel+0.08+Math.random()*0.12,
+        offsetZ,
+        -Math.sin(car.velAngle)*wakePush+Math.cos(car.velAngle)*sideSpray+(Math.random()-.5)*0.5,
+        -Math.cos(car.velAngle)*wakePush-Math.sin(car.velAngle)*sideSpray+(Math.random()-.5)*0.5,
+        3.2+Math.random()*3.8+speedAbs*0.9,
+        0.2+Math.random()*0.16,
+        0.035+Math.random()*0.055
+      );
+    }
+  }
 
   let airborne=car.y>surfaceY+0.35;
+  car.airborne=airborne;
   updateAirTricks(car,airborne);
 
   let pitchSampleDist=2.2;
@@ -402,8 +460,8 @@ function updateCar(car){
   let frontZ=car.z+Math.cos(car.angle)*pitchSampleDist;
   let backX=car.x-Math.sin(car.angle)*pitchSampleDist;
   let backZ=car.z-Math.cos(car.angle)*pitchSampleDist;
-  let frontY=carSurfaceHeight(frontX,frontZ);
-  let backY=carSurfaceHeight(backX,backZ);
+  let frontY=drivingSurfaceHeight(frontX,frontZ);
+  let backY=drivingSurfaceHeight(backX,backZ);
   let targetPitch=-Math.atan2(frontY-backY,pitchSampleDist*2);
   car.pitch+=(targetPitch-car.pitch)*0.18;
 
@@ -471,6 +529,7 @@ function loop(){
   if(healthDamageCooldown>0) healthDamageCooldown--;
 
   dust.update();
+  motorAudio.update();
   updateCameras();
 
   let chunkSignature=chunkSignatureForCars();
@@ -570,6 +629,11 @@ function placeCarOnRoad(car,z){
   car.angle=yaw;
   car.velAngle=yaw;
   car.speed=0;
+  car.throttleInput=0;
+  car.surfaceDistance=roadDistance(car.x,car.z);
+  car.slipAmount=0;
+  car.onGround=true;
+  car.airborne=false;
   car.vy=0;
   car.trickPitch=0;
   car.trickRoll=0;
@@ -577,7 +641,7 @@ function placeCarOnRoad(car,z){
   car.trickPitchVel=0;
   car.trickRollVel=0;
   car.trickYawVel=0;
-  car.y=carSurfaceHeight(car.x,car.z);
+  car.y=drivingSurfaceHeight(car.x,car.z);
   car.group.position.set(car.x,car.y,car.z);
   car.group.rotation.y=car.angle;
   car.group.rotation.x=0;

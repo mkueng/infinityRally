@@ -60,6 +60,10 @@ export function roadCenterX(z){
     + Math.sin(z*.013)*25;
 }
 
+export function roadYawAt(z){
+  return Math.atan2(roadCenterX(z+18)-roadCenterX(z-18),36);
+}
+
 export function roadDistance(x,z){
   return Math.abs(x-roadCenterX(z));
 }

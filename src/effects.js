@@ -288,7 +288,7 @@ export function createBirds(scene,getCarPosition){
 }
 
 export function createDust(scene){
-  let maxDustParticles=450;
+  let maxDustParticles=650;
   let dustParticles=[];
   let dustTexture=makeDustTexture();
   let dustBaseMaterial=new THREE.SpriteMaterial({
@@ -301,10 +301,11 @@ export function createDust(scene){
     fog:false
   });
 
-  function spawnDustParticle(px,py,pz,vx,vz,vy,life,size){
+  function spawnParticle(px,py,pz,vx,vz,vy,life,size,options={}){
     if(dustParticles.length>=maxDustParticles) return;
 
     let sprite=new THREE.Sprite(dustBaseMaterial.clone());
+    if(options.color) sprite.material.color.set(options.color);
     sprite.position.set(px,py,pz);
     sprite.scale.set(size,size,size);
     scene.add(sprite);
@@ -319,7 +320,25 @@ export function createDust(scene){
       vy,
       age:0,
       life,
-      baseSize:size
+      baseSize:size,
+      gravity:options.gravity ?? 0.018,
+      growth:options.growth ?? 2.4,
+      opacity:options.opacity ?? 0.78,
+      fadePower:options.fadePower ?? 2
+    });
+  }
+
+  function spawnDustParticle(px,py,pz,vx,vz,vy,life,size){
+    spawnParticle(px,py,pz,vx,vz,vy,life,size);
+  }
+
+  function spawnSplashParticle(px,py,pz,vx,vz,vy,life,size){
+    spawnParticle(px,py,pz,vx,vz,vy,life,size,{
+      color:0xbfefff,
+      gravity:0.18,
+      growth:0.18,
+      opacity:0.78,
+      fadePower:1.7
     });
   }
 
@@ -333,13 +352,13 @@ export function createDust(scene){
       p.py+=p.vy*0.016;
       p.vx*=0.995;
       p.vz*=0.995;
-      p.vy-=0.018;
+      p.vy-=p.gravity;
 
       let t=Math.min(1,p.age/p.life);
-      let puff=p.baseSize*(1+t*2.4);
+      let puff=p.baseSize*(1+t*p.growth);
       p.sprite.position.set(p.px,p.py,p.pz);
       p.sprite.scale.set(puff,puff,puff);
-      p.sprite.material.opacity=Math.max(0,0.78*(1-t)*(1-t));
+      p.sprite.material.opacity=Math.max(0,p.opacity*Math.pow(1-t,p.fadePower));
 
       if(p.age>=p.life){
         scene.remove(p.sprite);
@@ -349,5 +368,89 @@ export function createDust(scene){
     }
   }
 
-  return {spawnDustParticle,update};
+  return {spawnDustParticle,spawnSplashParticle,update};
+}
+
+export function createWheelTracks(scene){
+  let maxTracks=900;
+  let tracks=[];
+  let lastTrackByCar=new Map();
+  let trackGeo=new THREE.PlaneGeometry(0.34,1.18);
+  let trackTexture=makeTrackTexture();
+  let trackMat=new THREE.MeshBasicMaterial({
+    map:trackTexture,
+    color:0x1e1a16,
+    transparent:true,
+    opacity:0.38,
+    depthWrite:false,
+    depthTest:true,
+    polygonOffset:true,
+    polygonOffsetFactor:-2,
+    polygonOffsetUnits:-2
+  });
+
+  function makeTrackTexture(){
+    let canvas=document.createElement("canvas");
+    canvas.width=32;
+    canvas.height=96;
+    let ctx=canvas.getContext("2d");
+    let gradient=ctx.createLinearGradient(0,0,canvas.width,0);
+    gradient.addColorStop(0,"rgba(255,255,255,0)");
+    gradient.addColorStop(0.28,"rgba(255,255,255,0.55)");
+    gradient.addColorStop(0.5,"rgba(255,255,255,0.7)");
+    gradient.addColorStop(0.72,"rgba(255,255,255,0.55)");
+    gradient.addColorStop(1,"rgba(255,255,255,0)");
+    ctx.fillStyle=gradient;
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    let texture=new THREE.CanvasTexture(canvas);
+    texture.needsUpdate=true;
+    return texture;
+  }
+
+  function addTrack(x,y,z,angle,opacity,width,length){
+    let mesh=new THREE.Mesh(trackGeo,trackMat.clone());
+    mesh.material.opacity=opacity;
+    mesh.position.set(x,y+0.045,z);
+    mesh.rotation.order="YXZ";
+    mesh.rotation.set(-Math.PI/2,angle,0);
+    mesh.scale.set(width/0.34,length/1.18,1);
+    mesh.renderOrder=1;
+    scene.add(mesh);
+    tracks.push(mesh);
+
+    while(tracks.length>maxTracks){
+      let old=tracks.shift();
+      scene.remove(old);
+      old.material.dispose();
+    }
+  }
+
+  function addCarTracks(car,surfaceY,inWater){
+    let speed=Math.abs(car.speed || 0);
+    if(inWater || !car.onGround || speed<0.14 || car.health<=0) return;
+
+    let last=lastTrackByCar.get(car.id);
+    let dx=last ? car.x-last.x : Infinity;
+    let dz=last ? car.z-last.z : Infinity;
+    if(dx*dx+dz*dz<1.15*1.15) return;
+
+    lastTrackByCar.set(car.id,{x:car.x,z:car.z});
+
+    let offroad=Math.max(0,Math.min(1,((car.surfaceDistance || 0)-24)/70));
+    let slip=Math.max(0,Math.min(1,car.slipAmount || 0));
+    let opacity=0.16+offroad*0.12+slip*0.18;
+    let length=0.9+Math.min(0.55,speed*0.28)+slip*0.35;
+    let width=0.46+offroad*0.16+slip*0.14;
+    let rear=1.55;
+    let trackHalfWidth=1.08;
+
+    for(let side of [-1,1]){
+      let x=car.x-Math.sin(car.velAngle)*rear+Math.cos(car.velAngle)*side*trackHalfWidth;
+      let z=car.z-Math.cos(car.velAngle)*rear-Math.sin(car.velAngle)*side*trackHalfWidth;
+      addTrack(x,surfaceY,z,car.velAngle,opacity,width,length);
+    }
+  }
+
+  return {addCarTracks};
 }

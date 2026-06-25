@@ -1,6 +1,6 @@
 import { THREE } from "./three.js";
 import { carRadius, chunkSize, segments, viewDistance } from "./constants.js";
-import { groundHeight, rand, roadCenterX, roadDistance, roadHeight } from "./terrain.js";
+import { groundHeight, rand, roadCenterX, roadDistance, roadHeight, roadYawAt } from "./terrain.js?v=no-ramps";
 import { makeGroundTexture } from "./textures.js";
 import { makeSheep } from "./sheep.js";
 
@@ -40,8 +40,10 @@ let landMat=new THREE.MeshStandardMaterial({
 let waterMat=new THREE.MeshStandardMaterial({
   color:0x3366cc,
   transparent:true,
-  opacity:.45
+  opacity:.5,
+  depthWrite:false
 });
+let waterLevel=-20;
 
 let barkMat=new THREE.MeshStandardMaterial({color:0x5a321b});
 let leafMat=new THREE.MeshStandardMaterial({color:0x1f6b2a});
@@ -96,10 +98,6 @@ function collidesWithObstacles(x,z){
   }
 
   return false;
-}
-
-function roadYawAt(z){
-  return Math.atan2(roadCenterX(z+18)-roadCenterX(z-18),36);
 }
 
 function makeGasStationSpawn(cx,cz){
@@ -247,6 +245,10 @@ function makeChunk(cx,cz){
       h=rh*(1-t)+h*t;
     }
 
+    if(h<waterLevel){
+      h=Math.min(h,waterLevel-0.55);
+    }
+
     pos.setY(i,h);
 
     let color=new THREE.Color();
@@ -274,7 +276,8 @@ function makeChunk(cx,cz){
     waterMat
   );
   water.rotation.x=-Math.PI/2;
-  water.position.set(cx*chunkSize,-20,cz*chunkSize);
+  water.position.set(cx*chunkSize,waterLevel,cz*chunkSize);
+  water.renderOrder=2;
   scene.add(water);
 
   let clusterCount=2;
