@@ -738,33 +738,47 @@ function makeChunk(cx,cz){
   return {land,road,water,trunks,crowns,grasses,rocks,buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,gasStations,gasStationSpawn,gasStationAdded,garages,garageSpawn,garageAdded,sheep,colliders};
 }
 
-function updateChunks(px,pz){
-  let pcx=Math.floor(px/chunkSize);
-  let pcz=Math.floor(pz/chunkSize);
+function updateChunksForCenters(centers){
+  let chunkCenters=centers.map(center=>({
+    cx:Math.floor(center.x/chunkSize),
+    cz:Math.floor(center.z/chunkSize)
+  }));
 
   neededChunks.clear();
   chunkQueue=[];
+  let queuedChunks=new Set();
 
-  for(let x=-viewDistance;x<=viewDistance;x++){
-    for(let z=-viewDistance;z<=viewDistance;z++){
-      let cx=pcx+x;
-      let cz=pcz+z;
-      let key=chunkKey(cx,cz);
+  for(let center of chunkCenters){
+    for(let x=-viewDistance;x<=viewDistance;x++){
+      for(let z=-viewDistance;z<=viewDistance;z++){
+        let cx=center.cx+x;
+        let cz=center.cz+z;
+        let key=chunkKey(cx,cz);
 
-      neededChunks.add(key);
+        neededChunks.add(key);
 
-      if(!chunks.has(key)){
-        chunkQueue.push({cx,cz,key});
+        if(!chunks.has(key) && !queuedChunks.has(key)){
+          queuedChunks.add(key);
+          chunkQueue.push({cx,cz,key});
+        }
       }
     }
   }
 
   chunkQueue.sort((a,b)=>{
-    let adx=a.cx-pcx;
-    let adz=a.cz-pcz;
-    let bdx=b.cx-pcx;
-    let bdz=b.cz-pcz;
-    return adx*adx+adz*adz-(bdx*bdx+bdz*bdz);
+    let ad=Infinity;
+    let bd=Infinity;
+
+    for(let center of chunkCenters){
+      let adx=a.cx-center.cx;
+      let adz=a.cz-center.cz;
+      let bdx=b.cx-center.cx;
+      let bdz=b.cz-center.cz;
+      ad=Math.min(ad,adx*adx+adz*adz);
+      bd=Math.min(bd,bdx*bdx+bdz*bdz);
+    }
+
+    return ad-bd;
   });
 
   for(let [key,chunk] of chunks){
@@ -773,6 +787,10 @@ function updateChunks(px,pz){
       chunks.delete(key);
     }
   }
+}
+
+function updateChunks(px,pz){
+  updateChunksForCenters([{x:px,z:pz}]);
 }
 
 function disposeChunk(chunk){
@@ -815,21 +833,20 @@ function disposeChunk(chunk){
 }
 
 function processChunkQueue(){
-  if(removalQueue.length>0){
-    disposeChunk(removalQueue.shift());
+  if(chunkQueue.length>0){
+    let now=performance.now();
+    if(now-lastChunkBuildTime<35) return;
+    lastChunkBuildTime=now;
+
+    let item=chunkQueue.shift();
+
+    if(!chunks.has(item.key)){
+      chunks.set(item.key,makeChunk(item.cx,item.cz));
+    }
     return;
   }
 
-  if(chunkQueue.length===0) return;
-  let now=performance.now();
-  if(now-lastChunkBuildTime<35) return;
-  lastChunkBuildTime=now;
-
-  let item=chunkQueue.shift();
-
-  if(!chunks.has(item.key)){
-    chunks.set(item.key,makeChunk(item.cx,item.cz));
-  }
+  if(removalQueue.length>0) disposeChunk(removalQueue.shift());
 }
 
   return {
@@ -840,6 +857,7 @@ function processChunkQueue(){
     addGaragesToExistingChunks,
     collidesWithObstacles,
     updateChunks,
+    updateChunksForCenters,
     processChunkQueue
   };
 }

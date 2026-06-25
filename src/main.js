@@ -425,7 +425,13 @@ function renderSplitScreen(){
   renderer.render(scene,secondCamera);
 }
 
-let lastCX=999999,lastCZ=999999;
+let lastChunkSignature="";
+
+function chunkSignatureForCars(){
+  return cars
+    .map(car=>Math.floor(car.x/chunkSize)+","+Math.floor(car.z/chunkSize))
+    .join("|");
+}
 
 function loop(){
   requestAnimationFrame(loop);
@@ -437,13 +443,11 @@ function loop(){
   dust.update();
   updateCameras();
 
-  let pcx=Math.floor(px/chunkSize);
-  let pcz=Math.floor(pz/chunkSize);
+  let chunkSignature=chunkSignatureForCars();
 
-  if(pcx!==lastCX || pcz!==lastCZ){
-    lastCX=pcx;
-    lastCZ=pcz;
-    world.updateChunks(px,pz);
+  if(chunkSignature!==lastChunkSignature){
+    lastChunkSignature=chunkSignature;
+    world.updateChunksForCenters(cars.map(car=>({x:car.x,z:car.z})));
   }
 
   clouds.update();
@@ -557,7 +561,8 @@ secondCar.cameraYaw=secondCar.angle;
 updateCameras();
 
 hud.init();
-world.updateChunks(px,pz);
+lastChunkSignature=chunkSignatureForCars();
+world.updateChunksForCenters(cars.map(car=>({x:car.x,z:car.z})));
 clouds.makeClouds();
 birds.makeBirds();
 loop();

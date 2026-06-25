@@ -1,8 +1,8 @@
 export const jumpSlopeBoost=0.28;
 export const jumpBaseBoost=1.05;
-export const gravityStrength=0.05;
-export const roadMaxSpeed=1.6;
-export const offroadMaxSpeed=0.8;
+export const gravityStrength=0.03;
+export const roadMaxSpeed=2.2;
+export const offroadMaxSpeed=1.8;
 export const chunkSize=500;
 export const segments=64;
 export const viewDistance=9;
