@@ -1,15 +1,17 @@
 import { THREE } from "./three.js";
 import { carRadius, chunkSize, segments, viewDistance } from "./constants.js";
 import { groundHeight, rand, roadCenterX, roadDistance, roadHeight } from "./terrain.js";
-import { makeGroundTexture, makeRoadTexture } from "./textures.js";
+import { makeGroundTexture } from "./textures.js";
 import { makeSheep } from "./sheep.js";
 
 export function createWorld(scene){
   let chunkQueue=[];
+  let removalQueue=[];
   let neededChunks=new Set();
   let chunks=new Map();
   let gasStationTemplate=null;
   let garageTemplate=null;
+  let lastChunkBuildTime=0;
 
   function setGasStationTemplate(template){
     gasStationTemplate=template;
@@ -35,10 +37,6 @@ let landMat=new THREE.MeshStandardMaterial({
   roughness:0.8
 });
 
-let roadMat=new THREE.MeshStandardMaterial({
-  map:makeRoadTexture(),
-  roughness:1
-});
 let waterMat=new THREE.MeshStandardMaterial({
   color:0x3366cc,
   transparent:true,
@@ -267,28 +265,7 @@ function makeChunk(cx,cz){
   land.position.set(cx*chunkSize,0,cz*chunkSize);
   scene.add(land);
 
-  let roadGeo=new THREE.PlaneGeometry(chunkSize,chunkSize,segments,segments);
-  roadGeo.rotateX(-Math.PI/2);
-
-  let rpos=roadGeo.attributes.position;
-
-  for(let i=0;i<rpos.count;i++){
-    let wx=rpos.getX(i)+cx*chunkSize;
-    let wz=rpos.getZ(i)+cz*chunkSize;
-    let d=roadDistance(wx,wz);
-
-    if(d<19){
-      rpos.setY(i,roadHeight(wx,wz)+.12);
-    }else{
-      rpos.setY(i,-9999);
-    }
-  }
-
-  roadGeo.computeVertexNormals();
-
-  let road=new THREE.Mesh(roadGeo,roadMat);
-  road.position.set(cx*chunkSize,0,cz*chunkSize);
-  //scene.add(road);
+  let road=new THREE.Object3D();
 
   let water=new THREE.Mesh(
     new THREE.PlaneGeometry(chunkSize,chunkSize),
@@ -782,59 +759,76 @@ function updateChunks(px,pz){
     }
   }
 
+  chunkQueue.sort((a,b)=>{
+    let adx=a.cx-pcx;
+    let adz=a.cz-pcz;
+    let bdx=b.cx-pcx;
+    let bdz=b.cz-pcz;
+    return adx*adx+adz*adz-(bdx*bdx+bdz*bdz);
+  });
+
   for(let [key,chunk] of chunks){
     if(!neededChunks.has(key)){
-      scene.remove(
-        chunk.land,
-        chunk.road,
-        chunk.water,
-        chunk.trunks,
-        chunk.crowns,
-        chunk.grasses,
-        chunk.rocks,
-        chunk.buildingBodies,
-        chunk.buildingRoofs,
-        chunk.buildingWindows,
-        chunk.buildingDoors,
-        chunk.buildingChimneys,
-        chunk.buildingTrims,
-        chunk.buildingPorches,
-        chunk.villageWalls,
-        ...chunk.gasStations,
-        ...chunk.garages,
-        ...chunk.sheep
-      );
-
-      chunk.land.geometry.dispose();
-      chunk.road.geometry.dispose();
-      chunk.water.geometry.dispose();
-      chunk.trunks.dispose();
-      chunk.crowns.dispose();
-      chunk.grasses.dispose();
-      chunk.rocks.dispose();
-      chunk.buildingBodies.dispose();
-      chunk.buildingRoofs.dispose();
-      chunk.buildingWindows.dispose();
-      chunk.buildingDoors.dispose();
-      chunk.buildingChimneys.dispose();
-      chunk.buildingTrims.dispose();
-      chunk.buildingPorches.dispose();
-      chunk.villageWalls.dispose();
-
+      removalQueue.push(chunk);
       chunks.delete(key);
     }
   }
 }
 
+function disposeChunk(chunk){
+  scene.remove(
+    chunk.land,
+    chunk.road,
+    chunk.water,
+    chunk.trunks,
+    chunk.crowns,
+    chunk.grasses,
+    chunk.rocks,
+    chunk.buildingBodies,
+    chunk.buildingRoofs,
+    chunk.buildingWindows,
+    chunk.buildingDoors,
+    chunk.buildingChimneys,
+    chunk.buildingTrims,
+    chunk.buildingPorches,
+    chunk.villageWalls,
+    ...chunk.gasStations,
+    ...chunk.garages,
+    ...chunk.sheep
+  );
+
+  chunk.land.geometry.dispose();
+  if(chunk.road.geometry) chunk.road.geometry.dispose();
+  chunk.water.geometry.dispose();
+  chunk.trunks.dispose();
+  chunk.crowns.dispose();
+  chunk.grasses.dispose();
+  chunk.rocks.dispose();
+  chunk.buildingBodies.dispose();
+  chunk.buildingRoofs.dispose();
+  chunk.buildingWindows.dispose();
+  chunk.buildingDoors.dispose();
+  chunk.buildingChimneys.dispose();
+  chunk.buildingTrims.dispose();
+  chunk.buildingPorches.dispose();
+  chunk.villageWalls.dispose();
+}
+
 function processChunkQueue(){
-  let chunksPerFrame=1;
+  if(removalQueue.length>0){
+    disposeChunk(removalQueue.shift());
+    return;
+  }
 
-  for(let i=0;i<chunksPerFrame && chunkQueue.length>0;i++){
-    let item=chunkQueue.shift();
+  if(chunkQueue.length===0) return;
+  let now=performance.now();
+  if(now-lastChunkBuildTime<35) return;
+  lastChunkBuildTime=now;
 
-    if(!chunks.has(item.key)){
-      chunks.set(item.key,makeChunk(item.cx,item.cz));
-    }
+  let item=chunkQueue.shift();
+
+  if(!chunks.has(item.key)){
+    chunks.set(item.key,makeChunk(item.cx,item.cz));
   }
 }
 

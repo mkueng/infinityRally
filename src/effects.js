@@ -62,10 +62,23 @@ export function createClouds(scene,getCarPosition){
       let baseY=155+cloudRand(i*43,19)*210;
       let width=430+cloudRand(i*59,29)*520;
       let height=145+cloudRand(i*61,31)*155;
+      let windAngle=-0.45+cloudRand(i*73,47)*0.35;
+      let windSpeed=18+cloudRand(i*71,37)*16;
 
       cloud.position.set(baseX,baseY,baseZ);
       cloud.scale.set(width,height,1);
-      cloud.userData={baseX,baseZ,baseY,width,height,speed:2+cloudRand(i*71,37)*4};
+      cloud.userData={
+        baseX,
+        baseZ,
+        baseY,
+        width,
+        height,
+        windX:Math.cos(windAngle)*windSpeed,
+        windZ:Math.sin(windAngle)*windSpeed,
+        bobAmount:8+cloudRand(i*83,13)*18,
+        bobSpeed:0.08+cloudRand(i*97,23)*0.08,
+        phase:cloudRand(i*109,53)*Math.PI*2
+      };
       cloudGroup.add(cloud);
       cloudSprites.push(cloud);
     }
@@ -85,8 +98,13 @@ export function createClouds(scene,getCarPosition){
 
     for(let cloud of cloudSprites){
       let data=cloud.userData;
-      let x=wrapCloudCoord(data.baseX+cloudTime*data.speed,carX,range);
-      let z=wrapCloudCoord(data.baseZ+Math.sin(cloudTime*0.08+data.baseX)*45,carZ,range);
+      let x=wrapCloudCoord(data.baseX+cloudTime*data.windX,carX,range);
+      let z=wrapCloudCoord(
+        data.baseZ+cloudTime*data.windZ+Math.sin(cloudTime*0.12+data.phase)*55,
+        carZ,
+        range
+      );
+      let y=data.baseY+Math.sin(cloudTime*data.bobSpeed+data.phase)*data.bobAmount;
       let dx=x-carX;
       let dz=z-carZ;
       let minDist=850;
@@ -95,7 +113,7 @@ export function createClouds(scene,getCarPosition){
         x=carX+Math.cos(angle)*minDist;
         z=carZ+Math.sin(angle)*minDist;
       }
-      cloud.position.set(x,data.baseY,z);
+      cloud.position.set(x,y,z);
     }
   }
 

@@ -3,6 +3,7 @@ import { carSurfaceHeight, roadCenterX } from "./terrain.js";
 
 export function createHud({getCarState,getChunks}){
   let healthFill,healthLabel,healthHud,speedCanvas,speedCtx,speedLabel,speedHud,mapCanvas,mapCtx,mapHud,gameOverOverlay;
+  let mapUpdateFrame=0;
 
 function makeHealthHud(){
   healthHud=document.createElement("div");
@@ -177,7 +178,7 @@ function makeMapHud(){
   mapCtx=mapCanvas.getContext("2d");
   mapHud.appendChild(mapCanvas);
   document.body.appendChild(mapHud);
-  updateMapHud();
+  updateMapHud(true);
 }
 
 function mapToCanvas(wx,wz,cx,cz,radius,size){
@@ -187,8 +188,9 @@ function mapToCanvas(wx,wz,cx,cz,radius,size){
   };
 }
 
-function updateMapHud(){
+function updateMapHud(force=false){
   if(!mapCtx) return;
+  if(!force && mapUpdateFrame++%6!==0) return;
 
   let size=mapCanvas.width;
   let {carX,carZ,carVelAngle}=getCarState();
