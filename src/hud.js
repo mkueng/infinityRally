@@ -1,5 +1,5 @@
 import { chunkSize } from "./constants.js";
-import { carSurfaceHeight, roadCenterX } from "./terrain.js";
+import { carSurfaceHeight } from "./terrain.js";
 
 export function createHud({getCarStates,getChunks}){
   let panels=[];
@@ -215,53 +215,26 @@ export function createHud({getCarStates,getChunks}){
         let wx=centerX-radius+((gx+0.5)/cells)*radius*2;
         let wz=centerZ-radius+((gy+0.5)/cells)*radius*2;
         let h=carSurfaceHeight(wx,wz);
-        if(h>34) mapCtx.fillStyle="rgba(118,122,113,0.95)";
-        else if(h>22) mapCtx.fillStyle="rgba(88,106,80,0.95)";
-        else if(h>8) mapCtx.fillStyle="rgba(58,121,78,0.94)";
-        else if(h>-19) mapCtx.fillStyle="rgba(48,112,80,0.92)";
-        else mapCtx.fillStyle="rgba(55,101,128,0.9)";
+        if(h>34) mapCtx.fillStyle="rgba(63,52,86,0.96)";
+        else if(h>22) mapCtx.fillStyle="rgba(90,59,112,0.96)";
+        else if(h>8) mapCtx.fillStyle="rgba(139,56,82,0.95)";
+        else if(h>-19) mapCtx.fillStyle="rgba(111,45,70,0.94)";
+        else mapCtx.fillStyle="rgba(32,255,212,0.5)";
         mapCtx.fillRect(gx*cellSize,gy*cellSize,cellSize+1,cellSize+1);
       }
     }
 
-    mapCtx.strokeStyle="rgba(255,255,255,0.12)";
+    mapCtx.strokeStyle="rgba(141,255,242,0.22)";
     mapCtx.lineWidth=1;
     mapCtx.strokeRect(0.5,0.5,size-1,size-1);
 
-    mapCtx.lineCap="round";
-    mapCtx.lineJoin="round";
-    mapCtx.strokeStyle="rgba(94,72,47,0.92)";
-    mapCtx.lineWidth=5;
-    mapCtx.beginPath();
-    for(let i=0;i<=80;i++){
-      let z=centerZ-radius+(i/80)*radius*2;
-      let x=roadCenterX(z);
-      let p=mapToCanvas(x,z,centerX,centerZ,radius,size);
-      if(i===0) mapCtx.moveTo(p.x,p.y);
-      else mapCtx.lineTo(p.x,p.y);
-    }
-    mapCtx.stroke();
-
-    mapCtx.strokeStyle="rgba(218,196,145,0.9)";
-    mapCtx.lineWidth=1.3;
-    mapCtx.beginPath();
-    for(let i=0;i<=80;i++){
-      let z=centerZ-radius+(i/80)*radius*2;
-      let x=roadCenterX(z);
-      let p=mapToCanvas(x,z,centerX,centerZ,radius,size);
-      if(i===0) mapCtx.moveTo(p.x,p.y);
-      else mapCtx.lineTo(p.x,p.y);
-    }
-    mapCtx.stroke();
-
-    drawMapBuildings(mapCtx,centerX,centerZ,radius,size);
     drawOtherCars(mapCtx,state,states,centerX,centerZ,radius,size);
 
     mapCtx.save();
     mapCtx.translate(size*0.5,size*0.5);
     mapCtx.rotate(-state.carVelAngle+Math.PI);
     mapCtx.fillStyle=panel.color;
-    mapCtx.strokeStyle="white";
+    mapCtx.strokeStyle="rgba(141,255,242,0.95)";
     mapCtx.lineWidth=1.6;
     mapCtx.beginPath();
     mapCtx.moveTo(0,-7);
@@ -282,52 +255,10 @@ export function createHud({getCarStates,getChunks}){
       if(p.x<-8 || p.x>size+8 || p.y<-8 || p.y>size+8) continue;
 
       mapCtx.fillStyle=other.color;
-      mapCtx.strokeStyle="white";
+      mapCtx.strokeStyle="rgba(141,255,242,0.95)";
       mapCtx.lineWidth=1.5;
       mapCtx.beginPath();
       mapCtx.arc(p.x,p.y,4.5,0,Math.PI*2);
-      mapCtx.fill();
-      mapCtx.stroke();
-    }
-  }
-
-  function drawMapBuildings(mapCtx,centerX,centerZ,radius,size){
-    mapCtx.fillStyle="#f2d04e";
-    mapCtx.strokeStyle="rgba(20,28,34,0.82)";
-    mapCtx.lineWidth=1.3;
-    for(let chunk of getChunks().values()){
-      if(!chunk.gasStationAdded || !chunk.gasStationSpawn) continue;
-      let spawn=chunk.gasStationSpawn;
-      let p=mapToCanvas(spawn.x,spawn.z,centerX,centerZ,radius,size);
-      if(p.x<-8 || p.x>size+8 || p.y<-8 || p.y>size+8) continue;
-
-      mapCtx.beginPath();
-      mapCtx.rect(p.x-3.5,p.y-4.5,7,9);
-      mapCtx.fill();
-      mapCtx.stroke();
-      mapCtx.beginPath();
-      mapCtx.moveTo(p.x+3.5,p.y-2);
-      mapCtx.lineTo(p.x+6,p.y+1);
-      mapCtx.lineTo(p.x+6,p.y+4.5);
-      mapCtx.stroke();
-    }
-
-    mapCtx.fillStyle="#d9edf2";
-    mapCtx.strokeStyle="rgba(20,28,34,0.82)";
-    mapCtx.lineWidth=1.3;
-    for(let chunk of getChunks().values()){
-      if(!chunk.garageAdded || !chunk.garageSpawn) continue;
-      let spawn=chunk.garageSpawn;
-      let p=mapToCanvas(spawn.x,spawn.z,centerX,centerZ,radius,size);
-      if(p.x<-8 || p.x>size+8 || p.y<-8 || p.y>size+8) continue;
-
-      mapCtx.beginPath();
-      mapCtx.moveTo(p.x-4.5,p.y-1);
-      mapCtx.lineTo(p.x,p.y-5.5);
-      mapCtx.lineTo(p.x+4.5,p.y-1);
-      mapCtx.lineTo(p.x+4.5,p.y+4.5);
-      mapCtx.lineTo(p.x-4.5,p.y+4.5);
-      mapCtx.closePath();
       mapCtx.fill();
       mapCtx.stroke();
     }

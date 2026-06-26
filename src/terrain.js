@@ -82,14 +82,5 @@ export function roadHeight(x,z){
 }
 
 export function carSurfaceHeight(x,z){
-  let y=groundHeight(x,z);
-  let d=roadDistance(x,z);
-
-  if(d<60){
-    let t=1-d/60;
-    t=t*t*(3-2*t);
-    y=y*(1-t)+roadHeight(x,z)*t;
-  }
-
-  return y;
+  return groundHeight(x,z);
 }

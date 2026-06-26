@@ -142,6 +142,90 @@ export function loadGarageModel(){
   });
 }
 
+export function normalizeCarModel(car){
+  let model=new THREE.Group();
+  let asset=new THREE.Group();
+  car.rotation.x=-Math.PI/2;
+  asset.rotation.y=Math.PI/2;
+  asset.add(car);
+  model.add(asset);
+  model.updateMatrixWorld(true);
+
+  let box=new THREE.Box3().setFromObject(model);
+  let size=new THREE.Vector3();
+  let center=new THREE.Vector3();
+  box.getSize(size);
+  box.getCenter(center);
+
+  let scale=4.8/Math.max(size.x,size.z,0.001);
+  model.scale.setScalar(scale);
+  model.updateMatrixWorld(true);
+
+  box.setFromObject(model);
+  box.getCenter(center);
+  asset.position.x-=center.x/scale;
+  asset.position.z-=center.z/scale;
+  model.updateMatrixWorld(true);
+
+  box.setFromObject(model);
+  asset.position.y-=box.min.y/scale;
+
+  model.traverse(child=>{
+    if(child.isMesh){
+      child.castShadow=true;
+      child.receiveShadow=true;
+      if(child.geometry) child.geometry.computeVertexNormals();
+      if(child.material){
+        let materials=Array.isArray(child.material) ? child.material : [child.material];
+        for(let material of materials){
+          material.side=THREE.FrontSide;
+          material.roughness=material.roughness ?? 0.56;
+          material.metalness=material.metalness ?? 0.24;
+          if(material.name==="color_7720667"){
+            material.transparent=true;
+            material.opacity=0.46;
+            material.depthWrite=false;
+            material.roughness=0.14;
+            material.metalness=0.08;
+          }
+        }
+      }
+    }
+  });
+
+  model.position.y=0.04;
+  model.userData.baseY=model.position.y;
+  model.userData.baseScale=model.scale.clone();
+
+  return model;
+}
+
+export function loadCarModel(){
+  let mtlLoader=new MTLLoader();
+  mtlLoader.setPath("assets/cars/");
+
+  return new Promise((resolve,reject)=>{
+    mtlLoader.load(
+      "obj.mtl",
+      materials=>{
+        materials.preload();
+
+        let objLoader=new OBJLoader();
+        objLoader.setPath("assets/cars/");
+        objLoader.setMaterials(materials);
+        objLoader.load(
+          "tinker.obj",
+          object=>resolve(normalizeCarModel(object)),
+          undefined,
+          reject
+        );
+      },
+      undefined,
+      reject
+    );
+  });
+}
+
 export function makeMechModel(accentColor=0xb83a32){
   let mech=new THREE.Group();
   let walkParts={left:{},right:{}};

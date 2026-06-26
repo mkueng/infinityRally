@@ -6,7 +6,7 @@ import { createHud } from "./hud.js";
 import { createBirds, createCarShadow, createClouds, createDust, createWheelTracks } from "./effects.js?v=alien-planet-world";
 import { createWorld } from "./world.js?v=alien-planet";
 import { createMotorAudio } from "./audio.js?v=alien-planet-world";
-import { loadGarageModel, loadGasStationModel, makeMechModel } from "./models.js?v=walking-mech";
+import { loadCarModel, makeMechModel } from "./models.js?v=walking-mech";
 import { updateSheep } from "./sheep.js";
 import { makeSkyTexture } from "./textures.js?v=alien-planet";
 
@@ -37,7 +37,18 @@ let gameMode="single";
 let waterLevel=-20;
 let mechRoadMaxSpeed=0.38;
 let mechOffroadMaxSpeed=0.28;
+let mechAirMaxSpeed=0.9;
+let morphedCarSpeedMultiplier=3;
 let mechStrideLength=2.35;
+let rocketSpeed=1.75;
+let rocketCooldownFrames=34;
+let rockets=[];
+let rocketBodyGeo=new THREE.CylinderGeometry(0.11,0.13,0.8,12);
+let rocketNoseGeo=new THREE.ConeGeometry(0.16,0.34,12);
+let rocketFinGeo=new THREE.BoxGeometry(0.08,0.18,0.22);
+let rocketBodyMat=new THREE.MeshStandardMaterial({color:0x30363b,roughness:0.48,metalness:0.55});
+let rocketNoseMat=new THREE.MeshStandardMaterial({color:0xff6633,emissive:0x8f2108,emissiveIntensity:0.55,roughness:0.38,metalness:0.35});
+let rocketFlameMat=new THREE.MeshStandardMaterial({color:0xfff0a0,emissive:0xff7a12,emissiveIntensity:1.2,roughness:0.28});
 
 function clamp(value,min,max){
   return Math.max(min,Math.min(max,value));
@@ -125,6 +136,13 @@ function createCarState(id,lateralOffset,controls,camera,gamepadIndex){
     trickRollVel:0,
     trickYawVel:0,
     lastTrickButtons:{a:false,b:false,x:false,y:false},
+    lastMorphButton:false,
+    morphed:false,
+    morphProgress:0,
+    mechModel:null,
+    carModel:null,
+    lastRocketButton:false,
+    rocketCooldown:0,
     walkCycle:0,
     lastWalkX:0,
     lastWalkZ:0,
@@ -246,23 +264,171 @@ function movementCollision(car,fromX,fromZ,toX,toZ){
   return {hit:false,otherCar:null,safeX:toX,safeZ:toZ};
 }
 
+function makeRocketMesh(){
+  let group=new THREE.Group();
+
+  let body=new THREE.Mesh(rocketBodyGeo,rocketBodyMat);
+  body.rotation.x=Math.PI/2;
+  group.add(body);
+
+  let nose=new THREE.Mesh(rocketNoseGeo,rocketNoseMat);
+  nose.rotation.x=Math.PI/2;
+  nose.position.z=0.55;
+  group.add(nose);
+
+  let flame=new THREE.Mesh(rocketNoseGeo,rocketFlameMat);
+  flame.rotation.x=-Math.PI/2;
+  flame.position.z=-0.55;
+  flame.scale.set(0.72,0.72,0.72);
+  group.add(flame);
+
+  for(let side of [-1,1]){
+    let fin=new THREE.Mesh(rocketFinGeo,rocketNoseMat);
+    fin.position.set(side*0.16,-0.02,-0.26);
+    fin.rotation.z=side*0.2;
+    group.add(fin);
+  }
+
+  group.traverse(child=>{
+    if(child.isMesh){
+      child.castShadow=true;
+      child.receiveShadow=true;
+    }
+  });
+
+  return group;
+}
+
+function spawnRocketExplosion(x,y,z){
+  for(let i=0;i<24;i++){
+    let angle=Math.random()*Math.PI*2;
+    let speed=2.4+Math.random()*5.4;
+    dust.spawnThrusterParticle(
+      x,
+      y,
+      z,
+      Math.cos(angle)*speed,
+      Math.sin(angle)*speed,
+      1.4+Math.random()*4.2,
+      0.24+Math.random()*0.22,
+      0.12+Math.random()*0.12
+    );
+  }
+}
+
+function fireRocket(car){
+  if(gameOver || car.health<=0 || car.rocketCooldown>0) return;
+  if(car.morphed || car.morphProgress>0.22) return;
+
+  let mesh=makeRocketMesh();
+  let startX=car.x+Math.sin(car.angle)*2.35;
+  let startY=car.y+2.65;
+  let startZ=car.z+Math.cos(car.angle)*2.35;
+  mesh.position.set(startX,startY,startZ);
+  mesh.rotation.y=car.angle;
+  scene.add(mesh);
+
+  rockets.push({
+    owner:car,
+    mesh,
+    x:startX,
+    y:startY,
+    z:startZ,
+    angle:car.angle,
+    vx:Math.sin(car.angle)*rocketSpeed,
+    vz:Math.cos(car.angle)*rocketSpeed,
+    vy:0.015,
+    age:0,
+    life:115
+  });
+
+  car.rocketCooldown=rocketCooldownFrames;
+}
+
+function updateRocketInput(car){
+  if(car.rocketCooldown>0) car.rocketCooldown--;
+
+  let buttons=input.getGamepadFaceButtons(car.gamepadIndex);
+  let pressedB=buttons.b && !car.lastRocketButton;
+  if(pressedB) fireRocket(car);
+  car.lastRocketButton=buttons.b;
+}
+
+function removeRocket(index){
+  let rocket=rockets[index];
+  scene.remove(rocket.mesh);
+  rockets.splice(index,1);
+}
+
+function clearRockets(){
+  for(let rocket of rockets){
+    scene.remove(rocket.mesh);
+  }
+  rockets=[];
+}
+
+function updateRockets(){
+  for(let i=rockets.length-1;i>=0;i--){
+    let rocket=rockets[i];
+    rocket.age++;
+    rocket.x+=rocket.vx;
+    rocket.y+=rocket.vy;
+    rocket.z+=rocket.vz;
+    rocket.vy-=0.0015;
+    rocket.mesh.position.set(rocket.x,rocket.y,rocket.z);
+    rocket.mesh.rotation.y=rocket.angle;
+    rocket.mesh.rotation.z=Math.sin(rocket.age*0.45)*0.05;
+
+    if(rocket.age%2===0){
+      dust.spawnThrusterParticle(
+        rocket.x-Math.sin(rocket.angle)*0.62,
+        rocket.y,
+        rocket.z-Math.cos(rocket.angle)*0.62,
+        -Math.sin(rocket.angle)*2.4+(Math.random()-0.5)*0.8,
+        -Math.cos(rocket.angle)*2.4+(Math.random()-0.5)*0.8,
+        (Math.random()-0.5)*0.8,
+        0.18,
+        0.07+Math.random()*0.04
+      );
+    }
+
+    let surfaceY=drivingSurfaceHeight(rocket.x,rocket.z);
+    let hitCar=null;
+    if(rocket.age>4){
+      for(let car of activeCars()){
+        if(car===rocket.owner) continue;
+        let dx=rocket.x-car.x;
+        let dz=rocket.z-car.z;
+        if(dx*dx+dz*dz<4.2*4.2 && Math.abs(rocket.y-car.y)<4.2){
+          hitCar=car;
+          break;
+        }
+      }
+    }
+
+    let hit=rocket.y<=surfaceY+0.35 || world.collidesWithObstacles(rocket.x,rocket.z) || hitCar;
+
+    if(hit || rocket.age>rocket.life){
+      if(hit){
+        spawnRocketExplosion(rocket.x,Math.max(rocket.y,surfaceY+0.5),rocket.z);
+        if(hitCar) damageCar(hitCar,18);
+      }
+      removeRocket(i);
+    }
+  }
+}
+
 function settleTrickAngle(value,amount){
   return value+normalizeAngle(-value)*amount;
 }
 
 function updateAirTricks(car,airborne){
   let buttons=input.getGamepadFaceButtons(car.gamepadIndex);
-  let pressedA=buttons.a && !car.lastTrickButtons.a;
-  let pressedB=buttons.b && !car.lastTrickButtons.b;
   let pressedY=buttons.y && !car.lastTrickButtons.y;
 
   if(airborne && !gameOver && car.health>0){
-    if(pressedA) car.trickRollVel+=0.16;
-    if(pressedB) car.trickRollVel-=0.16;
     if(pressedY) car.trickPitchVel-=0.145;
 
-    if(buttons.a) car.trickRollVel+=0.0025;
-    if(buttons.b) car.trickRollVel-=0.0025;
     if(buttons.y) car.trickPitchVel-=0.002;
   }
 
@@ -293,17 +459,12 @@ function updateAirTricks(car,airborne){
   }
 }
 
-function updateGroundJump(car,surfaceY){
+function updateMorphInput(car){
   let buttons=input.getGamepadFaceButtons(car.gamepadIndex);
-  let pressedA=buttons.a && !car.lastTrickButtons.a;
-  let grounded=car.y<=surfaceY+0.08 && car.vy<=0.02;
+  let pressedA=buttons.a && !car.lastMorphButton;
 
-  if(pressedA && grounded && !gameOver && car.health>0){
-    car.vy=Math.max(car.vy,0.82);
-    car.y=surfaceY+0.06;
-    car.onGround=false;
-    car.lastTrickButtons={...car.lastTrickButtons,a:true};
-  }
+  if(pressedA && !gameOver && car.health>0) car.morphed=!car.morphed;
+  car.lastMorphButton=buttons.a;
 }
 
 function updateFlightThrust(car,surfaceY){
@@ -354,8 +515,53 @@ function resetMechPart(part){
   part.rotation.copy(part.userData.baseRotation);
 }
 
+function setupMorphModels(car,accentColor){
+  let mech=makeMechModel(accentColor);
+
+  car.group.clear();
+  car.group.add(mech);
+  car.mechModel=mech;
+  car.carModel=null;
+}
+
+function setMorphCarModel(car,model){
+  if(car.carModel) car.group.remove(car.carModel);
+  model.visible=false;
+  car.carModel=model;
+  car.group.add(model);
+  updateMorphVisual(car);
+}
+
+function updateMorphVisual(car){
+  let target=car.morphed ? 1 : 0;
+  car.morphProgress+=(target-car.morphProgress)*0.16;
+  if(Math.abs(target-car.morphProgress)<0.003) car.morphProgress=target;
+
+  let p=car.morphProgress;
+  let eased=p*p*(3-2*p);
+
+  if(car.mechModel){
+    let baseY=car.mechModel.userData.baseY || 0.72;
+    let scale=1.05*(1-eased*0.78);
+    car.mechModel.visible=p<0.99;
+    car.mechModel.scale.set(scale,scale,scale);
+    car.mechModel.position.y=baseY*(1-eased)+0.18*eased;
+    car.mechModel.rotation.z=eased*0.12;
+  }
+
+  if(car.carModel){
+    let baseY=car.carModel.userData.baseY || 0.04;
+    let baseScale=car.carModel.userData.baseScale || new THREE.Vector3(1,1,1);
+    let scale=0.18+eased*0.82;
+    car.carModel.visible=p>0.01;
+    car.carModel.scale.set(baseScale.x*scale,baseScale.y*scale,baseScale.z*scale);
+    car.carModel.position.y=baseY+(1-eased)*0.72;
+    car.carModel.rotation.x=(1-eased)*0.16;
+  }
+}
+
 function updateMechAnimation(car){
-  let model=car.group.children[0];
+  let model=car.mechModel || car.group.children[0];
   let parts=model && model.userData ? model.userData.walkParts : null;
   if(!model || !parts) return;
 
@@ -452,10 +658,14 @@ function updateCar(car){
   let prevZ=car.z;
   let prevY=car.y;
   let {forward,turn}=controlsFor(car);
+  updateMorphInput(car);
+  updateRocketInput(car);
   car.throttleInput=forward;
   let roadDist=roadDistance(car.x,car.z);
   let terrainMaxSpeed=maxSpeedForRoadDistance(roadDist);
   let localMaxSpeed=Math.min(terrainMaxSpeed,roadDist>42 ? mechOffroadMaxSpeed : mechRoadMaxSpeed);
+  let morphSpeedMultiplier=car.morphProgress>0.65 ? morphedCarSpeedMultiplier : 1;
+  let airborneMovement=car.airborne || !car.onGround;
   let carDisabled=car.health<=0;
 
   if(gameOver || carDisabled){
@@ -471,7 +681,8 @@ function updateCar(car){
     let throttlePower=Math.abs(forward);
 
     if(throttle){
-      car.speed+=0.0032*throttlePower*(1-speedRatio*0.35);
+      let airThrust=airborneMovement ? 1.85 : 1;
+      car.speed+=0.0032*airThrust*throttlePower*(1-speedRatio*0.35);
     }else if(brakeOrReverse){
       car.speed+=(car.speed>0.03 ? -0.02 : -0.0045)*throttlePower;
     }else{
@@ -479,7 +690,8 @@ function updateCar(car){
       if(Math.abs(car.speed)<0.035) car.speed=0;
     }
 
-    car.speed=clamp(car.speed,-localMaxSpeed*0.42,localMaxSpeed);
+    let forwardMaxSpeed=airborneMovement ? mechAirMaxSpeed*morphSpeedMultiplier : localMaxSpeed*morphSpeedMultiplier;
+    car.speed=clamp(car.speed,-localMaxSpeed*0.42,forwardMaxSpeed);
 
     let movingSteer=clamp(speedAbs/0.34,0,1);
     let highSpeedCalm=1-clamp((speedAbs-0.32)/0.32,0,0.18);
@@ -500,7 +712,12 @@ function updateCar(car){
   car.surfaceDistance=roadDist;
   terrainMaxSpeed=maxSpeedForRoadDistance(roadDist);
   localMaxSpeed=Math.min(terrainMaxSpeed,roadDist>42 ? mechOffroadMaxSpeed : mechRoadMaxSpeed);
-  car.speed=Math.max(-localMaxSpeed,Math.min(localMaxSpeed,car.speed));
+  morphSpeedMultiplier=car.morphProgress>0.65 ? morphedCarSpeedMultiplier : 1;
+  airborneMovement=car.airborne || !car.onGround;
+  car.speed=Math.max(
+    -localMaxSpeed*0.42,
+    Math.min((airborneMovement ? mechAirMaxSpeed : localMaxSpeed)*morphSpeedMultiplier,car.speed)
+  );
 
   let surfaceY=drivingSurfaceHeight(car.x,car.z);
 
@@ -512,7 +729,6 @@ function updateCar(car){
   if(!gameOver && !carDisabled && car.y<=surfaceY+0.03 && car.speed>0.36 && slope>3.7){
     car.vy=Math.max(car.vy,slope*jumpSlopeBoost+jumpBaseBoost);
   }
-  updateGroundJump(car,surfaceY);
   let flying=updateFlightThrust(car,surfaceY);
   if(flying) emitFlightExhaust(car);
 
@@ -601,6 +817,7 @@ function updateCar(car){
   car.group.rotation.x=car.pitch+car.trickPitch;
   car.group.rotation.z=car.trickRoll;
   updateMechAnimation(car);
+  updateMorphVisual(car);
   car.shadow.update({carX:car.x,carZ:car.z,carY:car.y,surfaceY,carVelAngle:car.angle});
 }
 
@@ -680,6 +897,7 @@ function loop(){
   for(let car of activeCars()){
     updateCar(car);
   }
+  updateRockets();
   if(healthDamageCooldown>0) healthDamageCooldown--;
 
   dust.update();
@@ -718,6 +936,7 @@ function startGame(mode){
   document.body.classList.toggle("single-player",mode==="single");
   document.body.classList.toggle("double-player",mode==="double");
 
+  clearRockets();
   playerCar.lateralOffset=mode==="single" ? 0 : -4.2;
   secondCar.lateralOffset=4.2;
   placeCarOnRoad(playerCar,0);
@@ -746,28 +965,18 @@ if(startScreen){
   });
 }
 
-playerCar.group.clear();
-playerCar.group.add(makeMechModel(0xb83a32));
-secondCar.group.clear();
-secondCar.group.add(makeMechModel(0x2f66d8));
+setupMorphModels(playerCar,0xb83a32);
+setupMorphModels(secondCar,0x2f66d8);
 setCarActive(playerCar,true);
 setCarActive(secondCar,false);
 
-loadGasStationModel()
+loadCarModel()
   .then(model=>{
-    world.setGasStationTemplate(model);
-    world.addGasStationsToExistingChunks();
+    setMorphCarModel(playerCar,model.clone(true));
+    setMorphCarModel(secondCar,model.clone(true));
   })
   .catch(error=>{
-    console.error("Failed to load gas station model:",error);
-  });
-loadGarageModel()
-  .then(model=>{
-    world.setGarageTemplate(model);
-    world.addGaragesToExistingChunks();
-  })
-  .catch(error=>{
-    console.error("Failed to load garage model:",error);
+    console.error("Failed to load car model:",error);
   });
 
 function placeCarOnRoad(car,z){
@@ -790,6 +999,11 @@ function placeCarOnRoad(car,z){
   car.trickPitchVel=0;
   car.trickRollVel=0;
   car.trickYawVel=0;
+  car.morphed=false;
+  car.morphProgress=0;
+  car.lastMorphButton=false;
+  car.lastRocketButton=false;
+  car.rocketCooldown=0;
   car.walkCycle=0;
   car.lastWalkX=car.x;
   car.lastWalkZ=car.z;
@@ -799,6 +1013,7 @@ function placeCarOnRoad(car,z){
   car.group.rotation.x=0;
   car.group.rotation.z=0;
   updateMechAnimation(car);
+  updateMorphVisual(car);
 }
 
 placeCarOnRoad(playerCar,0);

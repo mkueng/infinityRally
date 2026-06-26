@@ -39,15 +39,13 @@ export function createInput(){
 
     let rightTrigger=buttonValue(pad.buttons[7]);
     let leftTrigger=buttonValue(pad.buttons[6]);
-    let faceDown=buttonValue(pad.buttons[0]);
-    let faceRight=buttonValue(pad.buttons[1]);
     let dpadUp=buttonValue(pad.buttons[12]);
     let dpadDown=buttonValue(pad.buttons[13]);
     let stickThrottle=-axis(pad.axes[1] || 0,0.35);
     let forward=rightTrigger-leftTrigger;
 
     if(Math.abs(forward)<0.05){
-      forward=Math.max(faceDown,dpadUp,stickThrottle)-Math.max(faceRight,dpadDown,-stickThrottle);
+      forward=Math.max(dpadUp,stickThrottle)-Math.max(dpadDown,-stickThrottle);
     }
 
     return {

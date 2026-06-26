@@ -1,6 +1,6 @@
 import { THREE } from "./three.js";
 import { carRadius, chunkSize, segments, viewDistance } from "./constants.js";
-import { groundHeight, rand, roadCenterX, roadDistance, roadHeight, roadYawAt } from "./terrain.js?v=no-ramps";
+import { groundHeight, rand, roadCenterX, roadDistance } from "./terrain.js?v=no-ramps";
 import { makeGroundTexture } from "./textures.js?v=alien-planet";
 import { makeSheep } from "./sheep.js";
 
@@ -9,27 +9,7 @@ export function createWorld(scene){
   let removalQueue=[];
   let neededChunks=new Set();
   let chunks=new Map();
-  let gasStationTemplate=null;
-  let garageTemplate=null;
   let lastChunkBuildTime=0;
-
-  function setGasStationTemplate(template){
-    gasStationTemplate=template;
-  }
-
-  function setGarageTemplate(template){
-    garageTemplate=template;
-  }
-
-  function cloneGasStation(){
-    if(!gasStationTemplate) return null;
-    return gasStationTemplate.clone(true);
-  }
-
-  function cloneGarage(){
-    if(!garageTemplate) return null;
-    return garageTemplate.clone(true);
-  }
 
 let landMat=new THREE.MeshStandardMaterial({
   map:makeGroundTexture(),
@@ -48,8 +28,9 @@ let waterMat=new THREE.MeshStandardMaterial({
 });
 let waterLevel=-20;
 
-let barkMat=new THREE.MeshStandardMaterial({color:0x31204a,roughness:0.92});
-let leafMat=new THREE.MeshStandardMaterial({color:0x5ff0c9,emissive:0x073f38,emissiveIntensity:0.16,roughness:0.78});
+let barkMat=new THREE.MeshStandardMaterial({color:0x24133a,emissive:0x12061f,emissiveIntensity:0.2,roughness:0.88});
+let leafMat=new THREE.MeshStandardMaterial({color:0xb66cff,emissive:0x5a22c9,emissiveIntensity:0.48,roughness:0.64});
+let podMat=new THREE.MeshStandardMaterial({color:0xff6bd6,emissive:0xff2ca8,emissiveIntensity:0.78,roughness:0.52});
 let grassMat=new THREE.MeshStandardMaterial({color:0x9df58d,emissive:0x173d18,emissiveIntensity:0.12,roughness:0.84});
 let rockMat=new THREE.MeshStandardMaterial({color:0x3f334b,roughness:1,metalness:0.12});
 let buildingWallMat=new THREE.MeshStandardMaterial({color:0x5a526d,roughness:0.9,metalness:0.16});
@@ -60,8 +41,9 @@ let chimneyMat=new THREE.MeshStandardMaterial({color:0x494058,roughness:1,metaln
 let houseTrimMat=new THREE.MeshStandardMaterial({color:0xa78fbd,roughness:0.78,metalness:0.08});
 let brickWallMat=new THREE.MeshStandardMaterial({color:0x714060,roughness:0.95,metalness:0.05});
 
-let trunkGeo=new THREE.CylinderGeometry(.45,.85,9,7);
-let crownGeo=new THREE.ConeGeometry(4.2,5.4,9);
+let trunkGeo=new THREE.CylinderGeometry(.28,1.08,10.5,6);
+let crownGeo=new THREE.IcosahedronGeometry(2.35,1);
+let podGeo=new THREE.SphereGeometry(.72,8,6);
 let grassGeo=new THREE.ConeGeometry(.04,1.2,2);
 let rockGeo=new THREE.DodecahedronGeometry(1,0);
 let buildingGeo=new THREE.BoxGeometry(1,1,1);
@@ -103,130 +85,10 @@ function collidesWithObstacles(x,z){
   return false;
 }
 
-function makeGasStationSpawn(cx,cz){
-  let chance=0.152;
-  if(Math.abs(cx)%4!==1 || Math.abs(cz)%4!==2) return null;
-  if((rand(cx*827,cz*463)*0.5+0.5)>chance) return null;
-
-  let r01=(a,b)=>rand(a,b)*0.5+0.5;
-  let z=cz*chunkSize+(r01(cx*311,cz*907)-0.5)*chunkSize*0.7;
-  let yaw=roadYawAt(z);
-  let side=r01(cx*541,cz*167)<0.5 ? -1 : 1;
-  let offset=48;
-  let x=roadCenterX(z)+Math.cos(yaw)*side*offset;
-  let placeZ=z-Math.sin(yaw)*side*offset;
-  let y=groundHeight(x,placeZ);
-
-  if(y<-12 || y>24) return null;
-
-  return {
-    x,
-    z:placeZ,
-    y,
-    yaw:yaw+(side>0 ? -Math.PI/2 : Math.PI/2),
-    r:24
-  };
-}
-
-function addGasStationToChunk(chunk){
-  if(!gasStationTemplate || !chunk.gasStationSpawn || chunk.gasStationAdded) return;
-
-  let spawn=chunk.gasStationSpawn;
-  if(gasStationBlocked(spawn,chunk.colliders)){
-    chunk.gasStationSpawn=null;
-    chunk.gasStationAdded=true;
-    return;
-  }
-  let station=cloneGasStation();
-  if(!station) return;
-
-  station.position.set(spawn.x,spawn.y,spawn.z);
-  station.rotation.y=spawn.yaw;
-  scene.add(station);
-
-  chunk.gasStations.push(station);
-  chunk.colliders.push({x:spawn.x,z:spawn.z,r:spawn.r});
-  chunk.gasStationAdded=true;
-}
-
-function addGasStationsToExistingChunks(){
-  for(let chunk of chunks.values()){
-    addGasStationToChunk(chunk);
-  }
-}
-
-function gasStationBlocked(spawn,colliders){
-  for(let obstacle of colliders){
-    let dx=spawn.x-obstacle.x;
-    let dz=spawn.z-obstacle.z;
-    let gap=spawn.r+obstacle.r+4;
-    if(dx*dx+dz*dz<gap*gap) return true;
-  }
-  return false;
-}
-
-function makeGarageSpawn(cx,cz){
-  let chance=0.13;
-  if(Math.abs(cx)%5!==3 || Math.abs(cz)%5!==1) return null;
-  if((rand(cx*619,cz*1249)*0.5+0.5)>chance) return null;
-
-  let r01=(a,b)=>rand(a,b)*0.5+0.5;
-  let z=cz*chunkSize+(r01(cx*947,cz*313)-0.5)*chunkSize*0.72;
-  let yaw=roadYawAt(z);
-  let side=r01(cx*149,cz*1051)<0.5 ? -1 : 1;
-  let offset=42;
-  let x=roadCenterX(z)+Math.cos(yaw)*side*offset;
-  let placeZ=z-Math.sin(yaw)*side*offset;
-  let y=groundHeight(x,placeZ);
-
-  if(y<-12 || y>26) return null;
-
-  return {
-    x,
-    z:placeZ,
-    y,
-    yaw:yaw+(side>0 ? -Math.PI/2 : Math.PI/2),
-    r:17
-  };
-}
-
-function addGarageToChunk(chunk){
-  if(!garageTemplate || !chunk.garageSpawn || chunk.garageAdded) return;
-
-  let spawn=chunk.garageSpawn;
-  if(gasStationBlocked(spawn,chunk.colliders)){
-    chunk.garageSpawn=null;
-    chunk.garageAdded=true;
-    return;
-  }
-  let garage=cloneGarage();
-  if(!garage) return;
-
-  garage.position.set(spawn.x,spawn.y,spawn.z);
-  garage.rotation.y=spawn.yaw;
-  scene.add(garage);
-
-  chunk.garages.push(garage);
-  chunk.colliders.push({x:spawn.x,z:spawn.z,r:spawn.r});
-  chunk.garageAdded=true;
-}
-
-function addGaragesToExistingChunks(){
-  for(let chunk of chunks.values()){
-    addGarageToChunk(chunk);
-  }
-}
-
 function makeChunk(cx,cz){
   let colors=[];
   let colliders=[];
   let sheep=[];
-  let gasStations=[];
-  let gasStationSpawn=makeGasStationSpawn(cx,cz);
-  let gasStationAdded=false;
-  let garages=[];
-  let garageSpawn=makeGarageSpawn(cx,cz);
-  let garageAdded=false;
   let geo=new THREE.PlaneGeometry(chunkSize,chunkSize,segments,segments);
   geo.rotateX(-Math.PI/2);
 
@@ -237,17 +99,6 @@ function makeChunk(cx,cz){
     let wz=pos.getZ(i)+cz*chunkSize;
     let h=groundHeight(wx,wz);
 
-    let d=roadDistance(wx,wz);
-    let shoulder=55;
-
-    if(d<shoulder){
-      let t=Math.min(1,d/shoulder);
-      t=t*t*(3-2*t);
-
-      let rh=roadHeight(wx,wz);
-      h=rh*(1-t)+h*t;
-    }
-
     if(h<waterLevel){
       h=Math.min(h,waterLevel-0.55);
     }
@@ -256,8 +107,7 @@ function makeChunk(cx,cz){
 
     let color=new THREE.Color();
 
-    if(d<18) color.set(0x2b2232);
-    else if(h<-20) color.set(0x8f5a6c);
+    if(h<-20) color.set(0x8f5a6c);
     else if(h<15) color.set(0x8b3852);
     else if(h<30) color.set(0x5a3b70);
     else color.set(0x3f3456);
@@ -289,11 +139,13 @@ function makeChunk(cx,cz){
   let maxTrees=clusterCount*treesPerCluster;
 
   let trunks=new THREE.InstancedMesh(trunkGeo,barkMat,maxTrees);
-  let crowns=new THREE.InstancedMesh(crownGeo,leafMat,maxTrees*5);
+  let crowns=new THREE.InstancedMesh(crownGeo,leafMat,maxTrees*7);
+  let pods=new THREE.InstancedMesh(podGeo,podMat,maxTrees*4);
 
   let dummy=new THREE.Object3D();
   let treeUsed=0;
   let crownUsed=0;
+  let podUsed=0;
 
   for(let c=0;c<clusterCount;c++){
     let crx=rand(cx*91+c,cz*37-c);
@@ -323,23 +175,60 @@ function makeChunk(cx,cz){
 
       let scale=.55+rand(i+cx+c,cz-i)*.9;
       let rot=rand(i,cx+cz+c)*Math.PI*2;
+      let leanX=(rand(cx*13+i,cz*19+c)-0.5)*0.18;
+      let leanZ=(rand(cx*23-i,cz*29-c)-0.5)*0.18;
+      let trunkHeightScale=1+rand(cx*31+i,cz*41-c)*0.34;
+      let trunkWidthScale=0.72+rand(cx*43-i,cz*47+c)*0.34;
 
-      dummy.position.set(wx,wy+4.5*scale,wz);
-      dummy.rotation.set(0,rot,0);
-      dummy.scale.set(scale,scale,scale);
+      dummy.position.set(wx,wy+5.25*scale*trunkHeightScale,wz);
+      dummy.rotation.set(leanX,rot,leanZ);
+      dummy.scale.set(scale*trunkWidthScale,scale*trunkHeightScale,scale*trunkWidthScale);
       dummy.updateMatrix();
       trunks.setMatrixAt(treeUsed,dummy.matrix);
 
-      for(let j=0;j<5;j++){
-        let crownScale=scale*(1-j*.1);
+      for(let j=0;j<7;j++){
+        let crownScale=scale*(1.25-j*.08);
+        let angle=rot+j*2.38+rand(i+j*11,c*17)*0.9;
+        let radius=j===0 ? 0 : (1.1+rand(i*7+j,cx-cz)*2.4)*scale;
+        let lift=(9.1+Math.sin(j*1.7)*0.8+j*0.28)*scale*trunkHeightScale;
 
-        dummy.position.set(wx,wy+(7+j*2.1)*scale,wz);
-        dummy.rotation.set(0,rot+rand(i+j,c)*Math.PI*2,0);
-        dummy.scale.set(crownScale,scale,crownScale);
+        dummy.position.set(
+          wx+Math.cos(angle)*radius,
+          wy+lift,
+          wz+Math.sin(angle)*radius
+        );
+        dummy.rotation.set(
+          rand(j+i,cx)*Math.PI,
+          angle,
+          rand(cz,j-c)*Math.PI
+        );
+        dummy.scale.set(
+          crownScale*(0.95+rand(j+cx,i)*0.45),
+          crownScale*(0.48+rand(j+cz,i+c)*0.34),
+          crownScale*(0.9+rand(j-cx,i-c)*0.5)
+        );
         dummy.updateMatrix();
 
         crowns.setMatrixAt(crownUsed,dummy.matrix);
         crownUsed++;
+      }
+
+      for(let j=0;j<4;j++){
+        let podScale=scale*(0.42+rand(i*19+j,cx+cz)*0.34);
+        let angle=rot+j*Math.PI*0.5+rand(c*29+j,i)*0.65;
+        let radius=(1.4+rand(i*31-j,cz)*1.8)*scale;
+
+        dummy.position.set(
+          wx+Math.cos(angle)*radius,
+          wy+(7.1+rand(j+cx,c-i)*1.6)*scale*trunkHeightScale,
+          wz+Math.sin(angle)*radius
+        );
+        dummy.rotation.set(0,angle,0);
+        dummy.scale.set(podScale,podScale*1.35,podScale);
+        dummy.updateMatrix();
+
+        pods.setMatrixAt(podUsed,dummy.matrix);
+        podUsed++;
       }
 
       treeUsed++;
@@ -348,9 +237,11 @@ function makeChunk(cx,cz){
 
   trunks.count=treeUsed;
   crowns.count=crownUsed;
+  pods.count=podUsed;
   trunks.instanceMatrix.needsUpdate=true;
   crowns.instanceMatrix.needsUpdate=true;
-  scene.add(trunks,crowns);
+  pods.instanceMatrix.needsUpdate=true;
+  scene.add(trunks,crowns,pods);
 
   let grassClusterCount=20;
   let grassPerCluster=400;
@@ -663,36 +554,6 @@ function makeChunk(cx,cz){
   villageWalls.instanceMatrix.needsUpdate=true;
   scene.add(buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls);
 
-  if(gasStationTemplate && gasStationSpawn && !gasStationBlocked(gasStationSpawn,colliders)){
-    let station=cloneGasStation();
-    if(station){
-      station.position.set(gasStationSpawn.x,gasStationSpawn.y,gasStationSpawn.z);
-      station.rotation.y=gasStationSpawn.yaw;
-      scene.add(station);
-      gasStations.push(station);
-      colliders.push({x:gasStationSpawn.x,z:gasStationSpawn.z,r:gasStationSpawn.r,type:"gasStation"});
-      gasStationAdded=true;
-    }
-  }else if(gasStationTemplate && gasStationSpawn){
-    gasStationSpawn=null;
-    gasStationAdded=true;
-  }
-
-  if(garageTemplate && garageSpawn && !gasStationBlocked(garageSpawn,colliders)){
-    let garage=cloneGarage();
-    if(garage){
-      garage.position.set(garageSpawn.x,garageSpawn.y,garageSpawn.z);
-      garage.rotation.y=garageSpawn.yaw;
-      scene.add(garage);
-      garages.push(garage);
-      colliders.push({x:garageSpawn.x,z:garageSpawn.z,r:garageSpawn.r,type:"garage"});
-      garageAdded=true;
-    }
-  }else if(garageTemplate && garageSpawn){
-    garageSpawn=null;
-    garageAdded=true;
-  }
-
   let herdChance=0.18;
   if((rand(cx*421,cz*733)*0.5+0.5)<herdChance){
     let herdRand=(a,b)=>rand(a,b)*0.5+0.5;
@@ -748,7 +609,7 @@ function makeChunk(cx,cz){
     }
   }
 
-  return {land,road,water,trunks,crowns,grasses,rocks,buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,gasStations,gasStationSpawn,gasStationAdded,garages,garageSpawn,garageAdded,sheep,colliders};
+  return {land,road,water,trunks,crowns,pods,grasses,rocks,buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,sheep,colliders};
 }
 
 function updateChunksForCenters(centers){
@@ -813,6 +674,7 @@ function disposeChunk(chunk){
     chunk.water,
     chunk.trunks,
     chunk.crowns,
+    chunk.pods,
     chunk.grasses,
     chunk.rocks,
     chunk.buildingBodies,
@@ -823,8 +685,6 @@ function disposeChunk(chunk){
     chunk.buildingTrims,
     chunk.buildingPorches,
     chunk.villageWalls,
-    ...chunk.gasStations,
-    ...chunk.garages,
     ...chunk.sheep
   );
 
@@ -833,6 +693,7 @@ function disposeChunk(chunk){
   chunk.water.geometry.dispose();
   chunk.trunks.dispose();
   chunk.crowns.dispose();
+  chunk.pods.dispose();
   chunk.grasses.dispose();
   chunk.rocks.dispose();
   chunk.buildingBodies.dispose();
@@ -864,10 +725,6 @@ function processChunkQueue(){
 
   return {
     chunks,
-    setGasStationTemplate,
-    setGarageTemplate,
-    addGasStationsToExistingChunks,
-    addGaragesToExistingChunks,
     collidesWithObstacles,
     updateChunks,
     updateChunksForCenters,

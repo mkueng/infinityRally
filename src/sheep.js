@@ -5,20 +5,24 @@ let sheepCoreGeo=new THREE.CapsuleGeometry(0.55,1.35,8,18);
 let sheepWoolGeo=new THREE.SphereGeometry(0.42,12,8);
 let sheepHeadGeo=new THREE.SphereGeometry(0.34,14,10);
 let sheepMuzzleGeo=new THREE.SphereGeometry(0.18,10,8);
-let sheepLegGeo=new THREE.CylinderGeometry(0.09,0.11,0.72,8);
-let sheepEarGeo=new THREE.ConeGeometry(0.09,0.24,6);
+let sheepLegGeo=new THREE.CylinderGeometry(0.07,0.12,0.78,7);
+let sheepEarGeo=new THREE.ConeGeometry(0.1,0.34,6);
 let sheepTailGeo=new THREE.SphereGeometry(0.16,8,6);
-let sheepWoolMat=new THREE.MeshStandardMaterial({color:0xf1eee2,roughness:0.96});
-let sheepWoolShadowMat=new THREE.MeshStandardMaterial({color:0xd8d3c5,roughness:0.98});
-let sheepFaceMat=new THREE.MeshStandardMaterial({color:0x1d1b18,roughness:0.9});
-let sheepNoseMat=new THREE.MeshStandardMaterial({color:0x3a312b,roughness:0.92});
+let sheepHornGeo=new THREE.ConeGeometry(0.08,0.42,7);
+let sheepEyeGeo=new THREE.SphereGeometry(0.055,8,6);
+let sheepWoolMat=new THREE.MeshStandardMaterial({color:0x86ffe6,emissive:0x0a7f72,emissiveIntensity:0.24,roughness:0.82});
+let sheepWoolShadowMat=new THREE.MeshStandardMaterial({color:0x5b65b7,emissive:0x171b5f,emissiveIntensity:0.22,roughness:0.88});
+let sheepFaceMat=new THREE.MeshStandardMaterial({color:0x29164d,emissive:0x100625,emissiveIntensity:0.18,roughness:0.78});
+let sheepNoseMat=new THREE.MeshStandardMaterial({color:0xff6bcf,emissive:0xa81478,emissiveIntensity:0.45,roughness:0.6});
+let sheepEyeMat=new THREE.MeshStandardMaterial({color:0xf7ff87,emissive:0xeaff2f,emissiveIntensity:1.1,roughness:0.3});
+let sheepHornMat=new THREE.MeshStandardMaterial({color:0xb66cff,emissive:0x4d22a8,emissiveIntensity:0.35,roughness:0.62});
 
 function makeSheepModel(seed){
   let sheep=new THREE.Group();
 
   let core=new THREE.Mesh(sheepCoreGeo,sheepWoolShadowMat);
   core.rotation.z=Math.PI/2;
-  core.scale.set(1.08,1.05,0.9);
+  core.scale.set(1.16,0.96,0.86);
   core.position.y=0.95;
   sheep.add(core);
 
@@ -42,50 +46,70 @@ function makeSheepModel(seed){
     let puff=new THREE.Mesh(sheepWoolGeo,i%3===0 ? sheepWoolShadowMat : sheepWoolMat);
     let jitter=(rand(seed+i*19,seed-i*23)*0.5+0.5-0.5)*0.08;
     puff.position.set(woolPuffs[i][0]+jitter,woolPuffs[i][1],woolPuffs[i][2]-jitter);
-    puff.scale.set(woolPuffs[i][3],woolPuffs[i][4],woolPuffs[i][5]);
+    puff.scale.set(woolPuffs[i][3]*0.86,woolPuffs[i][4]*0.72,woolPuffs[i][5]*1.12);
     sheep.add(puff);
   }
 
   let headGroup=new THREE.Group();
-  headGroup.position.set(1.34,1.0,0);
+  headGroup.position.set(1.36,1.04,0);
   sheep.add(headGroup);
 
   let head=new THREE.Mesh(sheepHeadGeo,sheepFaceMat);
-  head.scale.set(0.82,1.02,0.78);
+  head.scale.set(0.78,1.12,0.72);
   headGroup.add(head);
 
   let forehead=new THREE.Mesh(sheepWoolGeo,sheepWoolMat);
-  forehead.position.set(-0.12,0.28,0);
-  forehead.scale.set(0.48,0.32,0.42);
+  forehead.position.set(-0.12,0.31,0);
+  forehead.scale.set(0.42,0.26,0.36);
   headGroup.add(forehead);
 
   let muzzle=new THREE.Mesh(sheepMuzzleGeo,sheepNoseMat);
-  muzzle.position.set(0.29,-0.1,0);
-  muzzle.scale.set(1.0,0.7,0.75);
+  muzzle.position.set(0.31,-0.08,0);
+  muzzle.scale.set(0.92,0.55,0.66);
   headGroup.add(muzzle);
 
   for(let side of [-1,1]){
     let ear=new THREE.Mesh(sheepEarGeo,sheepFaceMat);
-    ear.rotation.x=side*Math.PI*0.52;
-    ear.rotation.z=-Math.PI*0.48;
-    ear.position.set(-0.04,0.1,side*0.34);
+    ear.rotation.x=side*Math.PI*0.56;
+    ear.rotation.z=-Math.PI*0.38;
+    ear.position.set(-0.1,0.13,side*0.33);
     headGroup.add(ear);
+
+    let horn=new THREE.Mesh(sheepHornGeo,sheepHornMat);
+    horn.rotation.z=-Math.PI*0.25;
+    horn.rotation.x=side*Math.PI*0.18;
+    horn.position.set(-0.05,0.32,side*0.18);
+    headGroup.add(horn);
+
+    let eye=new THREE.Mesh(sheepEyeGeo,sheepEyeMat);
+    eye.position.set(0.22,0.04,side*0.24);
+    eye.scale.set(1.25,1,1);
+    headGroup.add(eye);
   }
 
   let legs=[];
-  for(let x of [-0.65,0.62]){
-    for(let z of [-0.3,0.3]){
+  for(let x of [-0.72,-0.05,0.62]){
+    for(let z of [-0.32,0.32]){
       let leg=new THREE.Mesh(sheepLegGeo,sheepFaceMat);
       leg.position.set(x,0.34,z);
+      leg.rotation.z=(x<0 ? -0.08 : 0.08);
       sheep.add(leg);
       legs.push(leg);
     }
   }
 
-  let tail=new THREE.Mesh(sheepTailGeo,sheepWoolMat);
-  tail.position.set(-1.24,1.05,0);
-  tail.scale.set(0.9,0.75,0.75);
+  let tail=new THREE.Mesh(sheepTailGeo,sheepNoseMat);
+  tail.position.set(-1.26,1.08,0);
+  tail.scale.set(0.72,0.72,0.72);
   sheep.add(tail);
+
+  for(let i=0;i<3;i++){
+    let spine=new THREE.Mesh(sheepHornGeo,sheepHornMat);
+    spine.position.set(-0.56+i*0.46,1.66-i*0.03,0);
+    spine.rotation.z=Math.PI;
+    spine.scale.set(1.0-i*0.12,0.8-i*0.08,1.0-i*0.12);
+    sheep.add(spine);
+  }
 
   sheep.userData.legs=legs;
   sheep.userData.head=headGroup;
