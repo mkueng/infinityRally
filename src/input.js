@@ -67,9 +67,21 @@ export function createInput(){
     };
   }
 
+  function getGamepadAim(index){
+    let pads=navigator.getGamepads ? navigator.getGamepads() : gamepads;
+    let pad=pads[index];
+    if(!pad) return {x:0,y:0};
+
+    return {
+      x:axis(pad.axes[2] || 0,0.16),
+      y:axis(pad.axes[3] || 0,0.16)
+    };
+  }
+
   return {
     keys,
     getGamepadControls,
-    getGamepadFaceButtons
+    getGamepadFaceButtons,
+    getGamepadAim
   };
 }

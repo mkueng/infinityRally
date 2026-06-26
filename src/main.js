@@ -42,6 +42,8 @@ let morphedCarSpeedMultiplier=3;
 let mechStrideLength=2.35;
 let rocketSpeed=1.75;
 let rocketCooldownFrames=34;
+let rocketTurnRate=0.075;
+let rocketAimYOffset=-4.2;
 let rockets=[];
 let rocketBodyGeo=new THREE.CylinderGeometry(0.11,0.13,0.8,12);
 let rocketNoseGeo=new THREE.ConeGeometry(0.16,0.34,12);
@@ -49,6 +51,25 @@ let rocketFinGeo=new THREE.BoxGeometry(0.08,0.18,0.22);
 let rocketBodyMat=new THREE.MeshStandardMaterial({color:0x30363b,roughness:0.48,metalness:0.55});
 let rocketNoseMat=new THREE.MeshStandardMaterial({color:0xff6633,emissive:0x8f2108,emissiveIntensity:0.55,roughness:0.38,metalness:0.35});
 let rocketFlameMat=new THREE.MeshStandardMaterial({color:0xfff0a0,emissive:0xff7a12,emissiveIntensity:1.2,roughness:0.28});
+let explosionBursts=[];
+let explosionFlashGeo=new THREE.SphereGeometry(1,18,12);
+let explosionRingGeo=new THREE.TorusGeometry(1,0.045,8,64);
+let explosionFlashMat=new THREE.MeshBasicMaterial({
+  color:0xffd27a,
+  transparent:true,
+  opacity:0.9,
+  depthWrite:false,
+  depthTest:true,
+  blending:THREE.AdditiveBlending
+});
+let explosionRingMat=new THREE.MeshBasicMaterial({
+  color:0x8dfff2,
+  transparent:true,
+  opacity:0.8,
+  depthWrite:false,
+  depthTest:true,
+  blending:THREE.AdditiveBlending
+});
 
 function clamp(value,min,max){
   return Math.max(min,Math.min(max,value));
@@ -141,6 +162,9 @@ function createCarState(id,lateralOffset,controls,camera,gamepadIndex){
     morphProgress:0,
     mechModel:null,
     carModel:null,
+    aimCross:null,
+    aimOffsetX:0,
+    aimOffsetY:0,
     lastRocketButton:false,
     rocketCooldown:0,
     walkCycle:0,
@@ -300,6 +324,19 @@ function makeRocketMesh(){
 }
 
 function spawnRocketExplosion(x,y,z){
+  let flash=new THREE.Mesh(explosionFlashGeo,explosionFlashMat.clone());
+  flash.position.set(x,y,z);
+  flash.scale.setScalar(0.35);
+  scene.add(flash);
+
+  let ring=new THREE.Mesh(explosionRingGeo,explosionRingMat.clone());
+  ring.position.set(x,y+0.05,z);
+  ring.rotation.x=Math.PI/2;
+  ring.scale.setScalar(0.55);
+  scene.add(ring);
+
+  explosionBursts.push({flash,ring,age:0,life:0.42});
+
   for(let i=0;i<24;i++){
     let angle=Math.random()*Math.PI*2;
     let speed=2.4+Math.random()*5.4;
@@ -316,16 +353,82 @@ function spawnRocketExplosion(x,y,z){
   }
 }
 
+function clearExplosions(){
+  for(let burst of explosionBursts){
+    scene.remove(burst.flash,burst.ring);
+    burst.flash.material.dispose();
+    burst.ring.material.dispose();
+  }
+  explosionBursts=[];
+}
+
+function updateExplosions(){
+  for(let i=explosionBursts.length-1;i>=0;i--){
+    let burst=explosionBursts[i];
+    burst.age+=0.016;
+    let t=Math.min(1,burst.age/burst.life);
+    let flashScale=0.35+Math.sin(t*Math.PI)*3.4;
+    let ringScale=0.55+t*6.8;
+
+    burst.flash.scale.setScalar(flashScale);
+    burst.ring.scale.setScalar(ringScale);
+    burst.flash.material.opacity=0.9*Math.pow(1-t,1.6);
+    burst.ring.material.opacity=0.8*Math.pow(1-t,1.2);
+
+    if(t>=1){
+      scene.remove(burst.flash,burst.ring);
+      burst.flash.material.dispose();
+      burst.ring.material.dispose();
+      explosionBursts.splice(i,1);
+    }
+  }
+}
+
+function aimTargetForCar(car){
+  let target=new THREE.Vector3(
+    car.x+Math.sin(car.angle)*72,
+    car.y+3.15,
+    car.z+Math.cos(car.angle)*72
+  );
+
+  if(car.aimCross){
+    car.aimCross.getWorldPosition(target);
+    target.y+=rocketAimYOffset;
+  }
+
+  return target;
+}
+
+function updateAimCross(car){
+  if(!car.aimCross) return;
+
+  let aim=input.getGamepadAim(car.gamepadIndex);
+  car.aimOffsetX=clamp(car.aimOffsetX-aim.x*0.42,-11,11);
+  car.aimOffsetY=clamp(car.aimOffsetY-aim.y*0.32,-4.5,7.5);
+  car.aimCross.position.set(car.aimOffsetX,3.15+car.aimOffsetY,32);
+}
+
 function fireRocket(car){
   if(gameOver || car.health<=0 || car.rocketCooldown>0) return;
   if(car.morphed || car.morphProgress>0.22) return;
 
   let mesh=makeRocketMesh();
   let startX=car.x+Math.sin(car.angle)*2.35;
-  let startY=car.y+2.65;
+  let startY=car.y+1.35;
   let startZ=car.z+Math.cos(car.angle)*2.35;
+  let aimPoint=aimTargetForCar(car);
+  let aimX=aimPoint.x-startX;
+  let aimY=aimPoint.y-startY;
+  let aimZ=aimPoint.z-startZ;
+  let aimLen=Math.max(0.001,Math.hypot(aimX,aimY,aimZ));
+  let target={
+    x:startX+(aimX/aimLen)*180,
+    y:startY+(aimY/aimLen)*180,
+    z:startZ+(aimZ/aimLen)*180
+  };
   mesh.position.set(startX,startY,startZ);
-  mesh.rotation.y=car.angle;
+  mesh.rotation.y=Math.atan2(aimX,aimZ);
+  mesh.rotation.x=-Math.asin(clamp(aimY/aimLen,-1,1));
   scene.add(mesh);
 
   rockets.push({
@@ -334,10 +437,13 @@ function fireRocket(car){
     x:startX,
     y:startY,
     z:startZ,
-    angle:car.angle,
-    vx:Math.sin(car.angle)*rocketSpeed,
-    vz:Math.cos(car.angle)*rocketSpeed,
-    vy:0.015,
+    angle:Math.atan2(aimX,aimZ),
+    targetX:target.x,
+    targetY:target.y,
+    targetZ:target.z,
+    vx:(aimX/aimLen)*rocketSpeed,
+    vz:(aimZ/aimLen)*rocketSpeed,
+    vy:(aimY/aimLen)*rocketSpeed,
     age:0,
     life:115
   });
@@ -365,18 +471,37 @@ function clearRockets(){
     scene.remove(rocket.mesh);
   }
   rockets=[];
+  clearExplosions();
 }
 
 function updateRockets(){
   for(let i=rockets.length-1;i>=0;i--){
     let rocket=rockets[i];
     rocket.age++;
+    let dx=rocket.targetX-rocket.x;
+    let dy=rocket.targetY-rocket.y;
+    let dz=rocket.targetZ-rocket.z;
+    let desiredLen=Math.max(0.001,Math.hypot(dx,dy,dz));
+    let desiredVx=(dx/desiredLen)*rocketSpeed;
+    let desiredVy=(dy/desiredLen)*rocketSpeed;
+    let desiredVz=(dz/desiredLen)*rocketSpeed;
+    rocket.vx+=(desiredVx-rocket.vx)*rocketTurnRate;
+    rocket.vy+=(desiredVy-rocket.vy)*rocketTurnRate;
+    rocket.vz+=(desiredVz-rocket.vz)*rocketTurnRate;
+    let velocityLen=Math.max(0.001,Math.hypot(rocket.vx,rocket.vy,rocket.vz));
+    rocket.vx=(rocket.vx/velocityLen)*rocketSpeed;
+    rocket.vy=(rocket.vy/velocityLen)*rocketSpeed;
+    rocket.vz=(rocket.vz/velocityLen)*rocketSpeed;
+    rocket.angle=Math.atan2(rocket.vx,rocket.vz);
+
+    let prevX=rocket.x;
+    let prevZ=rocket.z;
     rocket.x+=rocket.vx;
     rocket.y+=rocket.vy;
     rocket.z+=rocket.vz;
-    rocket.vy-=0.0015;
     rocket.mesh.position.set(rocket.x,rocket.y,rocket.z);
     rocket.mesh.rotation.y=rocket.angle;
+    rocket.mesh.rotation.x=-Math.asin(clamp(rocket.vy/rocketSpeed,-1,1));
     rocket.mesh.rotation.z=Math.sin(rocket.age*0.45)*0.05;
 
     if(rocket.age%2===0){
@@ -406,11 +531,13 @@ function updateRockets(){
       }
     }
 
-    let hit=rocket.y<=surfaceY+0.35 || world.collidesWithObstacles(rocket.x,rocket.z) || hitCar;
+    let hitObstacle=world.obstacleAlongSegment(prevX,prevZ,rocket.x,rocket.z,1.35);
+    let hit=rocket.y<=surfaceY+0.35 || hitObstacle || hitCar;
 
     if(hit || rocket.age>rocket.life){
       if(hit){
         spawnRocketExplosion(rocket.x,Math.max(rocket.y,surfaceY+0.5),rocket.z);
+        if(hitObstacle) world.destroyObstacle(hitObstacle);
         if(hitCar) damageCar(hitCar,18);
       }
       removeRocket(i);
@@ -515,13 +642,53 @@ function resetMechPart(part){
   part.rotation.copy(part.userData.baseRotation);
 }
 
+function makeAimCross(accentColor){
+  let group=new THREE.Group();
+  group.position.set(0,3.15,32);
+
+  let material=new THREE.MeshBasicMaterial({
+    color:accentColor,
+    transparent:true,
+    opacity:0.72,
+    depthWrite:false,
+    depthTest:false
+  });
+  let lineMaterial=new THREE.LineBasicMaterial({
+    color:0x8dfff2,
+    transparent:true,
+    opacity:0.86,
+    depthWrite:false,
+    depthTest:false
+  });
+
+  let ring=new THREE.Mesh(new THREE.TorusGeometry(1.05,0.032,8,56),material);
+  ring.renderOrder=20;
+  group.add(ring);
+
+  let points=[
+    -1.55,0,0, -0.78,0,0,
+    0.78,0,0, 1.55,0,0,
+    0,-1.55,0, 0,-0.78,0,
+    0,0.78,0, 0,1.55,0
+  ];
+  let crossGeo=new THREE.BufferGeometry();
+  crossGeo.setAttribute("position",new THREE.Float32BufferAttribute(points,3));
+  let cross=new THREE.LineSegments(crossGeo,lineMaterial);
+  cross.renderOrder=21;
+  group.add(cross);
+
+  return group;
+}
+
 function setupMorphModels(car,accentColor){
   let mech=makeMechModel(accentColor);
+  let aimCross=makeAimCross(accentColor);
 
   car.group.clear();
-  car.group.add(mech);
+  car.group.add(mech,aimCross);
   car.mechModel=mech;
   car.carModel=null;
+  car.aimCross=aimCross;
 }
 
 function setMorphCarModel(car,model){
@@ -557,6 +724,10 @@ function updateMorphVisual(car){
     car.carModel.scale.set(baseScale.x*scale,baseScale.y*scale,baseScale.z*scale);
     car.carModel.position.y=baseY+(1-eased)*0.72;
     car.carModel.rotation.x=(1-eased)*0.16;
+  }
+
+  if(car.aimCross){
+    car.aimCross.scale.setScalar(1+Math.sin(performance.now()*0.004)*0.035);
   }
 }
 
@@ -659,6 +830,7 @@ function updateCar(car){
   let prevY=car.y;
   let {forward,turn}=controlsFor(car);
   updateMorphInput(car);
+  updateAimCross(car);
   updateRocketInput(car);
   car.throttleInput=forward;
   let roadDist=roadDistance(car.x,car.z);
@@ -854,26 +1026,42 @@ function updateCameras(){
   }
 }
 
+function aimCrossVisibleFor(car){
+  return car.aimCross && car.morphProgress<0.35 && car.health>0 && !gameOver && car.group.visible;
+}
+
+function setAimCrossForRender(focusedCar){
+  for(let car of cars){
+    if(!car.aimCross) continue;
+    car.aimCross.visible=car===focusedCar && aimCrossVisibleFor(car);
+  }
+}
+
 function renderGame(){
   let width=innerWidth;
   let height=innerHeight;
 
   if(gameMode==="single"){
+    setAimCrossForRender(playerCar);
     renderer.setViewport(0,0,width,height);
     renderer.setScissor(0,0,width,height);
     renderer.render(scene,playerCamera);
+    setAimCrossForRender(null);
     return;
   }
 
   let halfWidth=Math.floor(width*0.5);
 
+  setAimCrossForRender(playerCar);
   renderer.setViewport(0,0,halfWidth,height);
   renderer.setScissor(0,0,halfWidth,height);
   renderer.render(scene,playerCamera);
 
+  setAimCrossForRender(secondCar);
   renderer.setViewport(halfWidth,0,width-halfWidth,height);
   renderer.setScissor(halfWidth,0,width-halfWidth,height);
   renderer.render(scene,secondCamera);
+  setAimCrossForRender(null);
 }
 
 let lastChunkSignature="";
@@ -901,6 +1089,8 @@ function loop(){
   if(healthDamageCooldown>0) healthDamageCooldown--;
 
   dust.update();
+  updateExplosions();
+  world.updateWind(performance.now());
   motorAudio.update();
   updateCameras();
 
@@ -916,6 +1106,7 @@ function loop(){
   updateSheep(world.chunks);
   hud.updateSpeedHud();
   hud.updateMapHud();
+  hud.updateCompassHud();
   world.processChunkQueue();
   renderGame();
 }
@@ -1002,6 +1193,9 @@ function placeCarOnRoad(car,z){
   car.morphed=false;
   car.morphProgress=0;
   car.lastMorphButton=false;
+  car.aimOffsetX=0;
+  car.aimOffsetY=0;
+  if(car.aimCross) car.aimCross.position.set(0,3.15,32);
   car.lastRocketButton=false;
   car.rocketCooldown=0;
   car.walkCycle=0;

@@ -18,10 +18,10 @@ export function createHud({getCarStates,getChunks}){
       "top:18px",
       `left:${panel.side==="full" ? "50%" : panel.side==="left" ? "25%" : "75%"}`,
       "transform:translateX(-50%)",
-      `width:${panel.side==="full" ? "min(340px,72vw)" : "min(320px,34vw)"}`,
+      `width:${panel.side==="full" ? "min(430px,58vw)" : "min(300px,40vw)"}`,
       "height:22px",
-      "background:rgba(20,28,34,0.42)",
-      "box-shadow:0 4px 14px rgba(0,0,0,0.24)",
+      "background:rgba(18,7,43,0.1)",
+      "box-shadow:0 4px 14px rgba(0,0,0,0.08)",
       "z-index:10",
       "overflow:hidden",
       "font-family:Arial,sans-serif"
@@ -31,7 +31,7 @@ export function createHud({getCarStates,getChunks}){
     healthFill.style.cssText=[
       "height:100%",
       "width:100%",
-      "background:linear-gradient(90deg,#2fd36b,#a8e85d)",
+      "background:linear-gradient(90deg,rgba(47,211,107,0.46),rgba(168,232,93,0.46))",
       "transition:width 160ms ease,background 160ms ease"
     ].join(";");
 
@@ -190,6 +190,30 @@ export function createHud({getCarStates,getChunks}){
     panel.mapCtx=mapCtx;
   }
 
+  function makeCompassHud(panel){
+    let compassHud=document.createElement("div");
+    compassHud.style.cssText=[
+      "position:fixed",
+      "top:44px",
+      `left:${panel.side==="full" ? "50%" : panel.side==="left" ? "25%" : "75%"}`,
+      "transform:translateX(-50%)",
+      `width:${panel.side==="full" ? "min(430px,58vw)" : "min(300px,40vw)"}`,
+      "height:74px",
+      "z-index:11",
+      "pointer-events:none"
+    ].join(";");
+
+    let compassCanvas=document.createElement("canvas");
+    compassCanvas.width=430;
+    compassCanvas.height=74;
+    compassCanvas.style.cssText="display:block;width:100%;height:74px";
+    let compassCtx=compassCanvas.getContext("2d");
+    compassHud.appendChild(compassCanvas);
+    document.body.appendChild(compassHud);
+    panel.compassCanvas=compassCanvas;
+    panel.compassCtx=compassCtx;
+  }
+
   function mapToCanvas(wx,wz,cx,cz,radius,size){
     return {
       x:(wx-(cx-radius))/(radius*2)*size,
@@ -264,6 +288,101 @@ export function createHud({getCarStates,getChunks}){
     }
   }
 
+  function normalizeAngle(angle){
+    while(angle>Math.PI) angle-=Math.PI*2;
+    while(angle<-Math.PI) angle+=Math.PI*2;
+    return angle;
+  }
+
+  function drawCompassHud(panel,state){
+    if(!panel.compassCtx || !state) return;
+
+    let ctx=panel.compassCtx;
+    let canvas=panel.compassCanvas;
+    let width=canvas.width;
+    let height=canvas.height;
+    let cx=width*0.5;
+    let cy=112;
+    let radius=99;
+    let arcHalf=Math.PI*0.36;
+    let viewHalf=Math.PI*0.82;
+    let heading=state.carVelAngle || 0;
+
+    ctx.clearRect(0,0,width,height);
+
+    let gradient=ctx.createLinearGradient(0,0,0,height);
+    gradient.addColorStop(0,"rgba(18,7,43,0.08)");
+    gradient.addColorStop(0.55,"rgba(51,20,95,0.2)");
+    gradient.addColorStop(1,"rgba(18,7,43,0)");
+    ctx.fillStyle=gradient;
+    ctx.fillRect(0,0,width,height);
+
+    ctx.lineCap="round";
+    ctx.strokeStyle="rgba(141,255,242,0.34)";
+    ctx.lineWidth=2;
+    ctx.beginPath();
+    ctx.arc(cx,cy,radius,-Math.PI/2-arcHalf,-Math.PI/2+arcHalf);
+    ctx.stroke();
+
+    ctx.strokeStyle="rgba(240,140,113,0.45)";
+    ctx.lineWidth=1;
+    ctx.beginPath();
+    ctx.arc(cx,cy,radius-12,-Math.PI/2-arcHalf*0.88,-Math.PI/2+arcHalf*0.88);
+    ctx.stroke();
+
+    for(let i=-4;i<=4;i++){
+      let t=i/4;
+      let theta=-Math.PI/2+t*arcHalf;
+      let major=i===0 || Math.abs(i)===4;
+      let inner=radius-(major ? 16 : 10);
+      let outer=radius-1;
+      ctx.strokeStyle=major ? "rgba(141,255,242,0.78)" : "rgba(141,255,242,0.38)";
+      ctx.lineWidth=major ? 2 : 1;
+      ctx.beginPath();
+      ctx.moveTo(cx+Math.cos(theta)*inner,cy+Math.sin(theta)*inner);
+      ctx.lineTo(cx+Math.cos(theta)*outer,cy+Math.sin(theta)*outer);
+      ctx.stroke();
+    }
+
+    let cardinals=[
+      {label:"N",angle:0},
+      {label:"E",angle:Math.PI/2},
+      {label:"S",angle:Math.PI},
+      {label:"W",angle:-Math.PI/2}
+    ];
+
+    ctx.textAlign="center";
+    ctx.textBaseline="middle";
+    for(let dir of cardinals){
+      let delta=normalizeAngle(dir.angle-heading);
+      if(Math.abs(delta)>viewHalf) continue;
+
+      let t=delta/viewHalf;
+      let theta=-Math.PI/2+t*arcHalf;
+      let x=cx+Math.cos(theta)*(radius-25);
+      let y=cy+Math.sin(theta)*(radius-25);
+      let alpha=1-Math.pow(Math.abs(t),1.8)*0.58;
+      let scale=1.12-Math.abs(t)*0.22;
+
+      ctx.font=`800 ${Math.round(18*scale)}px Arial`;
+      ctx.fillStyle=`rgba(245,255,249,${alpha})`;
+      ctx.strokeStyle=`rgba(18,7,43,${0.78*alpha})`;
+      ctx.lineWidth=3;
+      ctx.strokeText(dir.label,x,y);
+      ctx.fillText(dir.label,x,y);
+    }
+
+    ctx.strokeStyle="rgba(255,255,255,0.92)";
+    ctx.fillStyle="rgba(255,255,255,0.92)";
+    ctx.lineWidth=1.4;
+    ctx.beginPath();
+    ctx.moveTo(cx,13);
+    ctx.lineTo(cx-5,24);
+    ctx.lineTo(cx+5,24);
+    ctx.closePath();
+    ctx.fill();
+  }
+
   function makeGameOverOverlay(){
     gameOverOverlay=document.createElement("div");
     gameOverOverlay.textContent="GAME OVER";
@@ -296,10 +415,10 @@ export function createHud({getCarStates,getChunks}){
       let pct=Math.max(0,Math.min(100,state.carHealth));
       panel.healthFill.style.width=pct+"%";
       panel.healthFill.style.background=pct>55
-        ? "linear-gradient(90deg,#2fd36b,#a8e85d)"
+        ? "linear-gradient(90deg,rgba(47,211,107,0.46),rgba(168,232,93,0.46))"
         : pct>25
-          ? "linear-gradient(90deg,#f0b83f,#f4df65)"
-          : "linear-gradient(90deg,#d83a34,#f0715c)";
+          ? "linear-gradient(90deg,rgba(240,184,63,0.46),rgba(244,223,101,0.46))"
+          : "linear-gradient(90deg,rgba(216,58,52,0.46),rgba(240,113,92,0.46))";
       panel.healthLabel.textContent=state.label+" Health "+Math.round(pct)+"%";
     }
   }
@@ -316,6 +435,13 @@ export function createHud({getCarStates,getChunks}){
     let states=getCarStates();
     for(let i=0;i<panels.length;i++){
       drawMapHud(panels[i],states[i],states);
+    }
+  }
+
+  function updateCompassHud(){
+    let states=getCarStates();
+    for(let i=0;i<panels.length;i++){
+      drawCompassHud(panels[i],states[i]);
     }
   }
 
@@ -337,11 +463,13 @@ export function createHud({getCarStates,getChunks}){
       makeHealthHud(panel);
       makeSpeedHud(panel);
       makeMapHud(panel);
+      makeCompassHud(panel);
     }
     makeGameOverOverlay();
     updateHealthHud();
     updateSpeedHud();
     updateMapHud(true);
+    updateCompassHud();
   }
 
   return {
@@ -349,6 +477,7 @@ export function createHud({getCarStates,getChunks}){
     updateHealthHud,
     updateSpeedHud,
     updateMapHud,
+    updateCompassHud,
     showGameOverOverlay
   };
 }

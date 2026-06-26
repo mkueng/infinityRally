@@ -31,7 +31,42 @@ let waterLevel=-20;
 let barkMat=new THREE.MeshStandardMaterial({color:0x24133a,emissive:0x12061f,emissiveIntensity:0.2,roughness:0.88});
 let leafMat=new THREE.MeshStandardMaterial({color:0xb66cff,emissive:0x5a22c9,emissiveIntensity:0.48,roughness:0.64});
 let podMat=new THREE.MeshStandardMaterial({color:0xff6bd6,emissive:0xff2ca8,emissiveIntensity:0.78,roughness:0.52});
+let grassWindShader=null;
 let grassMat=new THREE.MeshStandardMaterial({color:0x9df58d,emissive:0x173d18,emissiveIntensity:0.12,roughness:0.84});
+grassMat.onBeforeCompile=shader=>{
+  shader.uniforms.windTime={value:0};
+  grassWindShader=shader;
+  shader.vertexShader=shader.vertexShader.replace(
+    "#include <common>",
+    [
+      "#include <common>",
+      "uniform float windTime;"
+    ].join("\n")
+  );
+  shader.vertexShader=shader.vertexShader.replace(
+    "#include <begin_vertex>",
+    [
+      "#include <begin_vertex>",
+      "float bladeHeight=clamp((position.y+0.6)/1.2,0.0,1.0);",
+      "vec3 windWorld=normalize(vec3(0.86,0.0,0.5));",
+      "#ifdef USE_INSTANCING",
+      "vec3 instanceX=instanceMatrix[0].xyz;",
+      "vec3 instanceY=instanceMatrix[1].xyz;",
+      "vec3 instanceZ=instanceMatrix[2].xyz;",
+      "vec3 windLocal=vec3(",
+      "  dot(windWorld,normalize(instanceX))/max(length(instanceX),0.0001),",
+      "  dot(windWorld,normalize(instanceY))/max(length(instanceY),0.0001),",
+      "  dot(windWorld,normalize(instanceZ))/max(length(instanceZ),0.0001)",
+      ");",
+      "#else",
+      "vec3 windLocal=windWorld;",
+      "#endif",
+      "float gust=0.18+sin(windTime*1.35)*0.07+sin(windTime*2.1)*0.035;",
+      "float windBend=bladeHeight*bladeHeight*gust;",
+      "transformed+=windLocal*windBend;"
+    ].join("\n")
+  );
+};
 let rockMat=new THREE.MeshStandardMaterial({color:0x3f334b,roughness:1,metalness:0.12});
 let buildingWallMat=new THREE.MeshStandardMaterial({color:0x5a526d,roughness:0.9,metalness:0.16});
 let buildingRoofMat=new THREE.MeshStandardMaterial({color:0x322b45,roughness:0.92,metalness:0.18});
@@ -59,6 +94,14 @@ function chunkKey(cx,cz){
   return cx+","+cz;
 }
 
+let hiddenInstanceMatrix=new THREE.Matrix4().makeScale(0,0,0);
+
+function hideInstance(mesh,index){
+  if(!mesh || index==null || index<0) return;
+  mesh.setMatrixAt(index,hiddenInstanceMatrix);
+  mesh.instanceMatrix.needsUpdate=true;
+}
+
 function collidesWithObstacles(x,z){
   let pcx=Math.floor(x/chunkSize);
   let pcz=Math.floor(z/chunkSize);
@@ -69,6 +112,7 @@ function collidesWithObstacles(x,z){
       if(!chunk || !chunk.colliders) continue;
 
       for(let obstacle of chunk.colliders){
+        if(obstacle.destroyed) continue;
         if(obstacle.type==="smallRock") continue;
 
         let ox=obstacle.x;
@@ -83,6 +127,64 @@ function collidesWithObstacles(x,z){
   }
 
   return false;
+}
+
+function obstacleAt(x,z,padding=0){
+  let pcx=Math.floor(x/chunkSize);
+  let pcz=Math.floor(z/chunkSize);
+  let best=null;
+  let bestDist=Infinity;
+
+  for(let dx=-1;dx<=1;dx++){
+    for(let dz=-1;dz<=1;dz++){
+      let chunk=chunks.get(chunkKey(pcx+dx,pcz+dz));
+      if(!chunk || !chunk.colliders) continue;
+
+      for(let obstacle of chunk.colliders){
+        if(obstacle.destroyed || obstacle.type==="treeCluster") continue;
+
+        let ox=obstacle.x;
+        let oz=obstacle.z;
+        let r=obstacle.r+padding;
+        let distSq=(x-ox)*(x-ox)+(z-oz)*(z-oz);
+
+        if(distSq<r*r && distSq<bestDist){
+          best=obstacle;
+          bestDist=distSq;
+        }
+      }
+    }
+  }
+
+  return best;
+}
+
+function obstacleAlongSegment(fromX,fromZ,toX,toZ,padding=0){
+  let dx=toX-fromX;
+  let dz=toZ-fromZ;
+  let distance=Math.hypot(dx,dz);
+  let steps=Math.max(1,Math.min(24,Math.ceil(distance/0.35)));
+
+  for(let i=0;i<=steps;i++){
+    let t=i/steps;
+    let obstacle=obstacleAt(fromX+dx*t,fromZ+dz*t,padding);
+    if(obstacle) return obstacle;
+  }
+
+  return null;
+}
+
+function destroyObstacle(obstacle){
+  if(!obstacle || obstacle.destroyed) return false;
+  obstacle.destroyed=true;
+
+  if(obstacle.instances){
+    for(let item of obstacle.instances){
+      hideInstance(item.mesh,item.index);
+    }
+  }
+
+  return true;
 }
 
 function makeChunk(cx,cz){
@@ -171,7 +273,8 @@ function makeChunk(cx,cz){
       if(wy<-15 || wy>32) continue;
       if(roadDistance(wx,wz)<45) continue;
 
-      colliders.push({x:wx,z:wz,r:2.4,type:"tree"});
+      let treeCollider={x:wx,z:wz,r:2.4,type:"tree",instances:[]};
+      colliders.push(treeCollider);
 
       let scale=.55+rand(i+cx+c,cz-i)*.9;
       let rot=rand(i,cx+cz+c)*Math.PI*2;
@@ -185,7 +288,9 @@ function makeChunk(cx,cz){
       dummy.scale.set(scale*trunkWidthScale,scale*trunkHeightScale,scale*trunkWidthScale);
       dummy.updateMatrix();
       trunks.setMatrixAt(treeUsed,dummy.matrix);
+      treeCollider.instances.push({mesh:trunks,index:treeUsed});
 
+      let crownStart=crownUsed;
       for(let j=0;j<7;j++){
         let crownScale=scale*(1.25-j*.08);
         let angle=rot+j*2.38+rand(i+j*11,c*17)*0.9;
@@ -213,6 +318,11 @@ function makeChunk(cx,cz){
         crownUsed++;
       }
 
+      for(let k=crownStart;k<crownUsed;k++){
+        treeCollider.instances.push({mesh:crowns,index:k});
+      }
+
+      let podStart=podUsed;
       for(let j=0;j<4;j++){
         let podScale=scale*(0.42+rand(i*19+j,cx+cz)*0.34);
         let angle=rot+j*Math.PI*0.5+rand(c*29+j,i)*0.65;
@@ -229,6 +339,10 @@ function makeChunk(cx,cz){
 
         pods.setMatrixAt(podUsed,dummy.matrix);
         podUsed++;
+      }
+
+      for(let k=podStart;k<podUsed;k++){
+        treeCollider.instances.push({mesh:pods,index:k});
       }
 
       treeUsed++;
@@ -309,7 +423,8 @@ function makeChunk(cx,cz){
       x:wx,
       z:wz,
       r:2.1+scale*0.55,
-      type:scale<1.65 ? "smallRock" : "rock"
+      type:scale<1.65 ? "smallRock" : "rock",
+      instances:[{mesh:rocks,index:rockUsed}]
     });
 
 
@@ -391,7 +506,7 @@ function makeChunk(cx,cz){
       villageWalls.setMatrixAt(wallUsed,dummy.matrix);
       wallUsed++;
 
-      colliders.push({x:wx,z:wz,r:Math.max(1.2,segLen*0.32),type:"wall"});
+      colliders.push({x:wx,z:wz,r:Math.max(1.2,segLen*0.32),type:"wall",instances:[{mesh:villageWalls,index:wallUsed-1}]});
     }
 
     for(let i=0;i<housesInVillage && buildingUsed<maxBuildings;i++){
@@ -423,7 +538,13 @@ function makeChunk(cx,cz){
       }
       if(tooClose) continue;
 
-      colliders.push({x:wx,z:wz,r:Math.max(width,depth)*0.78,type:"building"});
+      let buildingCollider={x:wx,z:wz,r:Math.max(width,depth)*0.78,type:"building",instances:[]};
+      let buildingIndex=buildingUsed;
+      let windowStart=windowUsed;
+      let doorStart=doorUsed;
+      let chimneyStart=chimneyUsed;
+      let trimStart=trimUsed;
+      let porchStart=porchUsed;
 
       let yaw=r01(i+v*13,cx-cz)*Math.PI*2;
       dummy.position.set(wx,wy+height*0.5,wz);
@@ -431,6 +552,7 @@ function makeChunk(cx,cz){
       dummy.scale.set(width,height,depth);
       dummy.updateMatrix();
       buildingBodies.setMatrixAt(buildingUsed,dummy.matrix);
+      buildingCollider.instances.push({mesh:buildingBodies,index:buildingIndex});
 
       let roofHeight=1.4+r01(i+99+v,cx+cz)*1.3;
       let roofScale=Math.max(width,depth)*0.72;
@@ -439,6 +561,7 @@ function makeChunk(cx,cz){
       dummy.scale.set(roofScale,roofHeight,roofScale);
       dummy.updateMatrix();
       buildingRoofs.setMatrixAt(buildingUsed,dummy.matrix);
+      buildingCollider.instances.push({mesh:buildingRoofs,index:buildingIndex});
 
       // Details: front door, four windows, and a roof chimney.
       let fwdX=Math.sin(yaw),fwdZ=Math.cos(yaw);
@@ -529,6 +652,13 @@ function makeChunk(cx,cz){
         buildingChimneys.setMatrixAt(chimneyUsed,dummy.matrix);
         chimneyUsed++;
       }
+
+      for(let k=windowStart;k<windowUsed;k++) buildingCollider.instances.push({mesh:buildingWindows,index:k});
+      for(let k=doorStart;k<doorUsed;k++) buildingCollider.instances.push({mesh:buildingDoors,index:k});
+      for(let k=chimneyStart;k<chimneyUsed;k++) buildingCollider.instances.push({mesh:buildingChimneys,index:k});
+      for(let k=trimStart;k<trimUsed;k++) buildingCollider.instances.push({mesh:buildingTrims,index:k});
+      for(let k=porchStart;k<porchUsed;k++) buildingCollider.instances.push({mesh:buildingPorches,index:k});
+      colliders.push(buildingCollider);
 
       placed.push({x:wx,z:wz,r:minGap*0.5});
 
@@ -723,11 +853,19 @@ function processChunkQueue(){
   if(removalQueue.length>0) disposeChunk(removalQueue.shift());
 }
 
+function updateWind(time){
+  if(grassWindShader) grassWindShader.uniforms.windTime.value=time*0.001;
+}
+
   return {
     chunks,
     collidesWithObstacles,
+    obstacleAt,
+    obstacleAlongSegment,
+    destroyObstacle,
     updateChunks,
     updateChunksForCenters,
+    updateWind,
     processChunkQueue
   };
 }
