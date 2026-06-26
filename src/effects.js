@@ -54,9 +54,9 @@ export function createClouds(scene,getCarPosition){
     for(let i=0;i<cloudCount;i++){
       let material=new THREE.SpriteMaterial({
         map:cloudTexture,
-        color:0xffffff,
+        color:0xffb2d6,
         transparent:true,
-        opacity:0.32+cloudRand(i*17,91)*0.28,
+        opacity:0.24+cloudRand(i*17,91)*0.22,
         depthWrite:false,
         fog:false
       });

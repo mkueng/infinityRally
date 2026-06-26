@@ -2,16 +2,17 @@ import { THREE } from "./three.js";
 
 export function makeSkyTexture(){
   let canvas=document.createElement("canvas");
-  canvas.width=16;
+  canvas.width=1024;
   canvas.height=512;
   let ctx=canvas.getContext("2d");
   let gradient=ctx.createLinearGradient(0,0,0,512);
-  gradient.addColorStop(0,"#2f69b5");
-  gradient.addColorStop(0.42,"#66a9dc");
-  gradient.addColorStop(0.78,"#bfe5fb");
-  gradient.addColorStop(1,"#eef8ff");
+  gradient.addColorStop(0,"#12072b");
+  gradient.addColorStop(0.34,"#33145f");
+  gradient.addColorStop(0.68,"#9c416f");
+  gradient.addColorStop(0.88,"#f08c71");
+  gradient.addColorStop(1,"#ffd3a5");
   ctx.fillStyle=gradient;
-  ctx.fillRect(0,0,16,512);
+  ctx.fillRect(0,0,1024,512);
 
   let tex=new THREE.CanvasTexture(canvas);
   tex.minFilter=THREE.LinearFilter;
@@ -98,16 +99,16 @@ export function makeGroundTexture(){
 
   let ctx=canvas.getContext("2d");
 
-  // Base grass color
-  ctx.fillStyle="#3a7d44";
+  ctx.fillStyle="#6f2d46";
   ctx.fillRect(0,0,1024,1024);
 
-  // Subtle darker patches
   for(let i=0;i<800;i++){
     let size=Math.random()*60+30;
-    let c=40+Math.random()*30;
+    let r=55+Math.random()*45;
+    let g=20+Math.random()*18;
+    let b=70+Math.random()*55;
 
-    ctx.fillStyle=`rgba(${c*0.7},${c*1.2},${c*0.6},0.08)`;
+    ctx.fillStyle=`rgba(${r},${g},${b},0.12)`;
     ctx.fillRect(
       Math.random()*1024,
       Math.random()*1024,
@@ -116,12 +117,13 @@ export function makeGroundTexture(){
     );
   }
 
-  // Subtle lighter patches
   for(let i=0;i<600;i++){
     let size=Math.random()*50+25;
-    let c=120+Math.random()*40;
+    let r=150+Math.random()*65;
+    let g=70+Math.random()*45;
+    let b=55+Math.random()*40;
 
-    ctx.fillStyle=`rgba(${c},${c*1.1},${c*0.9},0.07)`;
+    ctx.fillStyle=`rgba(${r},${g},${b},0.08)`;
     ctx.fillRect(
       Math.random()*1024,
       Math.random()*1024,
@@ -130,6 +132,17 @@ export function makeGroundTexture(){
     );
   }
 
+  for(let i=0;i<140;i++){
+    let x=Math.random()*1024;
+    let y=Math.random()*1024;
+    let length=45+Math.random()*160;
+    ctx.strokeStyle=`rgba(104,255,213,${0.05+Math.random()*0.08})`;
+    ctx.lineWidth=1+Math.random()*2.5;
+    ctx.beginPath();
+    ctx.moveTo(x,y);
+    ctx.lineTo(x+Math.cos(i*17.13)*length,y+Math.sin(i*9.71)*length);
+    ctx.stroke();
+  }
 
   let tex=new THREE.CanvasTexture(canvas);
   tex.wrapS=THREE.RepeatWrapping;
@@ -147,17 +160,19 @@ export function makeRoadTexture(){
 
   let ctx=canvas.getContext("2d");
 
-  ctx.fillStyle="#8b6f47";
+  ctx.fillStyle="#2b2232";
   ctx.fillRect(0,0,512,512);
 
   for(let i=0;i<8000;i++){
 
     let size=Math.random()*8+2;
 
-    let c=90+Math.random()*80;
+    let r=72+Math.random()*80;
+    let g=48+Math.random()*42;
+    let b=78+Math.random()*70;
 
     ctx.fillStyle=
-      `rgba(${c},${c*0.8},${c*0.5},0.4)`;
+      `rgba(${r},${g},${b},0.42)`;
 
     ctx.fillRect(
       Math.random()*512,
@@ -169,10 +184,10 @@ export function makeRoadTexture(){
 
   for(let i=0;i<2000;i++){
 
-    let c=40+Math.random()*30;
+    let c=35+Math.random()*38;
 
     ctx.fillStyle=
-      `rgba(${c},${c},${c},0.25)`;
+      `rgba(${c*1.25},${c},${c*1.5},0.28)`;
 
     ctx.fillRect(
       Math.random()*512,

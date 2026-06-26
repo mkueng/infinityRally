@@ -3,12 +3,12 @@ import { gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize } from "./con
 import { carSurfaceHeight, groundHeight, maxSpeedForRoadDistance, roadCenterX, roadDistance } from "./terrain.js?v=no-ramps";
 import { createInput } from "./input.js";
 import { createHud } from "./hud.js";
-import { createBirds, createCarShadow, createClouds, createDust, createWheelTracks } from "./effects.js?v=flight-exhaust-mech";
-import { createWorld } from "./world.js?v=no-ramps";
-import { createMotorAudio } from "./audio.js?v=flight-exhaust-mech";
+import { createBirds, createCarShadow, createClouds, createDust, createWheelTracks } from "./effects.js?v=alien-planet-world";
+import { createWorld } from "./world.js?v=alien-planet";
+import { createMotorAudio } from "./audio.js?v=alien-planet-world";
 import { loadGarageModel, loadGasStationModel, makeMechModel } from "./models.js?v=walking-mech";
 import { updateSheep } from "./sheep.js";
-import { makeSkyTexture } from "./textures.js";
+import { makeSkyTexture } from "./textures.js?v=alien-planet";
 
 let scene=new THREE.Scene();
 let playerCamera=new THREE.PerspectiveCamera(45,innerWidth/innerHeight,.1,1e6);
@@ -18,11 +18,11 @@ renderer.setSize(innerWidth,innerHeight);
 renderer.setScissorTest(true);
 document.body.appendChild(renderer.domElement);
 scene.background=makeSkyTexture();
-scene.fog=new THREE.FogExp2(0x9fcbe6,0.00022);
+scene.fog=new THREE.FogExp2(0x7b4771,0.00024);
 
-scene.add(new THREE.HemisphereLight(0xbfdfff,0x445533,1.4));
-let sun=new THREE.DirectionalLight(0xffffff,2.15);
-sun.position.set(4,7,2.5);
+scene.add(new THREE.HemisphereLight(0xffb8d4,0x21484d,1.35));
+let sun=new THREE.DirectionalLight(0xffd29b,2.05);
+sun.position.set(-3.5,6.5,2.2);
 scene.add(sun);
 
 let input=createInput();

@@ -1,7 +1,7 @@
 import { THREE } from "./three.js";
 import { carRadius, chunkSize, segments, viewDistance } from "./constants.js";
 import { groundHeight, rand, roadCenterX, roadDistance, roadHeight, roadYawAt } from "./terrain.js?v=no-ramps";
-import { makeGroundTexture } from "./textures.js";
+import { makeGroundTexture } from "./textures.js?v=alien-planet";
 import { makeSheep } from "./sheep.js";
 
 export function createWorld(scene){
@@ -34,28 +34,31 @@ export function createWorld(scene){
 let landMat=new THREE.MeshStandardMaterial({
   map:makeGroundTexture(),
   vertexColors:true,
-  roughness:0.8
+  roughness:0.92,
+  metalness:0.04
 });
 
 let waterMat=new THREE.MeshStandardMaterial({
-  color:0x3366cc,
+  color:0x20ffd4,
+  emissive:0x036f6d,
+  emissiveIntensity:0.38,
   transparent:true,
-  opacity:.5,
+  opacity:.42,
   depthWrite:false
 });
 let waterLevel=-20;
 
-let barkMat=new THREE.MeshStandardMaterial({color:0x5a321b});
-let leafMat=new THREE.MeshStandardMaterial({color:0x1f6b2a});
-let grassMat=new THREE.MeshStandardMaterial({color:0x2f8f35});
-let rockMat=new THREE.MeshStandardMaterial({color:0x777777,roughness:1});
-let buildingWallMat=new THREE.MeshStandardMaterial({color:0xe3ded3,roughness:0.9,metalness:0.02});
-let buildingRoofMat=new THREE.MeshStandardMaterial({color:0x9e3f32,roughness:0.92,metalness:0.01});
-let windowMat=new THREE.MeshStandardMaterial({color:0xa9d8ff,emissive:0x1a2d40,emissiveIntensity:0.4,roughness:0.25});
-let doorMat=new THREE.MeshStandardMaterial({color:0x5f3b23,roughness:0.9});
-let chimneyMat=new THREE.MeshStandardMaterial({color:0x6f6a66,roughness:1});
-let houseTrimMat=new THREE.MeshStandardMaterial({color:0xf2efe8,roughness:0.78});
-let brickWallMat=new THREE.MeshStandardMaterial({color:0x9f4e3e,roughness:0.95});
+let barkMat=new THREE.MeshStandardMaterial({color:0x31204a,roughness:0.92});
+let leafMat=new THREE.MeshStandardMaterial({color:0x5ff0c9,emissive:0x073f38,emissiveIntensity:0.16,roughness:0.78});
+let grassMat=new THREE.MeshStandardMaterial({color:0x9df58d,emissive:0x173d18,emissiveIntensity:0.12,roughness:0.84});
+let rockMat=new THREE.MeshStandardMaterial({color:0x3f334b,roughness:1,metalness:0.12});
+let buildingWallMat=new THREE.MeshStandardMaterial({color:0x5a526d,roughness:0.9,metalness:0.16});
+let buildingRoofMat=new THREE.MeshStandardMaterial({color:0x322b45,roughness:0.92,metalness:0.18});
+let windowMat=new THREE.MeshStandardMaterial({color:0x8dfff2,emissive:0x0bd1c4,emissiveIntensity:0.72,roughness:0.18});
+let doorMat=new THREE.MeshStandardMaterial({color:0x241b2b,roughness:0.9,metalness:0.08});
+let chimneyMat=new THREE.MeshStandardMaterial({color:0x494058,roughness:1,metalness:0.12});
+let houseTrimMat=new THREE.MeshStandardMaterial({color:0xa78fbd,roughness:0.78,metalness:0.08});
+let brickWallMat=new THREE.MeshStandardMaterial({color:0x714060,roughness:0.95,metalness:0.05});
 
 let trunkGeo=new THREE.CylinderGeometry(.45,.85,9,7);
 let crownGeo=new THREE.ConeGeometry(4.2,5.4,9);
@@ -253,11 +256,11 @@ function makeChunk(cx,cz){
 
     let color=new THREE.Color();
 
-    if(d<18) color.set(0x8b6f47);
-    else if(h<-20) color.set(0xc2b280);
-    else if(h<15) color.set(0x55aa44);
-    else if(h<30) color.set(0x667744);
-    else color.set(0x888888);
+    if(d<18) color.set(0x2b2232);
+    else if(h<-20) color.set(0x8f5a6c);
+    else if(h<15) color.set(0x8b3852);
+    else if(h<30) color.set(0x5a3b70);
+    else color.set(0x3f3456);
 
     colors.push(color.r,color.g,color.b);
   }
