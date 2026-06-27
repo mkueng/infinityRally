@@ -2,6 +2,7 @@ export function createMotorAudio(cars){
   let context=null;
   let master=null;
   let motors=[];
+  let noiseBuffer=null;
   let supported=true;
 
   function clamp(value,min,max){
@@ -21,7 +22,7 @@ export function createMotorAudio(cars){
     master=context.createGain();
     master.gain.value=0.26;
     master.connect(context.destination);
-    let noiseBuffer=createNoiseBuffer();
+    noiseBuffer=createNoiseBuffer();
 
     motors=cars.map((car,index)=>{
       let idleOsc=context.createOscillator();
@@ -206,8 +207,105 @@ export function createMotorAudio(cars){
     }
   }
 
+  function playRocketLaunch(car){
+    ensureContext();
+    if(!context || !supported) return;
+    if(context.state==="suspended") context.resume();
+
+    let motor=motors.find(item=>item.car===car);
+    let destination=motor ? (motor.pan || motor.output) : master;
+    let time=context.currentTime+0.01;
+    let noise=context.createBufferSource();
+    let noiseFilter=context.createBiquadFilter();
+    let noiseGain=context.createGain();
+    let swooshFilter=context.createBiquadFilter();
+    let swooshGain=context.createGain();
+    let punch=context.createOscillator();
+    let punchGain=context.createGain();
+
+    noise.buffer=noiseBuffer || createNoiseBuffer();
+    noiseFilter.type="bandpass";
+    noiseFilter.frequency.setValueAtTime(1280,time);
+    noiseFilter.frequency.exponentialRampToValueAtTime(220,time+0.48);
+    noiseFilter.Q.setValueAtTime(1.35,time);
+    noiseGain.gain.setValueAtTime(0.0001,time);
+    noiseGain.gain.exponentialRampToValueAtTime(0.52,time+0.014);
+    noiseGain.gain.exponentialRampToValueAtTime(0.0001,time+0.68);
+
+    swooshFilter.type="highpass";
+    swooshFilter.frequency.setValueAtTime(1800,time);
+    swooshFilter.frequency.exponentialRampToValueAtTime(360,time+0.68);
+    swooshFilter.Q.setValueAtTime(0.8,time);
+    swooshGain.gain.setValueAtTime(0.0001,time);
+    swooshGain.gain.exponentialRampToValueAtTime(0.36,time+0.025);
+    swooshGain.gain.exponentialRampToValueAtTime(0.0001,time+0.9);
+
+    punch.type="sawtooth";
+    punch.frequency.setValueAtTime(108,time);
+    punch.frequency.exponentialRampToValueAtTime(36,time+0.2);
+    punchGain.gain.setValueAtTime(0.0001,time);
+    punchGain.gain.exponentialRampToValueAtTime(0.22,time+0.008);
+    punchGain.gain.exponentialRampToValueAtTime(0.0001,time+0.24);
+
+    noise.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(destination);
+    noise.connect(swooshFilter);
+    swooshFilter.connect(swooshGain);
+    swooshGain.connect(destination);
+    punch.connect(punchGain);
+    punchGain.connect(destination);
+
+    noise.start(time);
+    punch.start(time);
+    noise.stop(time+0.94);
+    punch.stop(time+0.26);
+  }
+
+  function playExplosion(){
+    ensureContext();
+    if(!context || !supported) return;
+    if(context.state==="suspended") context.resume();
+
+    let time=context.currentTime+0.005;
+    let boom=context.createOscillator();
+    let boomGain=context.createGain();
+    let noise=context.createBufferSource();
+    let noiseFilter=context.createBiquadFilter();
+    let noiseGain=context.createGain();
+
+    noise.buffer=noiseBuffer || createNoiseBuffer();
+    boom.type="sine";
+    boom.frequency.setValueAtTime(42,time);
+    boom.frequency.exponentialRampToValueAtTime(16,time+0.9);
+    boomGain.gain.setValueAtTime(0.0001,time);
+    boomGain.gain.exponentialRampToValueAtTime(0.42,time+0.018);
+    boomGain.gain.exponentialRampToValueAtTime(0.0001,time+1.35);
+
+    noiseFilter.type="lowpass";
+    noiseFilter.frequency.setValueAtTime(760,time);
+    noiseFilter.frequency.exponentialRampToValueAtTime(90,time+1.25);
+    noiseFilter.Q.setValueAtTime(0.85,time);
+    noiseGain.gain.setValueAtTime(0.0001,time);
+    noiseGain.gain.exponentialRampToValueAtTime(0.38,time+0.026);
+    noiseGain.gain.exponentialRampToValueAtTime(0.0001,time+1.45);
+
+    boom.connect(boomGain);
+    boomGain.connect(master);
+    noise.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(master);
+
+    boom.start(time);
+    noise.start(time);
+    boom.stop(time+1.42);
+    noise.stop(time+1.5);
+  }
+
   return {
     resume,
-    update
+    update,
+    playRocketLaunch,
+    playExplosion
   };
 }

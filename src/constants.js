@@ -5,5 +5,5 @@ export const roadMaxSpeed=2.2;
 export const offroadMaxSpeed=1.8;
 export const chunkSize=500;
 export const segments=64;
-export const viewDistance=9;
+export const viewDistance=12;
 export const carRadius=1.55;

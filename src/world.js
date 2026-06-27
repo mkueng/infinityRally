@@ -174,6 +174,48 @@ function obstacleAlongSegment(fromX,fromZ,toX,toZ,padding=0){
   return null;
 }
 
+function obstacleAlongSegment3D(fromX,fromY,fromZ,toX,toY,toZ,padding=0){
+  let pcx=Math.floor(toX/chunkSize);
+  let pcz=Math.floor(toZ/chunkSize);
+  let sx=toX-fromX;
+  let sy=toY-fromY;
+  let sz=toZ-fromZ;
+  let segLenSq=Math.max(0.0001,sx*sx+sy*sy+sz*sz);
+  let best=null;
+  let bestDist=Infinity;
+
+  for(let dx=-1;dx<=1;dx++){
+    for(let dz=-1;dz<=1;dz++){
+      let chunk=chunks.get(chunkKey(pcx+dx,pcz+dz));
+      if(!chunk || !chunk.colliders) continue;
+
+      for(let obstacle of chunk.colliders){
+        if(obstacle.destroyed || obstacle.type==="treeCluster") continue;
+
+        let obstacleY=groundHeight(obstacle.x,obstacle.z)+Math.max(0.6,obstacle.r*0.45);
+        let t=((obstacle.x-fromX)*sx+(obstacleY-fromY)*sy+(obstacle.z-fromZ)*sz)/segLenSq;
+        t=Math.max(0,Math.min(1,t));
+
+        let cx=fromX+sx*t;
+        let cy=fromY+sy*t;
+        let cz=fromZ+sz*t;
+        let radius=Math.max(1.2,obstacle.r*0.72)+padding;
+        let verticalRadius=Math.max(1.0,obstacle.r*0.65)+padding;
+        let distSq=(cx-obstacle.x)*(cx-obstacle.x)
+          + ((cy-obstacleY)/Math.max(0.001,verticalRadius/radius))*((cy-obstacleY)/Math.max(0.001,verticalRadius/radius))
+          + (cz-obstacle.z)*(cz-obstacle.z);
+
+        if(distSq<radius*radius && distSq<bestDist){
+          best=obstacle;
+          bestDist=distSq;
+        }
+      }
+    }
+  }
+
+  return best;
+}
+
 function destroyObstacle(obstacle){
   if(!obstacle || obstacle.destroyed) return false;
   obstacle.destroyed=true;
@@ -862,6 +904,7 @@ function updateWind(time){
     collidesWithObstacles,
     obstacleAt,
     obstacleAlongSegment,
+    obstacleAlongSegment3D,
     destroyObstacle,
     updateChunks,
     updateChunksForCenters,

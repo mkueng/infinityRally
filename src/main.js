@@ -69,6 +69,11 @@ let explosionRingMat=new THREE.MeshBasicMaterial({
   depthTest:true,
   blending:THREE.AdditiveBlending
 });
+let rockDebris=[];
+let rockDebrisGeo=new THREE.DodecahedronGeometry(1,0);
+let rockDebrisMat=new THREE.MeshStandardMaterial({color:0x4c3a5b,roughness:0.96,metalness:0.08});
+let buildingDebrisGeo=new THREE.BoxGeometry(1,1,1);
+let buildingDebrisMat=new THREE.MeshStandardMaterial({color:0x5a526d,roughness:0.9,metalness:0.12});
 
 function clamp(value,min,max){
   return Math.max(min,Math.min(max,value));
@@ -330,6 +335,8 @@ function makeRocketMesh(){
 }
 
 function spawnRocketExplosion(x,y,z){
+  motorAudio.playExplosion();
+
   let flash=new THREE.Mesh(explosionFlashGeo,explosionFlashMat.clone());
   flash.position.set(x,y,z);
   flash.scale.setScalar(0.35);
@@ -390,19 +397,105 @@ function updateExplosions(){
   }
 }
 
-function aimTargetForCar(car){
-  let target=new THREE.Vector3(
-    car.x+Math.sin(car.angle)*72,
-    car.y+3.15,
-    car.z+Math.cos(car.angle)*72
-  );
+function spawnRockDebris(x,y,z,obstacle){
+  let building=obstacle.type==="building" || obstacle.type==="wall";
+  let count=building ? 22 : (obstacle.type==="smallRock" ? 7 : 13);
+  let baseScale=building
+    ? Math.max(0.75,Math.min(2.1,(obstacle.r || 5)*0.16))
+    : Math.max(0.22,Math.min(0.82,(obstacle.r || 3)*0.14));
 
-  if(car.aimCross){
-    car.aimCross.getWorldPosition(target);
-    target.y+=rocketAimYOffset;
+  for(let i=0;i<count;i++){
+    let piece=new THREE.Mesh(
+      building ? buildingDebrisGeo : rockDebrisGeo,
+      (building ? buildingDebrisMat : rockDebrisMat).clone()
+    );
+    let angle=(i/count)*Math.PI*2+Math.random()*0.55;
+    let speed=building ? 0.2+Math.random()*0.42 : 0.16+Math.random()*0.28;
+    let scale=baseScale*(0.45+Math.random()*0.8);
+
+    piece.position.set(
+      x+(Math.random()-0.5)*(building ? 4.8 : 0.8),
+      y+0.3+Math.random()*(building ? 3.2 : 0.9),
+      z+(Math.random()-0.5)*(building ? 4.8 : 0.8)
+    );
+    piece.rotation.set(Math.random()*Math.PI,Math.random()*Math.PI,Math.random()*Math.PI);
+    piece.scale.set(
+      scale*(building ? 0.8+Math.random()*1.4 : 1),
+      scale*(building ? 0.45+Math.random()*1.0 : 0.65+Math.random()*0.6),
+      scale*(building ? 0.8+Math.random()*1.4 : 1)
+    );
+    piece.castShadow=true;
+    piece.receiveShadow=true;
+    scene.add(piece);
+
+    rockDebris.push({
+      piece,
+      vx:Math.cos(angle)*speed,
+      vz:Math.sin(angle)*speed,
+      vy:(building ? 0.34 : 0.2)+Math.random()*(building ? 0.54 : 0.34),
+      rx:(Math.random()-0.5)*0.18,
+      ry:(Math.random()-0.5)*0.18,
+      rz:(Math.random()-0.5)*0.18,
+      age:0,
+      life:(building ? 2.2 : 1.5)+Math.random()*(building ? 0.75 : 0.55)
+    });
   }
+}
 
-  return target;
+function clearRockDebris(){
+  for(let item of rockDebris){
+    scene.remove(item.piece);
+    item.piece.material.dispose();
+  }
+  rockDebris=[];
+}
+
+function updateRockDebris(){
+  for(let i=rockDebris.length-1;i>=0;i--){
+    let item=rockDebris[i];
+    item.age+=0.016;
+    item.vy-=0.018;
+    item.vx*=0.988;
+    item.vz*=0.988;
+    item.piece.position.x+=item.vx;
+    item.piece.position.y+=item.vy;
+    item.piece.position.z+=item.vz;
+    item.piece.rotation.x+=item.rx;
+    item.piece.rotation.y+=item.ry;
+    item.piece.rotation.z+=item.rz;
+
+    let groundY=drivingSurfaceHeight(item.piece.position.x,item.piece.position.z)+0.08;
+    if(item.piece.position.y<groundY){
+      item.piece.position.y=groundY;
+      item.vy*=-0.28;
+      item.vx*=0.72;
+      item.vz*=0.72;
+    }
+
+    let t=Math.min(1,item.age/item.life);
+    item.piece.scale.multiplyScalar(1-0.012*t);
+    item.piece.material.opacity=1-t;
+    item.piece.material.transparent=true;
+
+    if(t>=1){
+      scene.remove(item.piece);
+      item.piece.material.dispose();
+      rockDebris.splice(i,1);
+    }
+  }
+}
+
+function aimTargetForCar(car){
+  let forwardX=Math.sin(car.angle);
+  let forwardZ=Math.cos(car.angle);
+  let rightX=Math.cos(car.angle);
+  let rightZ=-Math.sin(car.angle);
+
+  return new THREE.Vector3(
+    car.x+forwardX*72+rightX*car.aimOffsetX*2.25,
+    car.y+3.15+car.aimOffsetY*2.25+rocketAimYOffset,
+    car.z+forwardZ*72+rightZ*car.aimOffsetX*2.25
+  );
 }
 
 function updateAimCross(car){
@@ -415,24 +508,16 @@ function updateAimCross(car){
 }
 
 function rocketLaunchPointForCar(car){
-  let point=new THREE.Vector3(
-    car.x+Math.sin(car.angle)*2.35+Math.cos(car.angle)*0.9,
-    car.y+2.1,
-    car.z+Math.cos(car.angle)*2.35-Math.sin(car.angle)*0.9
+  let forwardX=Math.sin(car.angle);
+  let forwardZ=Math.cos(car.angle);
+  let rightX=Math.cos(car.angle);
+  let rightZ=-Math.sin(car.angle);
+
+  return new THREE.Vector3(
+    car.x+forwardX*2.6+rightX*1.75,
+    car.y+2.25,
+    car.z+forwardZ*2.6+rightZ*1.75
   );
-
-  let cannon=car.mechModel && car.mechModel.userData.walkParts
-    ? car.mechModel.userData.walkParts.right.cannon
-    : null;
-
-  if(cannon){
-    cannon.getWorldPosition(point);
-    point.x+=Math.sin(car.angle)*0.84;
-    point.y+=0.05;
-    point.z+=Math.cos(car.angle)*0.84;
-  }
-
-  return point;
 }
 
 function fireRocket(car){
@@ -476,6 +561,7 @@ function fireRocket(car){
     life:115
   });
 
+  motorAudio.playRocketLaunch(car);
   car.rocketCooldown=rocketCooldownFrames;
 }
 
@@ -505,6 +591,7 @@ function clearRockets(){
   }
   rockets=[];
   clearExplosions();
+  clearRockDebris();
 }
 
 function updateRockets(){
@@ -528,6 +615,7 @@ function updateRockets(){
     rocket.angle=Math.atan2(rocket.vx,rocket.vz);
 
     let prevX=rocket.x;
+    let prevY=rocket.y;
     let prevZ=rocket.z;
     rocket.x+=rocket.vx;
     rocket.y+=rocket.vy;
@@ -564,13 +652,23 @@ function updateRockets(){
       }
     }
 
-    let hitObstacle=world.obstacleAlongSegment(prevX,prevZ,rocket.x,rocket.z,1.35);
+    let hitObstacle=world.obstacleAlongSegment3D(prevX,prevY,prevZ,rocket.x,rocket.y,rocket.z,1.25);
     let hit=rocket.y<=surfaceY+0.35 || hitObstacle || hitCar;
 
     if(hit || rocket.age>rocket.life){
       if(hit){
-        spawnRocketExplosion(rocket.x,Math.max(rocket.y,surfaceY+0.5),rocket.z);
-        if(hitObstacle) world.destroyObstacle(hitObstacle);
+        let explosionX=hitObstacle ? hitObstacle.x : rocket.x;
+        let explosionZ=hitObstacle ? hitObstacle.z : rocket.z;
+        let explosionY=hitObstacle
+          ? Math.max(groundHeight(hitObstacle.x,hitObstacle.z)+Math.max(0.8,hitObstacle.r*0.45),surfaceY+0.5)
+          : Math.max(rocket.y,surfaceY+0.5);
+        spawnRocketExplosion(explosionX,explosionY,explosionZ);
+        if(hitObstacle){
+          if(hitObstacle.type==="rock" || hitObstacle.type==="smallRock" || hitObstacle.type==="building" || hitObstacle.type==="wall"){
+            spawnRockDebris(hitObstacle.x,explosionY,hitObstacle.z,hitObstacle);
+          }
+          world.destroyObstacle(hitObstacle);
+        }
         if(hitCar){
           damageCar(hitCar,18);
           rattleCar(hitCar,1);
@@ -1145,6 +1243,7 @@ function loop(){
 
   dust.update();
   updateExplosions();
+  updateRockDebris();
   world.updateWind(performance.now());
   motorAudio.update();
   updateCameras();
