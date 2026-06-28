@@ -670,6 +670,8 @@ function spawnVillageSupplyBoxes(){
   for(let chunk of world.chunks.values()){
     if(!chunk.villageCenters) continue;
     for(let village of chunk.villageCenters){
+      if(!world.isVillageCleared(village)) continue;
+
       let supplySets=gameMode==="double" ? 2 : 1;
       for(let set=0;set<supplySets;set++){
         for(let type of ["rocket","cannon","health"]){

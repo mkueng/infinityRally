@@ -79,6 +79,115 @@
     .start-actions button:hover {
       background: #efcf72;
     }
+
+    .menu-robot-cursor {
+      position: fixed;
+      left: 0;
+      top: 0;
+      width: 34px;
+      height: 42px;
+      z-index: 45;
+      pointer-events: none;
+      transform: translate3d(calc(50vw - 17px), calc(50vh - 21px), 0);
+      filter: drop-shadow(0 7px 10px rgba(0,0,0,0.38));
+      transition: filter 120ms ease;
+    }
+
+    .menu-robot-cursor .robot-head,
+    .menu-robot-cursor .robot-body,
+    .menu-robot-cursor .robot-arm,
+    .menu-robot-cursor .robot-leg {
+      position: absolute;
+      background: #9aa7ad;
+      border: 2px solid #222a2d;
+      box-sizing: border-box;
+    }
+
+    .menu-robot-cursor .robot-head {
+      left: 7px;
+      top: 0;
+      width: 20px;
+      height: 16px;
+      background: #b8c3c7;
+    }
+
+    .menu-robot-cursor .robot-eye {
+      position: absolute;
+      top: 5px;
+      width: 4px;
+      height: 4px;
+      background: #67f4ff;
+      box-shadow: 0 0 7px rgba(103,244,255,0.9);
+    }
+
+    .menu-robot-cursor .robot-eye.left {
+      left: 5px;
+    }
+
+    .menu-robot-cursor .robot-eye.right {
+      right: 5px;
+    }
+
+    .menu-robot-cursor .robot-body {
+      left: 5px;
+      top: 16px;
+      width: 24px;
+      height: 18px;
+      background: #69777c;
+    }
+
+    .menu-robot-cursor .robot-body::after {
+      content: "";
+      position: absolute;
+      left: 8px;
+      top: 5px;
+      width: 5px;
+      height: 5px;
+      background: #d6b25a;
+      box-shadow: 0 0 7px rgba(214,178,90,0.85);
+    }
+
+    .menu-robot-cursor .robot-arm {
+      top: 19px;
+      width: 7px;
+      height: 15px;
+      background: #495357;
+      transform-origin: 50% 2px;
+    }
+
+    .menu-robot-cursor .robot-arm.left {
+      left: 0;
+      transform: rotate(18deg);
+    }
+
+    .menu-robot-cursor .robot-arm.right {
+      right: 0;
+      transform: rotate(-32deg);
+      background: #d6b25a;
+    }
+
+    .menu-robot-cursor .robot-leg {
+      top: 32px;
+      width: 8px;
+      height: 10px;
+      background: #343c3f;
+    }
+
+    .menu-robot-cursor .robot-leg.left {
+      left: 8px;
+    }
+
+    .menu-robot-cursor .robot-leg.right {
+      right: 8px;
+    }
+
+    .menu-robot-cursor.is-pressing {
+      filter: drop-shadow(0 4px 8px rgba(0,0,0,0.44)) brightness(1.16);
+    }
+
+    .menu-robot-cursor.is-pressing .robot-arm.right {
+      transform: rotate(-58deg);
+    }
   </style>
 </head>
 <body>
@@ -90,7 +199,42 @@
       <button type="button" data-mode="double">Double Player</button>
     </div>
   </div>
+  <div id="menuRobotCursor" class="menu-robot-cursor" aria-hidden="true">
+    <div class="robot-head">
+      <span class="robot-eye left"></span>
+      <span class="robot-eye right"></span>
+    </div>
+    <div class="robot-body"></div>
+    <div class="robot-arm left"></div>
+    <div class="robot-arm right"></div>
+    <div class="robot-leg left"></div>
+    <div class="robot-leg right"></div>
+  </div>
 </div>
+<script>
+  (() => {
+    const cursor = document.getElementById("menuRobotCursor");
+    const startScreen = document.getElementById("startScreen");
+    if (!cursor || !startScreen) return;
+
+    function menuVisible() {
+      return startScreen.style.display !== "none";
+    }
+
+    window.addEventListener("pointermove", event => {
+      if (!menuVisible()) return;
+      cursor.style.transform = `translate3d(${event.clientX - 17}px, ${event.clientY - 21}px, 0)`;
+    });
+
+    window.addEventListener("pointerdown", () => {
+      if (menuVisible()) cursor.classList.add("is-pressing");
+    });
+
+    window.addEventListener("pointerup", () => {
+      cursor.classList.remove("is-pressing");
+    });
+  })();
+</script>
 <script type="importmap">
   {
     "imports": {

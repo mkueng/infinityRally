@@ -229,6 +229,11 @@ function destroyObstacle(obstacle){
   return true;
 }
 
+function isVillageCleared(village){
+  return !!(village && village.buildings && village.buildings.length>0
+    && village.buildings.every(building=>building.destroyed));
+}
+
 function makeChunk(cx,cz){
   let colors=[];
   let colliders=[];
@@ -520,9 +525,10 @@ function makeChunk(cx,cz){
     if(centerY<-12 || centerY>30) continue;
     if(centerRoadD<24) continue;
 
-    let housesInVillage=12+Math.floor(r01(cx+v*7,cz-v*5)*10);
     let villageRadius=20+(r01(cx-v*3,cz+v*9)*24);
-    villageCenters.push({x:centerX,z:centerZ,y:centerY,r:villageRadius});
+    let village={x:centerX,z:centerZ,y:centerY,r:villageRadius,buildings:[]};
+    villageCenters.push(village);
+    let housesInVillage=12+Math.floor(r01(cx+v*7,cz-v*5)*10);
     let placed=[];
 
     // Brick wall ring around each village with a front opening toward the road.
@@ -579,7 +585,7 @@ function makeChunk(cx,cz){
       }
       if(tooClose) continue;
 
-      let buildingCollider={x:wx,z:wz,r:Math.max(width,depth)*0.78,type:"building",instances:[]};
+      let buildingCollider={x:wx,z:wz,r:Math.max(width,depth)*0.78,type:"building",instances:[],village};
       let buildingIndex=buildingUsed;
       let windowStart=windowUsed;
       let doorStart=doorUsed;
@@ -700,6 +706,7 @@ function makeChunk(cx,cz){
       for(let k=trimStart;k<trimUsed;k++) buildingCollider.instances.push({mesh:buildingTrims,index:k});
       for(let k=porchStart;k<porchUsed;k++) buildingCollider.instances.push({mesh:buildingPorches,index:k});
       colliders.push(buildingCollider);
+      village.buildings.push(buildingCollider);
 
       placed.push({x:wx,z:wz,r:minGap*0.5});
 
@@ -905,6 +912,7 @@ function updateWind(time){
     obstacleAlongSegment,
     obstacleAlongSegment3D,
     destroyObstacle,
+    isVillageCleared,
     updateChunks,
     updateChunksForCenters,
     updateWind,
