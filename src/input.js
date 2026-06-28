@@ -1,5 +1,11 @@
 export function createInput(){
   let keys={};
+  let mouse={
+    x:0,
+    y:0,
+    left:false,
+    hasPosition:false
+  };
   let gamepads=[];
 
   window.addEventListener("keydown",event=>{
@@ -14,6 +20,25 @@ export function createInput(){
   });
   window.addEventListener("gamepaddisconnected",event=>{
     gamepads[event.gamepad.index]=null;
+  });
+
+  function updateMousePosition(event){
+    mouse.x=event.clientX;
+    mouse.y=event.clientY;
+    mouse.hasPosition=true;
+  }
+
+  window.addEventListener("mousemove",updateMousePosition);
+  window.addEventListener("mousedown",event=>{
+    updateMousePosition(event);
+    if(event.button===0) mouse.left=true;
+  });
+  window.addEventListener("mouseup",event=>{
+    updateMousePosition(event);
+    if(event.button===0) mouse.left=false;
+  });
+  window.addEventListener("blur",()=>{
+    mouse.left=false;
   });
 
   function axis(value,deadzone=0.18){
@@ -80,6 +105,7 @@ export function createInput(){
 
   return {
     keys,
+    mouse,
     getGamepadControls,
     getGamepadFaceButtons,
     getGamepadAim

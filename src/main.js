@@ -50,6 +50,12 @@ let rocketFinGeo=new THREE.BoxGeometry(0.08,0.18,0.22);
 let rocketBodyMat=new THREE.MeshStandardMaterial({color:0x30363b,roughness:0.48,metalness:0.55});
 let rocketNoseMat=new THREE.MeshStandardMaterial({color:0xff6633,emissive:0x8f2108,emissiveIntensity:0.55,roughness:0.38,metalness:0.35});
 let rocketFlameMat=new THREE.MeshStandardMaterial({color:0xfff0a0,emissive:0xff7a12,emissiveIntensity:1.2,roughness:0.28});
+let mouseAimRaycaster=new THREE.Raycaster();
+let mouseAimPointer=new THREE.Vector2();
+let mouseAimPlane=new THREE.Plane();
+let mouseAimPlanePoint=new THREE.Vector3();
+let mouseAimPlaneNormal=new THREE.Vector3();
+let mouseAimHitPoint=new THREE.Vector3();
 let explosionBursts=[];
 let explosionFlashGeo=new THREE.SphereGeometry(1,18,12);
 let explosionRingGeo=new THREE.TorusGeometry(1,0.045,8,64);
@@ -505,9 +511,28 @@ function aimTargetForCar(car){
 function updateAimCross(car){
   if(!car.aimCross) return;
 
-  let aim=input.getGamepadAim(car.gamepadIndex);
-  car.aimOffsetX=clamp(car.aimOffsetX-aim.x*0.42,-11,11);
-  car.aimOffsetY=clamp(car.aimOffsetY-aim.y*0.32,-4.5,7.5);
+  if(gameMode==="single" && car===playerCar && input.mouse.hasPosition){
+    mouseAimPointer.set(
+      (input.mouse.x/innerWidth)*2-1,
+      -(input.mouse.y/innerHeight)*2+1
+    );
+    mouseAimRaycaster.setFromCamera(mouseAimPointer,car.camera);
+    mouseAimPlanePoint.set(0,3.15,32);
+    car.group.localToWorld(mouseAimPlanePoint);
+    mouseAimPlaneNormal.set(0,0,1).applyQuaternion(car.group.quaternion).normalize();
+    mouseAimPlane.setFromNormalAndCoplanarPoint(mouseAimPlaneNormal,mouseAimPlanePoint);
+
+    if(mouseAimRaycaster.ray.intersectPlane(mouseAimPlane,mouseAimHitPoint)){
+      car.group.worldToLocal(mouseAimHitPoint);
+      car.aimOffsetX=clamp(mouseAimHitPoint.x,-11,11);
+      car.aimOffsetY=clamp(mouseAimHitPoint.y-3.15,-4.5,7.5);
+    }
+  }else{
+    let aim=input.getGamepadAim(car.gamepadIndex);
+    car.aimOffsetX=clamp(car.aimOffsetX-aim.x*0.42,-11,11);
+    car.aimOffsetY=clamp(car.aimOffsetY-aim.y*0.32,-4.5,7.5);
+  }
+
   car.aimCross.position.set(car.aimOffsetX,3.15+car.aimOffsetY,32);
 }
 
@@ -579,8 +604,10 @@ function updateRocketInput(car){
 
   let buttons=input.getGamepadFaceButtons(car.gamepadIndex);
   let pressedB=buttons.b && !car.lastRocketButton;
-  if(pressedB) fireRocket(car);
-  car.lastRocketButton=buttons.b;
+  let mouseRocket=gameMode==="single" && car===playerCar && input.mouse.left;
+  let pressedMouse=mouseRocket && !car.lastRocketButton;
+  if(pressedB || pressedMouse) fireRocket(car);
+  car.lastRocketButton=buttons.b || mouseRocket;
 }
 
 function removeRocket(index){
