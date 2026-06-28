@@ -234,6 +234,30 @@ function isVillageCleared(village){
     && village.buildings.every(building=>building.destroyed));
 }
 
+function terrainPatchOk(x,z,radius,maxHeight=24,maxRange=7){
+  let minH=Infinity;
+  let maxH=-Infinity;
+  let samples=[
+    [0,0],
+    [1,0],
+    [-1,0],
+    [0,1],
+    [0,-1],
+    [0.72,0.72],
+    [-0.72,0.72],
+    [0.72,-0.72],
+    [-0.72,-0.72]
+  ];
+
+  for(let sample of samples){
+    let h=groundHeight(x+sample[0]*radius,z+sample[1]*radius);
+    minH=Math.min(minH,h);
+    maxH=Math.max(maxH,h);
+  }
+
+  return minH>-12 && maxH<maxHeight && maxH-minH<maxRange;
+}
+
 function makeChunk(cx,cz){
   let colors=[];
   let colliders=[];
@@ -522,11 +546,13 @@ function makeChunk(cx,cz){
     let centerY=groundHeight(centerX,centerZ);
     let centerRoadD=roadDistance(centerX,centerZ);
 
-    if(centerY<-12 || centerY>30) continue;
     if(centerRoadD<24) continue;
 
     let villageRadius=20+(r01(cx-v*3,cz+v*9)*24);
-    let village={x:centerX,z:centerZ,y:centerY,r:villageRadius,buildings:[]};
+    if(!terrainPatchOk(centerX,centerZ,villageRadius*1.28,23,6.5)) continue;
+
+    let enemyBudget=5+Math.floor(r01(cx*811+v*31,cz*337-v*13)*7);
+    let village={x:centerX,z:centerZ,y:centerY,r:villageRadius,buildings:[],enemyBudget,enemyRemaining:enemyBudget};
     villageCenters.push(village);
     let housesInVillage=12+Math.floor(r01(cx+v*7,cz-v*5)*10);
     let placed=[];
@@ -565,13 +591,13 @@ function makeChunk(cx,cz){
       let wy=groundHeight(wx,wz);
       let roadD=roadDistance(wx,wz);
 
-      if(wy<-12 || wy>30) continue;
       if(roadD<20) continue;
 
       let width=8+r01(i+cx*5,cz+v*2)*8;
       let depth=8+r01(i+cz*6,cx-v*2)*8;
       let height=4.8+r01(cx-i,cz+i+v*17)*5.6;
       let minGap=Math.max(width,depth)*1.35;
+      if(!terrainPatchOk(wx,wz,Math.max(width,depth)*0.62,24,4.5)) continue;
 
       let tooClose=false;
       for(let p of placed){

@@ -36,6 +36,7 @@ let gameStarted=false;
 let gameMode="single";
 let enemies=[];
 let enemyWaveDelay=0;
+let enemyPatrolDelay=900;
 let enemySpawnSerial=0;
 let waterLevel=-20;
 let mechGroundMaxSpeed=0.58;
@@ -1257,17 +1258,29 @@ function playerSpawnDistanceSq(x,z){
   return best;
 }
 
+function playerDistanceSqForEnemy(enemy){
+  let best=Infinity;
+  for(let car of activeCars()){
+    if(car.health<=0 || !car.group.visible) continue;
+    let dx=enemy.x-car.x;
+    let dz=enemy.z-car.z;
+    best=Math.min(best,dx*dx+dz*dz);
+  }
+  return best;
+}
+
 function villageSpawnCenters(center){
   let villages=[];
 
   for(let chunk of world.chunks.values()){
     if(!chunk.villageCenters) continue;
     for(let village of chunk.villageCenters){
+      if((village.enemyRemaining ?? 0)<=0) continue;
       let dx=village.x-center.x;
       let dz=village.z-center.z;
       let distSq=dx*dx+dz*dz;
-      if(distSq<180*180 || distSq>1800*1800) continue;
-      villages.push({...village,distSq});
+      if(distSq<130*130 || distSq>620*620) continue;
+      villages.push({village,distSq});
     }
   }
 
@@ -1275,24 +1288,17 @@ function villageSpawnCenters(center){
   return villages;
 }
 
-function enemySpawnPoint(index){
-  let players=activeCars().filter(car=>car.health>0);
-  let center=players.length
-    ? players.reduce((acc,car)=>({x:acc.x+car.x/players.length,z:acc.z+car.z/players.length}),{x:0,z:0})
-    : {x:playerCar.x,z:playerCar.z};
-  let villages=villageSpawnCenters(center);
-
-  for(let attempt=0;attempt<24 && villages.length>0;attempt++){
-    let village=villages[Math.floor(Math.random()*Math.min(villages.length,18))];
+function enemySpawnPointForVillage(village,index){
+  for(let attempt=0;attempt<24;attempt++){
     let angle=Math.random()*Math.PI*2;
-    let radius=(village.r || 32)*(1.42+Math.random()*0.9)+index*5;
+    let radius=(village.r || 32)*(1.25+Math.random()*0.65)+index*5;
     let x=village.x+Math.cos(angle)*radius+(Math.random()-0.5)*12;
     let z=village.z+Math.sin(angle)*radius+(Math.random()-0.5)*12;
     let h=drivingSurfaceHeight(x,z);
 
     if(
       Number.isFinite(h)
-      && playerSpawnDistanceSq(x,z)>175*175
+      && playerSpawnDistanceSq(x,z)>120*120
       && waterDepthAt(x,z)<1.4
       && roadDistance(x,z)>18
       && !world.collidesWithObstacles(x,z)
@@ -1301,37 +1307,83 @@ function enemySpawnPoint(index){
     }
   }
 
-  for(let attempt=0;attempt<12;attempt++){
+  return null;
+}
+
+function enemySpawnVillage(){
+  let players=activeCars().filter(car=>car.health>0);
+  let center=players.length
+    ? players.reduce((acc,car)=>({x:acc.x+car.x/players.length,z:acc.z+car.z/players.length}),{x:0,z:0})
+    : {x:playerCar.x,z:playerCar.z};
+  let villages=villageSpawnCenters(center);
+
+  if(villages.length===0) return null;
+  return villages[Math.floor(Math.random()*Math.min(villages.length,4))].village;
+}
+
+function enemyPatrolSpawnPoint(index){
+  let players=activeCars().filter(car=>car.health>0);
+  let center=players.length
+    ? players.reduce((acc,car)=>({x:acc.x+car.x/players.length,z:acc.z+car.z/players.length}),{x:0,z:0})
+    : {x:playerCar.x,z:playerCar.z};
+
+  for(let attempt=0;attempt<18;attempt++){
     let angle=Math.random()*Math.PI*2;
-    let distance=190+Math.random()*130+index*16;
-    let x=center.x+Math.cos(angle)*distance+(Math.random()-0.5)*18;
-    let z=center.z+Math.sin(angle)*distance+(Math.random()-0.5)*18;
+    let distance=520+Math.random()*190+index*24;
+    let x=center.x+Math.cos(angle)*distance+(Math.random()-0.5)*28;
+    let z=center.z+Math.sin(angle)*distance+(Math.random()-0.5)*28;
     let h=drivingSurfaceHeight(x,z);
 
-    if(Number.isFinite(h) && waterDepthAt(x,z)<1.4 && !world.collidesWithObstacles(x,z)){
+    if(
+      Number.isFinite(h)
+      && waterDepthAt(x,z)<1.4
+      && roadDistance(x,z)>22
+      && !world.collidesWithObstacles(x,z)
+    ){
       return {x,z};
     }
   }
 
-  let z=center.z+220+Math.random()*90;
-  return {
-    x:roadCenterX(z)+(Math.random()<0.5 ? -1 : 1)*(48+Math.random()*48),
-    z
-  };
+  return null;
 }
 
 function spawnEnemyWave(){
-  let count=2+Math.floor(Math.random()*3);
+  let village=enemySpawnVillage();
+  if(!village) return false;
+
+  let count=Math.min(village.enemyRemaining ?? 0,2+Math.floor(Math.random()*4));
+  if(count<=0) return false;
+
   for(let i=0;i<count;i++){
-    let point=enemySpawnPoint(i);
+    let point=enemySpawnPointForVillage(village,i);
+    if(!point) continue;
     let enemy=createEnemyState(++enemySpawnSerial,point.x,point.z);
+    enemy.spawnVillage=village;
     enemy.angle=roadYawAt(point.z)+Math.PI+(Math.random()-0.5)*0.8;
     enemy.velAngle=enemy.angle;
     enemy.group.position.set(enemy.x,enemy.y,enemy.z);
     enemy.group.rotation.y=enemy.angle;
     enemy.shadow.update({carX:enemy.x,carZ:enemy.z,carY:enemy.y,surfaceY:enemy.y,carVelAngle:enemy.angle});
     enemies.push(enemy);
+    village.enemyRemaining=Math.max(0,(village.enemyRemaining ?? 0)-1);
   }
+  return true;
+}
+
+function spawnEnemyPatrol(){
+  for(let i=0;i<2;i++){
+    let point=enemyPatrolSpawnPoint(i);
+    if(!point) return false;
+    let enemy=createEnemyState(++enemySpawnSerial,point.x,point.z);
+    enemy.isPatrol=true;
+    enemy.angle=roadYawAt(point.z)+Math.PI+(Math.random()-0.5)*1.4;
+    enemy.velAngle=enemy.angle;
+    enemy.group.position.set(enemy.x,enemy.y,enemy.z);
+    enemy.group.rotation.y=enemy.angle;
+    enemy.shadow.update({carX:enemy.x,carZ:enemy.z,carY:enemy.y,surfaceY:enemy.y,carVelAngle:enemy.angle});
+    enemies.push(enemy);
+  }
+  return true;
 }
 
 function clearEnemies(){
@@ -1346,6 +1398,7 @@ function clearEnemies(){
   }
   enemies=[];
   enemyWaveDelay=0;
+  enemyPatrolDelay=900;
 }
 
 function updateEnemy(enemy){
@@ -1426,14 +1479,35 @@ function updateEnemy(enemy){
 function updateEnemies(){
   for(let enemy of enemies){
     updateEnemy(enemy);
+    if(enemy.active && playerDistanceSqForEnemy(enemy)>720*720){
+      enemy.active=false;
+      enemy.group.visible=false;
+      if(enemy.shadow){
+        enemy.shadow.dispose();
+        enemy.shadow=null;
+      }
+      scene.remove(enemy.group);
+    }
   }
   enemies=enemies.filter(enemy=>enemy.active);
 
-  if(activeEnemies().length===0){
+  if(activeEnemies().length<=1){
     if(enemyWaveDelay>0) enemyWaveDelay--;
     else{
-      spawnEnemyWave();
-      enemyWaveDelay=420;
+      if(spawnEnemyWave()){
+        enemyWaveDelay=420;
+      }else{
+        enemyWaveDelay=90;
+      }
+    }
+  }
+
+  if(enemyPatrolDelay>0) enemyPatrolDelay--;
+  else{
+    if(activeEnemies().length<8 && spawnEnemyPatrol()){
+      enemyPatrolDelay=1500+Math.floor(Math.random()*1200);
+    }else{
+      enemyPatrolDelay=360;
     }
   }
 }
@@ -2168,8 +2242,8 @@ function startGame(mode){
   hud.init();
   lastChunkSignature=chunkSignatureForCars();
   world.updateChunksForCenters(activeCars().map(car=>({x:car.x,z:car.z})));
-  spawnEnemyWave();
-  enemyWaveDelay=420;
+  enemyWaveDelay=90;
+  enemyPatrolDelay=900+Math.floor(Math.random()*420);
 }
 
 let startScreen=document.getElementById("startScreen");
