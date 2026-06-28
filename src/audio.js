@@ -4,6 +4,10 @@ export function createMotorAudio(cars){
   let motors=[];
   let noiseBuffer=null;
   let supported=true;
+  let backgroundMusic=new Audio("./assets/music/ROSpace.mp3");
+  backgroundMusic.loop=true;
+  backgroundMusic.volume=0.34;
+  backgroundMusic.preload="auto";
 
   function clamp(value,min,max){
     return Math.max(min,Math.min(max,value));
@@ -114,6 +118,9 @@ export function createMotorAudio(cars){
   function resume(){
     ensureContext();
     if(context && context.state==="suspended") context.resume();
+    if(backgroundMusic.paused){
+      backgroundMusic.play().catch(()=>{});
+    }
   }
 
   window.addEventListener("pointerdown",resume);
