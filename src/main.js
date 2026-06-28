@@ -48,7 +48,12 @@ let rocketTurnRate=0.075;
 let rocketAimYOffset=-4.2;
 let initialRocketAmmo=30;
 let initialCannonAmmo=200;
+let rocketSupplyAmount=6;
+let cannonSupplyAmount=40;
+let healthSupplyAmount=35;
 let rockets=[];
+let supplyBoxes=[];
+let supplySpawnKeys=new Set();
 let rocketBodyGeo=new THREE.CylinderGeometry(0.11,0.13,0.8,12);
 let rocketNoseGeo=new THREE.ConeGeometry(0.16,0.34,12);
 let rocketFinGeo=new THREE.BoxGeometry(0.08,0.18,0.22);
@@ -120,6 +125,16 @@ let enemyEyeMat=new THREE.MeshStandardMaterial({
   roughness:0.18,
   metalness:0.12
 });
+let supplyBoxGeo=new THREE.BoxGeometry(2.4,1.15,2.4);
+let supplyLidGeo=new THREE.BoxGeometry(2.65,0.22,2.65);
+let supplyBandGeo=new THREE.BoxGeometry(2.75,0.16,0.28);
+let rocketSupplyMat=new THREE.MeshStandardMaterial({color:0x763627,roughness:0.72,metalness:0.18});
+let cannonSupplyMat=new THREE.MeshStandardMaterial({color:0x23516b,roughness:0.68,metalness:0.2});
+let healthSupplyMat=new THREE.MeshStandardMaterial({color:0x275f38,roughness:0.66,metalness:0.16});
+let supplyLidMat=new THREE.MeshStandardMaterial({color:0x161c1e,roughness:0.82,metalness:0.3});
+let rocketSupplyBandMat=new THREE.MeshStandardMaterial({color:0xff7a32,emissive:0x742000,emissiveIntensity:0.28,roughness:0.48,metalness:0.12});
+let cannonSupplyBandMat=new THREE.MeshStandardMaterial({color:0x7ff8ff,emissive:0x115e66,emissiveIntensity:0.36,roughness:0.38,metalness:0.1});
+let healthSupplyBandMat=new THREE.MeshStandardMaterial({color:0x7cff78,emissive:0x116b21,emissiveIntensity:0.38,roughness:0.42,metalness:0.08});
 
 function clamp(value,min,max){
   return Math.max(min,Math.min(max,value));
@@ -583,6 +598,162 @@ function updateRockDebris(){
       rockDebris.splice(i,1);
     }
   }
+}
+
+function hash01(a,b){
+  let value=Math.sin(a*127.1+b*311.7)*43758.5453;
+  return value-Math.floor(value);
+}
+
+function makeSupplyBox(type){
+  let group=new THREE.Group();
+  let baseMat=type==="rocket" ? rocketSupplyMat : type==="health" ? healthSupplyMat : cannonSupplyMat;
+  let bandMat=type==="rocket" ? rocketSupplyBandMat : type==="health" ? healthSupplyBandMat : cannonSupplyBandMat;
+  let body=new THREE.Mesh(supplyBoxGeo,baseMat);
+  let lid=new THREE.Mesh(supplyLidGeo,supplyLidMat);
+  let bandA=new THREE.Mesh(supplyBandGeo,bandMat);
+  let bandB=new THREE.Mesh(supplyBandGeo,bandMat);
+
+  body.castShadow=true;
+  body.receiveShadow=true;
+  lid.castShadow=true;
+  lid.receiveShadow=true;
+  bandA.castShadow=true;
+  bandB.castShadow=true;
+  lid.position.y=0.69;
+  bandA.position.y=0.18;
+  bandA.position.z=1.23;
+  bandB.position.y=0.18;
+  bandB.position.x=1.23;
+  bandB.rotation.y=Math.PI/2;
+
+  group.add(body,lid,bandA,bandB);
+  group.userData.type=type;
+  group.userData.baseY=0;
+  return group;
+}
+
+function supplyKeyForVillage(village,type){
+  return `${Math.round(village.x)}:${Math.round(village.z)}:${type}`;
+}
+
+function supplyPointForVillage(village,type,index){
+  let baseA=Math.round(village.x*0.37+index*19);
+  let typeOffset=type==="rocket" ? 7 : type==="health" ? 31 : 23;
+  let baseB=Math.round(village.z*0.41+typeOffset);
+  let villageRadius=village.r || 32;
+
+  for(let attempt=0;attempt<9;attempt++){
+    let angle=(hash01(baseA+attempt*13,baseB-attempt*5)+attempt*0.23)*Math.PI*2;
+    let dist=villageRadius*(0.16+hash01(baseA-attempt*3,baseB+attempt*11)*0.48);
+    let x=village.x+Math.cos(angle)*dist;
+    let z=village.z+Math.sin(angle)*dist;
+    let y=drivingSurfaceHeight(x,z);
+
+    if(
+      Number.isFinite(y)
+      && waterDepthAt(x,z)<0.7
+      && roadDistance(x,z)>18
+      && !world.collidesWithObstacles(x,z)
+    ){
+      return {x,y,z,angle};
+    }
+  }
+
+  let fallbackAngle=(type==="rocket" ? 0.3 : type==="health" ? 0.72 : 1.15)*Math.PI;
+  let x=village.x+Math.cos(fallbackAngle)*villageRadius*0.22;
+  let z=village.z+Math.sin(fallbackAngle)*villageRadius*0.22;
+  return {x,y:drivingSurfaceHeight(x,z),z,angle:fallbackAngle};
+}
+
+function spawnVillageSupplyBoxes(){
+  for(let chunk of world.chunks.values()){
+    if(!chunk.villageCenters) continue;
+    for(let village of chunk.villageCenters){
+      let supplySets=gameMode==="double" ? 2 : 1;
+      for(let set=0;set<supplySets;set++){
+        for(let type of ["rocket","cannon","health"]){
+          let key=supplyKeyForVillage(village,`${type}-${set}`);
+          if(supplySpawnKeys.has(key)) continue;
+
+          let typeIndex=type==="rocket" ? 0 : type==="cannon" ? 1 : 2;
+          let point=supplyPointForVillage(village,type,typeIndex+set*3);
+          let box=makeSupplyBox(type);
+          box.position.set(point.x,point.y+0.68,point.z);
+          box.rotation.y=point.angle;
+          box.userData.baseY=box.position.y;
+          box.userData.key=key;
+          scene.add(box);
+          supplyBoxes.push(box);
+          supplySpawnKeys.add(key);
+        }
+      }
+    }
+  }
+}
+
+function collectSupplyBox(box,car){
+  let type=box.userData.type;
+
+  if(type==="rocket"){
+    if(car.rocketAmmo>=initialRocketAmmo) return false;
+    car.rocketAmmo=Math.min(initialRocketAmmo,car.rocketAmmo+rocketSupplyAmount);
+  }else if(type==="cannon"){
+    if(car.cannonAmmo>=initialCannonAmmo) return false;
+    car.cannonAmmo=Math.min(initialCannonAmmo,car.cannonAmmo+cannonSupplyAmount);
+  }else{
+    if(car.health>=100) return false;
+    car.health=Math.min(100,car.health+healthSupplyAmount);
+    hud.updateHealthHud();
+  }
+
+  for(let i=0;i<10;i++){
+    dust.spawnThrusterParticle(
+      box.position.x,
+      box.position.y+0.6,
+      box.position.z,
+      (Math.random()-0.5)*1.2,
+      (Math.random()-0.5)*1.2,
+      0.7+Math.random()*1.6,
+      0.14+Math.random()*0.08,
+      0.045+Math.random()*0.035
+    );
+  }
+
+  scene.remove(box);
+  return true;
+}
+
+function updateSupplyBoxes(){
+  spawnVillageSupplyBoxes();
+
+  let now=performance.now();
+  for(let i=supplyBoxes.length-1;i>=0;i--){
+    let box=supplyBoxes[i];
+    box.position.y=box.userData.baseY+Math.sin(now*0.003+i)*0.12;
+    box.rotation.y+=0.006;
+
+    for(let car of activeCars()){
+      if(car.health<=0) continue;
+      let dx=box.position.x-car.x;
+      let dz=box.position.z-car.z;
+      if(dx*dx+dz*dz<5.4*5.4 && Math.abs(box.position.y-car.y)<4.2){
+        if(collectSupplyBox(box,car)){
+          supplyBoxes.splice(i,1);
+          hud.updateSpeedHud();
+          break;
+        }
+      }
+    }
+  }
+}
+
+function clearSupplyBoxes(){
+  for(let box of supplyBoxes){
+    scene.remove(box);
+  }
+  supplyBoxes=[];
+  supplySpawnKeys.clear();
 }
 
 function aimTargetForCar(car){
@@ -1927,6 +2098,7 @@ function loop(){
     updateCar(car);
   }
   updateEnemies();
+  updateSupplyBoxes();
   updateRockets();
   updateCannonBolts();
   if(healthDamageCooldown>0) healthDamageCooldown--;
@@ -1973,6 +2145,7 @@ function startGame(mode){
 
   clearRockets();
   clearEnemies();
+  clearSupplyBoxes();
   playerCar.lateralOffset=mode==="single" ? 0 : -4.2;
   secondCar.lateralOffset=4.2;
   placeCarOnRoad(playerCar,0);
