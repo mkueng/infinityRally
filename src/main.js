@@ -677,7 +677,6 @@ function cannonLaunchPointForCar(car){
 }
 
 function fireCannon(car){
-  if(gameMode!=="single" || car!==playerCar) return;
   if(gameOver || car.health<=0 || car.cannonCooldown>0) return;
   if(car.morphed || car.morphProgress>0.35) return;
 
@@ -730,7 +729,9 @@ function fireCannon(car){
 function updateCannonInput(car){
   if(car.cannonCooldown>0) car.cannonCooldown--;
 
-  let cannonButton=gameMode==="single" && car===playerCar && input.mouse.right;
+  let buttons=input.getGamepadFaceButtons(car.gamepadIndex);
+  let mouseShot=gameMode==="single" && car===playerCar && input.mouse.right;
+  let cannonButton=buttons.y || mouseShot;
   if(cannonButton) fireCannon(car);
   car.lastCannonButton=cannonButton;
 }
@@ -923,13 +924,6 @@ function settleTrickAngle(value,amount){
 
 function updateAirTricks(car,airborne){
   let buttons=input.getGamepadFaceButtons(car.gamepadIndex);
-  let pressedY=buttons.y && !car.lastTrickButtons.y;
-
-  if(airborne && !gameOver && car.health>0){
-    if(pressedY) car.trickPitchVel-=0.145;
-
-    if(buttons.y) car.trickPitchVel-=0.002;
-  }
 
   car.lastTrickButtons={...buttons};
   car.trickPitchVel=clamp(car.trickPitchVel,-0.19,0.19);
