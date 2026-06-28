@@ -46,6 +46,8 @@ let rocketSpeed=1.75;
 let rocketCooldownFrames=34;
 let rocketTurnRate=0.075;
 let rocketAimYOffset=-4.2;
+let initialRocketAmmo=30;
+let initialCannonAmmo=200;
 let rockets=[];
 let rocketBodyGeo=new THREE.CylinderGeometry(0.11,0.13,0.8,12);
 let rocketNoseGeo=new THREE.ConeGeometry(0.16,0.34,12);
@@ -232,8 +234,10 @@ function createCarState(id,lateralOffset,controls,camera,gamepadIndex){
     aimOffsetY:0,
     lastRocketButton:false,
     rocketCooldown:0,
+    rocketAmmo:initialRocketAmmo,
     lastCannonButton:false,
     cannonCooldown:0,
+    cannonAmmo:initialCannonAmmo,
     hitRattle:0,
     hitRattleSeed:0,
     walkCycle:0,
@@ -265,7 +269,9 @@ let hud=createHud({
     carZ:car.z,
     carVelAngle:car.velAngle,
     carSpeed:car.speed,
-    carHealth:car.health
+    carHealth:car.health,
+    rocketAmmo:car.rocketAmmo,
+    cannonAmmo:car.cannonAmmo
   })),
   getEnemyStates:()=>activeEnemies().map(enemy=>({
     id:enemy.id,
@@ -626,6 +632,13 @@ function updateAimCross(car){
   }
 
   car.aimCross.position.set(car.aimOffsetX,3.15+car.aimOffsetY,32);
+  let locked=!!nearbyRocketTargetForCar(car);
+  let ring=car.aimCross.userData.ring;
+  let cross=car.aimCross.userData.cross;
+  let ringColor=locked ? car.aimCross.userData.lockColor : car.aimCross.userData.baseRingColor;
+  let crossColor=locked ? car.aimCross.userData.lockColor : car.aimCross.userData.baseCrossColor;
+  if(ring && ring.material) ring.material.color.copy(ringColor);
+  if(cross && cross.material) cross.material.color.copy(crossColor);
 }
 
 function rocketLaunchPointForCar(car){
@@ -641,20 +654,57 @@ function rocketLaunchPointForCar(car){
   );
 }
 
+function nearbyRocketTargetForCar(car){
+  if(car.isEnemy) return null;
+
+  let best=null;
+  let bestScore=Infinity;
+  let forwardX=Math.sin(car.angle);
+  let forwardZ=Math.cos(car.angle);
+  let minLockRange=100;
+  let maxLockRange=350;
+
+  for(let enemy of activeEnemies()){
+    let dx=enemy.x-car.x;
+    let dz=enemy.z-car.z;
+    let distSq=dx*dx+dz*dz;
+    if(distSq<minLockRange*minLockRange || distSq>maxLockRange*maxLockRange) continue;
+
+    let dist=Math.max(0.001,Math.sqrt(distSq));
+    let alignment=(dx*forwardX+dz*forwardZ)/dist;
+    let anglePenalty=alignment<0 ? 48 : (1-alignment)*28;
+    let score=dist+anglePenalty;
+
+    if(score<bestScore){
+      best=enemy;
+      bestScore=score;
+    }
+  }
+
+  return best;
+}
+
+function rocketTargetPoint(target){
+  return new THREE.Vector3(target.x,target.y+2.2,target.z);
+}
+
 function fireRocket(car){
   if(gameOver || car.health<=0 || car.rocketCooldown>0) return;
   if(car.morphed || car.morphProgress>0.22) return;
+  if(!car.isEnemy && car.rocketAmmo<=0) return;
 
   let mesh=makeRocketMesh();
   let launchPoint=rocketLaunchPointForCar(car);
   let startX=launchPoint.x;
   let startY=launchPoint.y;
   let startZ=launchPoint.z;
-  let aimPoint=aimTargetForCar(car);
+  let targetActor=nearbyRocketTargetForCar(car);
+  let aimPoint=targetActor ? rocketTargetPoint(targetActor) : aimTargetForCar(car);
   let aimX=aimPoint.x-startX;
   let aimY=aimPoint.y-startY;
   let aimZ=aimPoint.z-startZ;
   let aimLen=Math.max(0.001,Math.hypot(aimX,aimY,aimZ));
+  let rocketLife=targetActor ? Math.min(300,Math.max(115,Math.ceil(aimLen/rocketSpeed)+80)) : 115;
   let target={
     x:startX+(aimX/aimLen)*180,
     y:startY+(aimY/aimLen)*180,
@@ -675,15 +725,17 @@ function fireRocket(car){
     targetX:target.x,
     targetY:target.y,
     targetZ:target.z,
+    targetActor,
     vx:(aimX/aimLen)*rocketSpeed,
     vz:(aimZ/aimLen)*rocketSpeed,
     vy:(aimY/aimLen)*rocketSpeed,
     age:0,
-    life:115
+    life:rocketLife
   });
 
   motorAudio.playRocketLaunch(car);
   car.rocketCooldown=rocketCooldownFrames;
+  if(!car.isEnemy) car.rocketAmmo=Math.max(0,car.rocketAmmo-1);
 }
 
 function rattleCar(car,amount=1){
@@ -742,6 +794,7 @@ function cannonLaunchPointForCar(car){
 function fireCannon(car){
   if(gameOver || car.health<=0 || car.cannonCooldown>0) return false;
   if(car.morphed || car.morphProgress>0.35) return false;
+  if(!car.isEnemy && car.cannonAmmo<=0) return false;
 
   let mesh=makeCannonBoltMesh();
   let launchPoint=cannonLaunchPointForCar(car);
@@ -787,6 +840,7 @@ function fireCannon(car){
 
   motorAudio.playCannonFire(car);
   car.cannonCooldown=cannonCooldownFrames;
+  if(!car.isEnemy) car.cannonAmmo=Math.max(0,car.cannonAmmo-1);
   return true;
 }
 
@@ -829,6 +883,14 @@ function updateRockets(){
   for(let i=rockets.length-1;i>=0;i--){
     let rocket=rockets[i];
     rocket.age++;
+
+    if(rocket.targetActor && rocket.targetActor.active && rocket.targetActor.health>0){
+      let targetPoint=rocketTargetPoint(rocket.targetActor);
+      rocket.targetX=targetPoint.x;
+      rocket.targetY=targetPoint.y;
+      rocket.targetZ=targetPoint.z;
+    }
+
     let dx=rocket.targetX-rocket.x;
     let dy=rocket.targetY-rocket.y;
     let dz=rocket.targetZ-rocket.z;
@@ -1321,6 +1383,11 @@ function makeAimCross(accentColor){
   let cross=new THREE.LineSegments(crossGeo,lineMaterial);
   cross.renderOrder=21;
   group.add(cross);
+  group.userData.ring=ring;
+  group.userData.cross=cross;
+  group.userData.baseRingColor=material.color.clone();
+  group.userData.baseCrossColor=lineMaterial.color.clone();
+  group.userData.lockColor=new THREE.Color(0x42ff68);
 
   return group;
 }
@@ -1978,8 +2045,10 @@ function placeCarOnRoad(car,z){
   if(car.aimCross) car.aimCross.position.set(0,3.15,32);
   car.lastRocketButton=false;
   car.rocketCooldown=0;
+  car.rocketAmmo=initialRocketAmmo;
   car.lastCannonButton=false;
   car.cannonCooldown=0;
+  car.cannonAmmo=initialCannonAmmo;
   car.hitRattle=0;
   car.hitRattleSeed=0;
   car.walkCycle=0;

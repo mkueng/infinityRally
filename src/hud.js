@@ -64,7 +64,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[]}){
       "top:50px",
       `left:calc(${panelOffset(panel)} + 18px)`,
       "width:122px",
-      "height:100px",
+      "height:134px",
       "background:rgba(20,28,34,0.42)",
       "box-shadow:0 4px 14px rgba(0,0,0,0.2)",
       "z-index:10",
@@ -94,12 +94,31 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[]}){
       "text-shadow:0 1px 2px rgba(0,0,0,0.7)"
     ].join(";");
 
+    let ammoLabel=document.createElement("div");
+    ammoLabel.style.cssText=[
+      "position:absolute",
+      "left:8px",
+      "right:8px",
+      "bottom:8px",
+      "display:grid",
+      "grid-template-columns:1fr 1fr",
+      "gap:6px",
+      "font-size:11px",
+      "font-weight:800",
+      "line-height:1",
+      "text-align:center",
+      "color:rgba(245,255,249,0.92)",
+      "text-shadow:0 1px 2px rgba(0,0,0,0.72)"
+    ].join(";");
+
     speedHud.appendChild(speedCanvas);
     speedHud.appendChild(speedLabel);
+    speedHud.appendChild(ammoLabel);
     document.body.appendChild(speedHud);
     panel.speedCanvas=speedCanvas;
     panel.speedCtx=speedCtx;
     panel.speedLabel=speedLabel;
+    panel.ammoLabel=ammoLabel;
   }
 
   function drawSpeedHud(panel,state){
@@ -162,6 +181,12 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[]}){
     ctx.fillText("0",22,66);
     ctx.fillText("80",100,66);
     panel.speedLabel.textContent=speed;
+    if(panel.ammoLabel){
+      panel.ammoLabel.innerHTML=[
+        `<span>R ${state.rocketAmmo ?? 0}</span>`,
+        `<span>C ${state.cannonAmmo ?? 0}</span>`
+      ].join("");
+    }
   }
 
   function makeMapHud(panel){
