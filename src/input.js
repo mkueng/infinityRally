@@ -9,9 +9,11 @@ export function createInput(){
   let gamepads=[];
 
   window.addEventListener("keydown",event=>{
+    if(event.key===" ") event.preventDefault();
     keys[event.key.toLowerCase()]=1;
   });
   window.addEventListener("keyup",event=>{
+    if(event.key===" ") event.preventDefault();
     keys[event.key.toLowerCase()]=0;
   });
 

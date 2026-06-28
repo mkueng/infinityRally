@@ -753,15 +753,18 @@ function updateAirTricks(car,airborne){
 
 function updateMorphInput(car){
   let buttons=input.getGamepadFaceButtons(car.gamepadIndex);
-  let pressedA=buttons.a && !car.lastMorphButton;
+  let keyboardMorph=gameMode==="single" && car===playerCar && input.keys.t;
+  let morphButton=buttons.a || keyboardMorph;
+  let pressedMorph=morphButton && !car.lastMorphButton;
 
-  if(pressedA && !gameOver && car.health>0) car.morphed=!car.morphed;
-  car.lastMorphButton=buttons.a;
+  if(pressedMorph && !gameOver && car.health>0) car.morphed=!car.morphed;
+  car.lastMorphButton=morphButton;
 }
 
 function updateFlightThrust(car,surfaceY){
   let buttons=input.getGamepadFaceButtons(car.gamepadIndex);
-  if(!buttons.x || gameOver || car.health<=0) return false;
+  let keyboardFlight=gameMode==="single" && car===playerCar && input.keys[" "];
+  if(!(buttons.x || keyboardFlight) || gameOver || car.health<=0) return false;
 
   let altitude=car.y-surfaceY;
   if(altitude<0.12){
