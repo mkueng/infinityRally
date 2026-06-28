@@ -50,6 +50,33 @@ let rocketFinGeo=new THREE.BoxGeometry(0.08,0.18,0.22);
 let rocketBodyMat=new THREE.MeshStandardMaterial({color:0x30363b,roughness:0.48,metalness:0.55});
 let rocketNoseMat=new THREE.MeshStandardMaterial({color:0xff6633,emissive:0x8f2108,emissiveIntensity:0.55,roughness:0.38,metalness:0.35});
 let rocketFlameMat=new THREE.MeshStandardMaterial({color:0xfff0a0,emissive:0xff7a12,emissiveIntensity:1.2,roughness:0.28});
+let cannonSpeed=3.35;
+let cannonCooldownFrames=12;
+let cannonBolts=[];
+let cannonBodyGeo=new THREE.CylinderGeometry(0.044,0.064,0.56,12);
+let cannonCoreGeo=new THREE.SphereGeometry(0.088,14,10);
+let cannonGlowGeo=new THREE.SphereGeometry(0.16,16,10);
+let cannonBodyMat=new THREE.MeshBasicMaterial({
+  color:0xffffff,
+  transparent:true,
+  opacity:0.86,
+  depthWrite:false,
+  blending:THREE.AdditiveBlending
+});
+let cannonCoreMat=new THREE.MeshBasicMaterial({
+  color:0xffffff,
+  transparent:true,
+  opacity:0.95,
+  depthWrite:false,
+  blending:THREE.AdditiveBlending
+});
+let cannonGlowMat=new THREE.MeshBasicMaterial({
+  color:0x9fd8ff,
+  transparent:true,
+  opacity:0.34,
+  depthWrite:false,
+  blending:THREE.AdditiveBlending
+});
 let mouseAimRaycaster=new THREE.Raycaster();
 let mouseAimPointer=new THREE.Vector2();
 let mouseAimPlane=new THREE.Plane();
@@ -186,6 +213,8 @@ function createCarState(id,lateralOffset,controls,camera,gamepadIndex){
     aimOffsetY:0,
     lastRocketButton:false,
     rocketCooldown:0,
+    lastCannonButton:false,
+    cannonCooldown:0,
     hitRattle:0,
     hitRattleSeed:0,
     walkCycle:0,
@@ -610,10 +639,112 @@ function updateRocketInput(car){
   car.lastRocketButton=buttons.b || mouseRocket;
 }
 
+function makeCannonBoltMesh(){
+  let group=new THREE.Group();
+  let body=new THREE.Mesh(cannonBodyGeo,cannonBodyMat);
+  body.rotation.x=Math.PI/2;
+  group.add(body);
+
+  let core=new THREE.Mesh(cannonCoreGeo,cannonCoreMat);
+  core.position.z=0.25;
+  group.add(core);
+
+  let glow=new THREE.Mesh(cannonGlowGeo,cannonGlowMat);
+  glow.position.z=0.25;
+  group.add(glow);
+
+  return group;
+}
+
+function cannonLaunchPointForCar(car){
+  let parts=car.mechModel && car.mechModel.userData ? car.mechModel.userData.walkParts : null;
+  let hand=parts && parts.left ? parts.left.hand : null;
+
+  if(hand){
+    hand.updateWorldMatrix(true,false);
+    return hand.localToWorld(new THREE.Vector3(0,0,0.36));
+  }
+
+  let forwardX=Math.sin(car.angle);
+  let forwardZ=Math.cos(car.angle);
+  let rightX=Math.cos(car.angle);
+  let rightZ=-Math.sin(car.angle);
+  return new THREE.Vector3(
+    car.x+forwardX*2.2-rightX*2.15,
+    car.y+2.85,
+    car.z+forwardZ*2.2-rightZ*2.15
+  );
+}
+
+function fireCannon(car){
+  if(gameMode!=="single" || car!==playerCar) return;
+  if(gameOver || car.health<=0 || car.cannonCooldown>0) return;
+  if(car.morphed || car.morphProgress>0.35) return;
+
+  let mesh=makeCannonBoltMesh();
+  let launchPoint=cannonLaunchPointForCar(car);
+  let startX=launchPoint.x;
+  let startY=launchPoint.y;
+  let startZ=launchPoint.z;
+  let aimPoint=aimTargetForCar(car);
+  let aimX=aimPoint.x-startX;
+  let aimY=aimPoint.y-startY;
+  let aimZ=aimPoint.z-startZ;
+  let aimLen=Math.max(0.001,Math.hypot(aimX,aimY,aimZ));
+
+  mesh.position.set(startX,startY,startZ);
+  mesh.rotation.y=Math.atan2(aimX,aimZ);
+  mesh.rotation.x=-Math.asin(clamp(aimY/aimLen,-1,1));
+  scene.add(mesh);
+
+  cannonBolts.push({
+    owner:car,
+    mesh,
+    x:startX,
+    y:startY,
+    z:startZ,
+    vx:(aimX/aimLen)*cannonSpeed,
+    vy:(aimY/aimLen)*cannonSpeed,
+    vz:(aimZ/aimLen)*cannonSpeed,
+    age:0,
+    life:72
+  });
+
+  for(let i=0;i<7;i++){
+    dust.spawnThrusterParticle(
+      startX,
+      startY,
+      startZ,
+      -(aimX/aimLen)*(1.2+Math.random()*1.8)+(Math.random()-0.5)*0.7,
+      -(aimZ/aimLen)*(1.2+Math.random()*1.8)+(Math.random()-0.5)*0.7,
+      (Math.random()-0.5)*0.9,
+      0.12,
+      0.055+Math.random()*0.035
+    );
+  }
+
+  motorAudio.playCannonFire(car);
+  car.cannonCooldown=cannonCooldownFrames;
+}
+
+function updateCannonInput(car){
+  if(car.cannonCooldown>0) car.cannonCooldown--;
+
+  let cannonButton=gameMode==="single" && car===playerCar && input.mouse.right;
+  if(cannonButton) fireCannon(car);
+  car.lastCannonButton=cannonButton;
+}
+
 function removeRocket(index){
   let rocket=rockets[index];
   scene.remove(rocket.mesh);
   rockets.splice(index,1);
+}
+
+function removeCannonBolt(index){
+  let bolt=cannonBolts[index];
+  scene.remove(bolt.mesh);
+  cannonBolts.splice(index,1);
 }
 
 function clearRockets(){
@@ -621,6 +752,10 @@ function clearRockets(){
     scene.remove(rocket.mesh);
   }
   rockets=[];
+  for(let bolt of cannonBolts){
+    scene.remove(bolt.mesh);
+  }
+  cannonBolts=[];
   clearExplosions();
   clearRockDebris();
 }
@@ -706,6 +841,78 @@ function updateRockets(){
         }
       }
       removeRocket(i);
+    }
+  }
+}
+
+function updateCannonBolts(){
+  for(let i=cannonBolts.length-1;i>=0;i--){
+    let bolt=cannonBolts[i];
+    bolt.age++;
+
+    let prevX=bolt.x;
+    let prevY=bolt.y;
+    let prevZ=bolt.z;
+    bolt.x+=bolt.vx;
+    bolt.y+=bolt.vy;
+    bolt.z+=bolt.vz;
+
+    let angle=Math.atan2(bolt.vx,bolt.vz);
+    bolt.mesh.position.set(bolt.x,bolt.y,bolt.z);
+    bolt.mesh.rotation.y=angle;
+    bolt.mesh.rotation.x=-Math.asin(clamp(bolt.vy/cannonSpeed,-1,1));
+    bolt.mesh.scale.setScalar(1+Math.sin(bolt.age*0.7)*0.08);
+
+    if(bolt.age%2===0){
+      dust.spawnThrusterParticle(
+        bolt.x-bolt.vx*0.18,
+        bolt.y,
+        bolt.z-bolt.vz*0.18,
+        -bolt.vx*0.42+(Math.random()-0.5)*0.55,
+        -bolt.vz*0.42+(Math.random()-0.5)*0.55,
+        (Math.random()-0.5)*0.55,
+        0.13,
+        0.045+Math.random()*0.025
+      );
+    }
+
+    let surfaceY=drivingSurfaceHeight(bolt.x,bolt.z);
+    let hitCar=null;
+    if(bolt.age>2){
+      for(let car of activeCars()){
+        if(car===bolt.owner) continue;
+        let dx=bolt.x-car.x;
+        let dz=bolt.z-car.z;
+        if(dx*dx+dz*dz<3.6*3.6 && Math.abs(bolt.y-car.y)<4.0){
+          hitCar=car;
+          break;
+        }
+      }
+    }
+
+    let hitObstacle=world.obstacleAlongSegment3D(prevX,prevY,prevZ,bolt.x,bolt.y,bolt.z,0.9);
+    let hit=bolt.y<=surfaceY+0.22 || hitObstacle || hitCar;
+
+    if(hit || bolt.age>bolt.life){
+      if(hit){
+        let explosionX=hitObstacle ? hitObstacle.x : bolt.x;
+        let explosionZ=hitObstacle ? hitObstacle.z : bolt.z;
+        let explosionY=hitObstacle
+          ? Math.max(groundHeight(hitObstacle.x,hitObstacle.z)+Math.max(0.55,hitObstacle.r*0.35),surfaceY+0.4)
+          : Math.max(bolt.y,surfaceY+0.45);
+        spawnRocketExplosion(explosionX,explosionY,explosionZ);
+        if(hitObstacle){
+          if(hitObstacle.type==="rock" || hitObstacle.type==="smallRock" || hitObstacle.type==="building" || hitObstacle.type==="wall"){
+            spawnRockDebris(hitObstacle.x,explosionY,hitObstacle.z,hitObstacle);
+          }
+          world.destroyObstacle(hitObstacle);
+        }
+        if(hitCar){
+          damageCar(hitCar,9);
+          rattleCar(hitCar,0.72);
+        }
+      }
+      removeCannonBolt(i);
     }
   }
 }
@@ -1167,6 +1374,7 @@ function updateCar(car){
   car.group.rotation.z=car.trickRoll;
   updateMechAnimation(car);
   updateMorphVisual(car);
+  updateCannonInput(car);
   if(car.hitRattle>0){
     let shake=car.hitRattle;
     let t=performance.now()*0.04+car.hitRattleSeed;
@@ -1276,6 +1484,7 @@ function loop(){
     updateCar(car);
   }
   updateRockets();
+  updateCannonBolts();
   if(healthDamageCooldown>0) healthDamageCooldown--;
 
   dust.update();
@@ -1389,6 +1598,8 @@ function placeCarOnRoad(car,z){
   if(car.aimCross) car.aimCross.position.set(0,3.15,32);
   car.lastRocketButton=false;
   car.rocketCooldown=0;
+  car.lastCannonButton=false;
+  car.cannonCooldown=0;
   car.hitRattle=0;
   car.hitRattleSeed=0;
   car.walkCycle=0;

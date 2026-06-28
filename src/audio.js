@@ -269,6 +269,77 @@ export function createMotorAudio(cars){
     punch.stop(time+0.26);
   }
 
+  function playCannonFire(car){
+    ensureContext();
+    if(!context || !supported) return;
+    if(context.state==="suspended") context.resume();
+
+    let motor=motors.find(item=>item.car===car);
+    let destination=motor ? (motor.pan || motor.output) : master;
+    let time=context.currentTime+0.006;
+    let crack=context.createBufferSource();
+    let crackFilter=context.createBiquadFilter();
+    let crackGain=context.createGain();
+    let blast=context.createBufferSource();
+    let blastFilter=context.createBiquadFilter();
+    let blastGain=context.createGain();
+    let thump=context.createOscillator();
+    let thumpGain=context.createGain();
+    let snap=context.createOscillator();
+    let snapGain=context.createGain();
+
+    crack.buffer=noiseBuffer || createNoiseBuffer();
+    crackFilter.type="highpass";
+    crackFilter.frequency.setValueAtTime(680,time);
+    crackFilter.Q.setValueAtTime(0.55,time);
+    crackGain.gain.setValueAtTime(0.0001,time);
+    crackGain.gain.exponentialRampToValueAtTime(0.34,time+0.004);
+    crackGain.gain.exponentialRampToValueAtTime(0.0001,time+0.11);
+
+    blast.buffer=noiseBuffer || createNoiseBuffer();
+    blastFilter.type="lowpass";
+    blastFilter.frequency.setValueAtTime(1450,time);
+    blastFilter.frequency.exponentialRampToValueAtTime(260,time+0.18);
+    blastFilter.Q.setValueAtTime(0.9,time);
+    blastGain.gain.setValueAtTime(0.0001,time);
+    blastGain.gain.exponentialRampToValueAtTime(0.2,time+0.006);
+    blastGain.gain.exponentialRampToValueAtTime(0.0001,time+0.24);
+
+    thump.type="sine";
+    thump.frequency.setValueAtTime(96,time);
+    thump.frequency.exponentialRampToValueAtTime(34,time+0.18);
+    thumpGain.gain.setValueAtTime(0.0001,time);
+    thumpGain.gain.exponentialRampToValueAtTime(0.2,time+0.008);
+    thumpGain.gain.exponentialRampToValueAtTime(0.0001,time+0.24);
+
+    snap.type="square";
+    snap.frequency.setValueAtTime(2600,time);
+    snap.frequency.exponentialRampToValueAtTime(880,time+0.025);
+    snapGain.gain.setValueAtTime(0.0001,time);
+    snapGain.gain.exponentialRampToValueAtTime(0.045,time+0.002);
+    snapGain.gain.exponentialRampToValueAtTime(0.0001,time+0.035);
+
+    crack.connect(crackFilter);
+    crackFilter.connect(crackGain);
+    blast.connect(blastFilter);
+    blastFilter.connect(blastGain);
+    thump.connect(thumpGain);
+    snap.connect(snapGain);
+    crackGain.connect(destination);
+    blastGain.connect(destination);
+    thumpGain.connect(destination);
+    snapGain.connect(destination);
+
+    crack.start(time);
+    blast.start(time);
+    thump.start(time);
+    snap.start(time);
+    crack.stop(time+0.12);
+    blast.stop(time+0.25);
+    thump.stop(time+0.25);
+    snap.stop(time+0.04);
+  }
+
   function playExplosion(){
     ensureContext();
     if(!context || !supported) return;
@@ -313,6 +384,7 @@ export function createMotorAudio(cars){
     resume,
     update,
     playRocketLaunch,
+    playCannonFire,
     playExplosion
   };
 }

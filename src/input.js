@@ -4,6 +4,7 @@ export function createInput(){
     x:0,
     y:0,
     left:false,
+    right:false,
     hasPosition:false
   };
   let gamepads=[];
@@ -33,14 +34,22 @@ export function createInput(){
   window.addEventListener("mousemove",updateMousePosition);
   window.addEventListener("mousedown",event=>{
     updateMousePosition(event);
+    if(event.button===2) event.preventDefault();
     if(event.button===0) mouse.left=true;
+    if(event.button===2) mouse.right=true;
   });
   window.addEventListener("mouseup",event=>{
     updateMousePosition(event);
+    if(event.button===2) event.preventDefault();
     if(event.button===0) mouse.left=false;
+    if(event.button===2) mouse.right=false;
+  });
+  window.addEventListener("contextmenu",event=>{
+    event.preventDefault();
   });
   window.addEventListener("blur",()=>{
     mouse.left=false;
+    mouse.right=false;
   });
 
   function axis(value,deadzone=0.18){
