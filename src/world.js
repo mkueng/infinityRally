@@ -520,10 +520,9 @@ function makeChunk(cx,cz){
     if(centerY<-12 || centerY>30) continue;
     if(centerRoadD<24) continue;
 
-    villageCenters.push({x:centerX,z:centerZ,y:centerY});
-
     let housesInVillage=12+Math.floor(r01(cx+v*7,cz-v*5)*10);
     let villageRadius=20+(r01(cx-v*3,cz+v*9)*24);
+    villageCenters.push({x:centerX,z:centerZ,y:centerY,r:villageRadius});
     let placed=[];
 
     // Brick wall ring around each village with a front opening toward the road.
@@ -781,7 +780,7 @@ function makeChunk(cx,cz){
     }
   }
 
-  return {land,road,water,trunks,crowns,pods,grasses,rocks,buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,sheep,colliders};
+  return {land,road,water,trunks,crowns,pods,grasses,rocks,buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,villageCenters,sheep,colliders};
 }
 
 function updateChunksForCenters(centers){

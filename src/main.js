@@ -34,6 +34,9 @@ let cameraFollowHeight=7.5;
 let cars=[];
 let gameStarted=false;
 let gameMode="single";
+let enemies=[];
+let enemyWaveDelay=0;
+let enemySpawnSerial=0;
 let waterLevel=-20;
 let mechGroundMaxSpeed=0.58;
 let mechAirMaxSpeed=1.15;
@@ -107,6 +110,14 @@ let rockDebrisGeo=new THREE.DodecahedronGeometry(1,0);
 let rockDebrisMat=new THREE.MeshStandardMaterial({color:0x4c3a5b,roughness:0.96,metalness:0.08});
 let buildingDebrisGeo=new THREE.BoxGeometry(1,1,1);
 let buildingDebrisMat=new THREE.MeshStandardMaterial({color:0x5a526d,roughness:0.9,metalness:0.12});
+let enemyTrimMat=new THREE.MeshStandardMaterial({color:0xb8ff37,roughness:0.42,metalness:0.45});
+let enemyEyeMat=new THREE.MeshStandardMaterial({
+  color:0xff3a24,
+  emissive:0xff2200,
+  emissiveIntensity:1.2,
+  roughness:0.18,
+  metalness:0.12
+});
 
 function clamp(value,min,max){
   return Math.max(min,Math.min(max,value));
@@ -168,6 +179,14 @@ function activeCars(){
 
 function displayCars(){
   return gameMode==="single" ? [playerCar] : [secondCar,playerCar];
+}
+
+function activeEnemies(){
+  return enemies.filter(enemy=>enemy.active && enemy.health>0);
+}
+
+function combatActors(){
+  return [...activeCars(),...activeEnemies()];
 }
 
 function createCarState(id,lateralOffset,controls,camera,gamepadIndex){
@@ -248,6 +267,12 @@ let hud=createHud({
     carSpeed:car.speed,
     carHealth:car.health
   })),
+  getEnemyStates:()=>activeEnemies().map(enemy=>({
+    id:enemy.id,
+    x:enemy.x,
+    z:enemy.z,
+    health:enemy.health
+  })),
   getChunks:()=>world.chunks
 });
 
@@ -268,6 +293,35 @@ function damageCar(car,amount){
   healthDamageCooldown=42;
   hud.updateHealthHud();
   if(activeCars().every(item=>item.health<=0)) showGameOver();
+}
+
+function damageEnemy(enemy,amount){
+  if(!enemy.active || enemy.health<=0) return;
+  enemy.health=Math.max(0,enemy.health-amount);
+  enemy.hitRattle=Math.max(enemy.hitRattle,0.75);
+  enemy.hitRattleSeed=Math.random()*Math.PI*2;
+
+  if(enemy.health<=0){
+    enemy.active=false;
+    enemy.group.visible=false;
+    if(enemy.shadow){
+      enemy.shadow.dispose();
+      enemy.shadow=null;
+    }
+    scene.remove(enemy.group);
+    spawnRocketExplosion(enemy.x,enemy.y+2.2,enemy.z);
+  }
+}
+
+function damageActor(actor,amount){
+  if(actor.isEnemy) damageEnemy(actor,amount);
+  else damageCar(actor,amount);
+}
+
+function rattleActor(actor,amount=1){
+  if(!actor || actor.health<=0) return;
+  actor.hitRattle=Math.max(actor.hitRattle,amount);
+  actor.hitRattleSeed=Math.random()*Math.PI*2;
 }
 
 function landingDamageAmount(car,x,z,impactSpeed){
@@ -303,8 +357,9 @@ function controlsFor(car){
 }
 
 function collidesWithOtherCars(car,nextX,nextZ){
-  for(let other of activeCars()){
+  for(let other of combatActors()){
     if(other===car) continue;
+    if(!other.active && other.isEnemy) continue;
     let dx=nextX-other.x;
     let dz=nextZ-other.z;
     let minGap=3.6;
@@ -525,6 +580,14 @@ function updateRockDebris(){
 }
 
 function aimTargetForCar(car){
+  if(car.isEnemy && car.aiTarget){
+    return new THREE.Vector3(
+      car.aiTarget.x,
+      car.aiTarget.y+2.15,
+      car.aiTarget.z
+    );
+  }
+
   let forwardX=Math.sin(car.angle);
   let forwardZ=Math.cos(car.angle);
   let rightX=Math.cos(car.angle);
@@ -677,8 +740,8 @@ function cannonLaunchPointForCar(car){
 }
 
 function fireCannon(car){
-  if(gameOver || car.health<=0 || car.cannonCooldown>0) return;
-  if(car.morphed || car.morphProgress>0.35) return;
+  if(gameOver || car.health<=0 || car.cannonCooldown>0) return false;
+  if(car.morphed || car.morphProgress>0.35) return false;
 
   let mesh=makeCannonBoltMesh();
   let launchPoint=cannonLaunchPointForCar(car);
@@ -724,6 +787,7 @@ function fireCannon(car){
 
   motorAudio.playCannonFire(car);
   car.cannonCooldown=cannonCooldownFrames;
+  return true;
 }
 
 function updateCannonInput(car){
@@ -806,21 +870,22 @@ function updateRockets(){
     }
 
     let surfaceY=drivingSurfaceHeight(rocket.x,rocket.z);
-    let hitCar=null;
+    let hitActor=null;
     if(rocket.age>4){
-      for(let car of activeCars()){
-        if(car===rocket.owner) continue;
-        let dx=rocket.x-car.x;
-        let dz=rocket.z-car.z;
-        if(dx*dx+dz*dz<4.2*4.2 && Math.abs(rocket.y-car.y)<4.2){
-          hitCar=car;
+      for(let actor of combatActors()){
+        if(actor===rocket.owner) continue;
+        if(rocket.owner.isEnemy && actor.isEnemy) continue;
+        let dx=rocket.x-actor.x;
+        let dz=rocket.z-actor.z;
+        if(dx*dx+dz*dz<4.2*4.2 && Math.abs(rocket.y-actor.y)<4.2){
+          hitActor=actor;
           break;
         }
       }
     }
 
     let hitObstacle=world.obstacleAlongSegment3D(prevX,prevY,prevZ,rocket.x,rocket.y,rocket.z,1.25);
-    let hit=rocket.y<=surfaceY+0.35 || hitObstacle || hitCar;
+    let hit=rocket.y<=surfaceY+0.35 || hitObstacle || hitActor;
 
     if(hit || rocket.age>rocket.life){
       if(hit){
@@ -836,9 +901,9 @@ function updateRockets(){
           }
           world.destroyObstacle(hitObstacle);
         }
-        if(hitCar){
-          damageCar(hitCar,18);
-          rattleCar(hitCar,1);
+        if(hitActor){
+          damageActor(hitActor,18);
+          rattleActor(hitActor,1);
         }
       }
       removeRocket(i);
@@ -878,21 +943,22 @@ function updateCannonBolts(){
     }
 
     let surfaceY=drivingSurfaceHeight(bolt.x,bolt.z);
-    let hitCar=null;
+    let hitActor=null;
     if(bolt.age>2){
-      for(let car of activeCars()){
-        if(car===bolt.owner) continue;
-        let dx=bolt.x-car.x;
-        let dz=bolt.z-car.z;
-        if(dx*dx+dz*dz<3.6*3.6 && Math.abs(bolt.y-car.y)<4.0){
-          hitCar=car;
+      for(let actor of combatActors()){
+        if(actor===bolt.owner) continue;
+        if(bolt.owner.isEnemy && actor.isEnemy) continue;
+        let dx=bolt.x-actor.x;
+        let dz=bolt.z-actor.z;
+        if(dx*dx+dz*dz<3.6*3.6 && Math.abs(bolt.y-actor.y)<4.0){
+          hitActor=actor;
           break;
         }
       }
     }
 
     let hitObstacle=world.obstacleAlongSegment3D(prevX,prevY,prevZ,bolt.x,bolt.y,bolt.z,0.9);
-    let hit=bolt.y<=surfaceY+0.22 || hitObstacle || hitCar;
+    let hit=bolt.y<=surfaceY+0.22 || hitObstacle || hitActor;
 
     if(hit || bolt.age>bolt.life){
       if(hit){
@@ -908,12 +974,222 @@ function updateCannonBolts(){
           }
           world.destroyObstacle(hitObstacle);
         }
-        if(hitCar){
-          damageCar(hitCar,9);
-          rattleCar(hitCar,0.72);
+        if(hitActor){
+          damageActor(hitActor,9);
+          rattleActor(hitActor,0.72);
         }
       }
       removeCannonBolt(i);
+    }
+  }
+}
+
+function nearestActivePlayer(enemy){
+  let best=null;
+  let bestDist=Infinity;
+
+  for(let car of activeCars()){
+    if(car.health<=0 || !car.group.visible) continue;
+    let dx=car.x-enemy.x;
+    let dz=car.z-enemy.z;
+    let distSq=dx*dx+dz*dz;
+    if(distSq<bestDist){
+      best=car;
+      bestDist=distSq;
+    }
+  }
+
+  return best;
+}
+
+function playerSpawnDistanceSq(x,z){
+  let best=Infinity;
+  for(let car of activeCars()){
+    if(car.health<=0) continue;
+    let dx=x-car.x;
+    let dz=z-car.z;
+    best=Math.min(best,dx*dx+dz*dz);
+  }
+  return best;
+}
+
+function villageSpawnCenters(center){
+  let villages=[];
+
+  for(let chunk of world.chunks.values()){
+    if(!chunk.villageCenters) continue;
+    for(let village of chunk.villageCenters){
+      let dx=village.x-center.x;
+      let dz=village.z-center.z;
+      let distSq=dx*dx+dz*dz;
+      if(distSq<180*180 || distSq>1800*1800) continue;
+      villages.push({...village,distSq});
+    }
+  }
+
+  villages.sort((a,b)=>a.distSq-b.distSq);
+  return villages;
+}
+
+function enemySpawnPoint(index){
+  let players=activeCars().filter(car=>car.health>0);
+  let center=players.length
+    ? players.reduce((acc,car)=>({x:acc.x+car.x/players.length,z:acc.z+car.z/players.length}),{x:0,z:0})
+    : {x:playerCar.x,z:playerCar.z};
+  let villages=villageSpawnCenters(center);
+
+  for(let attempt=0;attempt<24 && villages.length>0;attempt++){
+    let village=villages[Math.floor(Math.random()*Math.min(villages.length,18))];
+    let angle=Math.random()*Math.PI*2;
+    let radius=(village.r || 32)*(1.42+Math.random()*0.9)+index*5;
+    let x=village.x+Math.cos(angle)*radius+(Math.random()-0.5)*12;
+    let z=village.z+Math.sin(angle)*radius+(Math.random()-0.5)*12;
+    let h=drivingSurfaceHeight(x,z);
+
+    if(
+      Number.isFinite(h)
+      && playerSpawnDistanceSq(x,z)>175*175
+      && waterDepthAt(x,z)<1.4
+      && roadDistance(x,z)>18
+      && !world.collidesWithObstacles(x,z)
+    ){
+      return {x,z};
+    }
+  }
+
+  for(let attempt=0;attempt<12;attempt++){
+    let angle=Math.random()*Math.PI*2;
+    let distance=190+Math.random()*130+index*16;
+    let x=center.x+Math.cos(angle)*distance+(Math.random()-0.5)*18;
+    let z=center.z+Math.sin(angle)*distance+(Math.random()-0.5)*18;
+    let h=drivingSurfaceHeight(x,z);
+
+    if(Number.isFinite(h) && waterDepthAt(x,z)<1.4 && !world.collidesWithObstacles(x,z)){
+      return {x,z};
+    }
+  }
+
+  let z=center.z+220+Math.random()*90;
+  return {
+    x:roadCenterX(z)+(Math.random()<0.5 ? -1 : 1)*(48+Math.random()*48),
+    z
+  };
+}
+
+function spawnEnemyWave(){
+  let count=2+Math.floor(Math.random()*3);
+  for(let i=0;i<count;i++){
+    let point=enemySpawnPoint(i);
+    let enemy=createEnemyState(++enemySpawnSerial,point.x,point.z);
+    enemy.angle=roadYawAt(point.z)+Math.PI+(Math.random()-0.5)*0.8;
+    enemy.velAngle=enemy.angle;
+    enemy.group.position.set(enemy.x,enemy.y,enemy.z);
+    enemy.group.rotation.y=enemy.angle;
+    enemy.shadow.update({carX:enemy.x,carZ:enemy.z,carY:enemy.y,surfaceY:enemy.y,carVelAngle:enemy.angle});
+    enemies.push(enemy);
+  }
+}
+
+function clearEnemies(){
+  for(let enemy of enemies){
+    enemy.active=false;
+    enemy.group.visible=false;
+    if(enemy.shadow){
+      enemy.shadow.dispose();
+      enemy.shadow=null;
+    }
+    scene.remove(enemy.group);
+  }
+  enemies=[];
+  enemyWaveDelay=0;
+}
+
+function updateEnemy(enemy){
+  if(!enemy.active || enemy.health<=0) return;
+  if(enemy.cannonCooldown>0) enemy.cannonCooldown--;
+
+  let target=nearestActivePlayer(enemy);
+  if(!target){
+    enemy.speed*=0.9;
+    return;
+  }
+
+  enemy.aiTarget=target;
+  let dx=target.x-enemy.x;
+  let dz=target.z-enemy.z;
+  let distance=Math.max(0.001,Math.hypot(dx,dz));
+  let targetAngle=Math.atan2(dx,dz);
+  let desiredAngle=targetAngle;
+
+  if(distance<48){
+    desiredAngle+=enemy.aiStrafe*clamp((48-distance)/28,0,1)*0.68;
+  }
+
+  let turn=clamp(normalizeAngle(desiredAngle-enemy.angle),-0.045,0.045);
+  enemy.angle=normalizeAngle(enemy.angle+turn);
+
+  let desiredSpeed=distance>58 ? 0.38 : distance>30 ? 0.18 : -0.08;
+  enemy.speed+=clamp(desiredSpeed-enemy.speed,-0.012,0.012);
+  enemy.speed=clamp(enemy.speed,-0.14,0.42);
+
+  let prevX=enemy.x;
+  let prevZ=enemy.z;
+  if(!gameOver){
+    enemy.x+=Math.sin(enemy.angle)*enemy.speed;
+    enemy.z+=Math.cos(enemy.angle)*enemy.speed;
+  }
+
+  let collision=movementCollision(enemy,prevX,prevZ,enemy.x,enemy.z);
+  if(collision.hit){
+    enemy.x=collision.safeX;
+    enemy.z=collision.safeZ;
+    enemy.speed*=-0.25;
+    enemy.angle=normalizeAngle(enemy.angle+(Math.random()<0.5 ? -1 : 1)*0.55);
+    enemy.aiStrafe*=-1;
+  }
+
+  let surfaceY=drivingSurfaceHeight(enemy.x,enemy.z);
+  enemy.y=surfaceY;
+  enemy.onGround=true;
+  enemy.airborne=false;
+  enemy.velAngle=enemy.angle;
+  enemy.group.position.set(enemy.x,enemy.y,enemy.z);
+  enemy.group.rotation.y=enemy.angle;
+  enemy.group.rotation.x=enemy.pitch;
+  enemy.group.rotation.z=0;
+  updateMechAnimation(enemy);
+
+  if(distance<82 && Math.abs(normalizeAngle(targetAngle-enemy.angle))<0.52){
+    if(fireCannon(enemy)){
+      enemy.cannonCooldown=78+Math.floor(Math.random()*58);
+    }
+  }
+
+  if(enemy.hitRattle>0){
+    let shake=enemy.hitRattle;
+    let t=performance.now()*0.04+enemy.hitRattleSeed;
+    enemy.group.rotation.x+=Math.sin(t*1.7)*0.08*shake;
+    enemy.group.rotation.z+=Math.cos(t*2.1)*0.11*shake;
+    enemy.group.position.x+=Math.sin(t*2.6)*0.14*shake;
+    enemy.group.position.y+=Math.abs(Math.sin(t*3.1))*0.12*shake;
+    enemy.group.position.z+=Math.cos(t*2.3)*0.14*shake;
+    enemy.hitRattle=Math.max(0,enemy.hitRattle-0.055);
+  }
+
+  enemy.shadow.update({carX:enemy.x,carZ:enemy.z,carY:enemy.y,surfaceY,carVelAngle:enemy.angle});
+}
+
+function updateEnemies(){
+  for(let enemy of enemies){
+    updateEnemy(enemy);
+  }
+  enemies=enemies.filter(enemy=>enemy.active);
+
+  if(activeEnemies().length===0){
+    if(enemyWaveDelay>0) enemyWaveDelay--;
+    else{
+      spawnEnemyWave();
+      enemyWaveDelay=420;
     }
   }
 }
@@ -1066,6 +1342,112 @@ function setMorphCarModel(car,model){
   car.carModel=model;
   car.group.add(model);
   updateMorphVisual(car);
+}
+
+function makeEnemyMechModel(seed=0){
+  let mech=makeMechModel(seed%2===0 ? 0x9cff2f : 0xff5a2f);
+  mech.name="enemy-mech";
+  mech.scale.set(1.18,0.96,1.1);
+
+  mech.traverse(child=>{
+    if(!child.isMesh) return;
+    child.material=child.material.clone();
+    if(child.name.includes("cockpit") || child.name.includes("visor")){
+      child.material=enemyEyeMat.clone();
+    }else if(child.name.includes("plate") || child.name.includes("shroud")){
+      child.material=enemyTrimMat.clone();
+    }else if(child.name.includes("torso") || child.name.includes("shoulder") || child.name.includes("forearm") || child.name.includes("upper-leg") || child.name.includes("foot")){
+      child.material.color.set(seed%2===0 ? 0x25372f : 0x3a2d35);
+      child.material.roughness=0.72;
+      child.material.metalness=0.62;
+    }else{
+      child.material.color.set(0x111514);
+    }
+  });
+
+  function addEnemyPart(mesh){
+    mesh.castShadow=true;
+    mesh.receiveShadow=true;
+    mesh.userData.basePosition=mesh.position.clone();
+    mesh.userData.baseRotation=mesh.rotation.clone();
+    mech.add(mesh);
+  }
+
+  let eye=new THREE.Mesh(new THREE.BoxGeometry(0.92,0.18,0.1),enemyEyeMat.clone());
+  eye.name="enemy-red-eye";
+  eye.position.set(0,4.56,0.58);
+  addEnemyPart(eye);
+
+  for(let side of [-1,1]){
+    let horn=new THREE.Mesh(new THREE.ConeGeometry(0.16,0.72,5),enemyTrimMat.clone());
+    horn.name=side<0 ? "enemy-left-horn" : "enemy-right-horn";
+    horn.position.set(side*0.42,4.96,0.06);
+    horn.rotation.z=-side*0.28;
+    addEnemyPart(horn);
+
+    let shoulderSpike=new THREE.Mesh(new THREE.ConeGeometry(0.18,0.84,5),enemyTrimMat.clone());
+    shoulderSpike.name=side<0 ? "enemy-left-shoulder-spike" : "enemy-right-shoulder-spike";
+    shoulderSpike.position.set(side*1.72,3.92,-0.04);
+    shoulderSpike.rotation.z=-side*Math.PI/2;
+    addEnemyPart(shoulderSpike);
+  }
+
+  return mech;
+}
+
+function createEnemyState(index,x,z){
+  let group=new THREE.Group();
+  group.rotation.order="YXZ";
+  scene.add(group);
+
+  let mech=makeEnemyMechModel(index);
+  group.add(mech);
+
+  return {
+    id:`enemy-${index}`,
+    isEnemy:true,
+    active:true,
+    group,
+    shadow:createCarShadow(scene),
+    mechModel:mech,
+    carModel:null,
+    aimCross:null,
+    x,
+    y:drivingSurfaceHeight(x,z),
+    z,
+    angle:Math.random()*Math.PI*2,
+    velAngle:0,
+    speed:0,
+    onGround:true,
+    airborne:false,
+    vy:0,
+    pitch:0,
+    trickPitch:0,
+    trickRoll:0,
+    trickYaw:0,
+    trickPitchVel:0,
+    trickRollVel:0,
+    trickYawVel:0,
+    lastTrickButtons:{a:false,b:false,x:false,y:false},
+    morphed:false,
+    morphProgress:0,
+    aimOffsetX:0,
+    aimOffsetY:0,
+    lastRocketButton:false,
+    rocketCooldown:0,
+    lastCannonButton:false,
+    cannonCooldown:60+Math.floor(Math.random()*70),
+    hitRattle:0,
+    hitRattleSeed:0,
+    walkCycle:0,
+    lastWalkX:x,
+    lastWalkZ:z,
+    health:36,
+    aiTarget:null,
+    aiStrafe:Math.random()<0.5 ? -1 : 1,
+    aiThink:0,
+    lateralOffset:0
+  };
 }
 
 function updateMorphVisual(car){
@@ -1477,6 +1859,7 @@ function loop(){
   for(let car of activeCars()){
     updateCar(car);
   }
+  updateEnemies();
   updateRockets();
   updateCannonBolts();
   if(healthDamageCooldown>0) healthDamageCooldown--;
@@ -1522,6 +1905,7 @@ function startGame(mode){
   document.body.classList.toggle("double-player",mode==="double");
 
   clearRockets();
+  clearEnemies();
   playerCar.lateralOffset=mode==="single" ? 0 : -4.2;
   secondCar.lateralOffset=4.2;
   placeCarOnRoad(playerCar,0);
@@ -1539,6 +1923,8 @@ function startGame(mode){
   hud.init();
   lastChunkSignature=chunkSignatureForCars();
   world.updateChunksForCenters(activeCars().map(car=>({x:car.x,z:car.z})));
+  spawnEnemyWave();
+  enemyWaveDelay=420;
 }
 
 let startScreen=document.getElementById("startScreen");

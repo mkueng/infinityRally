@@ -36,7 +36,13 @@ export function createCarShadow(scene){
     carShadowRoot.visible=visible;
   }
 
-  return {update,setVisible};
+  function dispose(){
+    scene.remove(carShadowRoot);
+    carShadow.geometry.dispose();
+    carShadow.material.dispose();
+  }
+
+  return {update,setVisible,dispose};
 }
 
 export function createClouds(scene,getCarPosition){

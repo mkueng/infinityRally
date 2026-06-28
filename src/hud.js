@@ -1,7 +1,7 @@
 import { chunkSize } from "./constants.js";
 import { carSurfaceHeight } from "./terrain.js";
 
-export function createHud({getCarStates,getChunks}){
+export function createHud({getCarStates,getChunks,getEnemyStates=()=>[]}){
   let panels=[];
   let gameOverOverlay;
   let mapUpdateFrame=0;
@@ -221,7 +221,7 @@ export function createHud({getCarStates,getChunks}){
     };
   }
 
-  function drawMapHud(panel,state,states){
+  function drawMapHud(panel,state,states,enemies){
     if(!panel.mapCtx) return;
 
     let mapCtx=panel.mapCtx;
@@ -252,6 +252,7 @@ export function createHud({getCarStates,getChunks}){
     mapCtx.lineWidth=1;
     mapCtx.strokeRect(0.5,0.5,size-1,size-1);
 
+    drawEnemyDots(mapCtx,enemies,centerX,centerZ,radius,size);
     drawOtherCars(mapCtx,state,states,centerX,centerZ,radius,size);
 
     mapCtx.save();
@@ -285,6 +286,31 @@ export function createHud({getCarStates,getChunks}){
       mapCtx.arc(p.x,p.y,4.5,0,Math.PI*2);
       mapCtx.fill();
       mapCtx.stroke();
+    }
+  }
+
+  function drawEnemyDots(mapCtx,enemies,centerX,centerZ,radius,size){
+    let blink=0.5+0.5*Math.sin(performance.now()*0.008);
+    let dotRadius=3.2+blink*2.4;
+
+    for(let enemy of enemies){
+      if(!enemy || enemy.health<=0) continue;
+
+      let p=mapToCanvas(enemy.x,enemy.z,centerX,centerZ,radius,size);
+      if(p.x<-8 || p.x>size+8 || p.y<-8 || p.y>size+8) continue;
+
+      mapCtx.fillStyle=`rgba(255,58,36,${0.45+blink*0.45})`;
+      mapCtx.strokeStyle=`rgba(255,245,190,${0.38+blink*0.42})`;
+      mapCtx.lineWidth=1.4;
+      mapCtx.beginPath();
+      mapCtx.arc(p.x,p.y,dotRadius,0,Math.PI*2);
+      mapCtx.fill();
+      mapCtx.stroke();
+
+      mapCtx.fillStyle="rgba(255,255,255,0.82)";
+      mapCtx.beginPath();
+      mapCtx.arc(p.x,p.y,1.6,0,Math.PI*2);
+      mapCtx.fill();
     }
   }
 
@@ -433,8 +459,9 @@ export function createHud({getCarStates,getChunks}){
   function updateMapHud(force=false){
     if(!force && mapUpdateFrame++%6!==0) return;
     let states=getCarStates();
+    let enemies=getEnemyStates();
     for(let i=0;i<panels.length;i++){
-      drawMapHud(panels[i],states[i],states);
+      drawMapHud(panels[i],states[i],states,enemies);
     }
   }
 
