@@ -452,12 +452,12 @@ export function createHud({getCarStates,getChunks}){
   }
 
   function init(){
-    panels=[
-      getCarStates().length<=1
-        ? {side:"full",label:"P1",color:"#d62f2f"}
-        : {side:"left",label:"P1",color:"#d62f2f"},
-      ...(getCarStates().length<=1 ? [] : [{side:"right",label:"P2",color:"#3d6ee8"}])
-    ];
+    let states=getCarStates();
+    panels=states.map((state,index)=>({
+      side:states.length<=1 ? "full" : index===0 ? "left" : "right",
+      label:state.label,
+      color:state.color
+    }));
 
     for(let panel of panels){
       makeHealthHud(panel);

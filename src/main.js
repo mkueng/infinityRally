@@ -133,6 +133,10 @@ function activeCars(){
   return gameMode==="single" ? [playerCar] : cars;
 }
 
+function displayCars(){
+  return gameMode==="single" ? [playerCar] : [secondCar,playerCar];
+}
+
 function createCarState(id,lateralOffset,controls,camera,gamepadIndex){
   let group=new THREE.Group();
   group.rotation.order="YXZ";
@@ -199,7 +203,7 @@ let dust=createDust(scene);
 let wheelTracks=createWheelTracks(scene);
 let motorAudio=createMotorAudio(cars);
 let hud=createHud({
-  getCarStates:()=>activeCars().map(car=>({
+  getCarStates:()=>displayCars().map(car=>({
     id:car.id,
     label:car.id==="car1" ? "P1" : "P2",
     color:car.id==="car1" ? "#d62f2f" : "#3d6ee8",
@@ -1205,15 +1209,18 @@ function renderGame(){
 
   let halfWidth=Math.floor(width*0.5);
 
-  setAimCrossForRender(playerCar);
+  let leftCar=displayCars()[0];
+  let rightCar=displayCars()[1];
+
+  setAimCrossForRender(leftCar);
   renderer.setViewport(0,0,halfWidth,height);
   renderer.setScissor(0,0,halfWidth,height);
-  renderer.render(scene,playerCamera);
+  renderer.render(scene,leftCar.camera);
 
-  setAimCrossForRender(secondCar);
+  setAimCrossForRender(rightCar);
   renderer.setViewport(halfWidth,0,width-halfWidth,height);
   renderer.setScissor(halfWidth,0,width-halfWidth,height);
-  renderer.render(scene,secondCamera);
+  renderer.render(scene,rightCar.camera);
   setAimCrossForRender(null);
 }
 
