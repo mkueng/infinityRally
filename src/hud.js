@@ -341,13 +341,14 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[]}){
         if(p.x<-halfVillageSize || p.x>size+halfVillageSize || p.y<-halfVillageSize || p.y>size+halfVillageSize) continue;
 
         let cleared=!!(village.buildings && village.buildings.length>0 && village.buildings.every(building=>building.destroyed));
-        mapCtx.fillStyle=cleared ? "rgba(124,255,120,0.18)" : "rgba(214,178,90,0.24)";
-        mapCtx.strokeStyle=cleared ? "rgba(124,255,120,0.72)" : "rgba(255,226,111,0.82)";
+        let boss=!!village.bossVillage;
+        mapCtx.fillStyle=cleared ? "rgba(124,255,120,0.18)" : boss ? "rgba(255,92,54,0.26)" : "rgba(214,178,90,0.24)";
+        mapCtx.strokeStyle=cleared ? "rgba(124,255,120,0.72)" : boss ? "rgba(255,106,66,0.92)" : "rgba(255,226,111,0.82)";
         mapCtx.lineWidth=1.3;
         mapCtx.fillRect(p.x-halfVillageSize,p.y-halfVillageSize,villageSize,villageSize);
         mapCtx.strokeRect(p.x-halfVillageSize+0.5,p.y-halfVillageSize+0.5,villageSize-1,villageSize-1);
 
-        mapCtx.fillStyle=cleared ? "rgba(124,255,120,0.86)" : "rgba(255,226,111,0.92)";
+        mapCtx.fillStyle=cleared ? "rgba(124,255,120,0.86)" : boss ? "rgba(255,106,66,0.95)" : "rgba(255,226,111,0.92)";
         mapCtx.fillRect(p.x-2.5,p.y-2.5,5,5);
       }
     }

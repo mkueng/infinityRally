@@ -1,4 +1,5 @@
 import { THREE } from "./three.js";
+import { cloudCount } from "./constants.js";
 import { makeCarShadowTexture, makeCloudTexture, makeDustTexture } from "./textures.js";
 import { rand } from "./terrain.js";
 
@@ -54,7 +55,6 @@ export function createClouds(scene,getCarPosition){
   function makeClouds(){
     let cloudTexture=makeCloudTexture();
     let cloudRange=5200;
-    let cloudCount=16;
     let cloudRand=(a,b)=>rand(a,b)*0.5+0.5;
 
     for(let i=0;i<cloudCount;i++){

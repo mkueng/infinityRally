@@ -584,11 +584,11 @@ function makeChunk(cx,cz){
 
     if(centerRoadD<24) continue;
 
-    let largeTown=r01(cx*1291+v*43,cz*683-v*29)>0.88;
+    let largeTown=r01(cx*1291+v*43,cz*683-v*29)>0.78;
     let villageRadius=20+(r01(cx-v*3,cz+v*9)*24)+(largeTown ? 16+r01(cx*503-v*7,cz*211+v*5)*10 : 0);
     if(!terrainPatchOk(centerX,centerZ,villageRadius*1.28,largeTown ? 25 : 23,largeTown ? 8 : 6.5)) continue;
 
-    let bossVillage=largeTown && r01(cx*1741+v*71,cz*927-v*37)>0.68;
+    let bossVillage=largeTown && r01(cx*1741+v*71,cz*927-v*37)>0.42;
     let enemyBudget=5+Math.floor(r01(cx*811+v*31,cz*337-v*13)*7)+(bossVillage ? 5 : largeTown ? 2 : 0);
     let turretCount=bossVillage ? 3 : largeTown ? 1 : 0;
     let village={x:centerX,z:centerZ,y:centerY,r:villageRadius,buildings:[],turrets:[],enemyBudget,enemyRemaining:enemyBudget,bossVillage,bossSpawned:false};
