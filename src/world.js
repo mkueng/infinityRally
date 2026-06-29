@@ -89,6 +89,12 @@ let chimneyGeo=new THREE.BoxGeometry(1,1,1);
 let trimGeo=new THREE.BoxGeometry(1,1,1);
 let porchGeo=new THREE.BoxGeometry(1,1,1);
 let brickWallGeo=new THREE.BoxGeometry(1,1,1);
+let turretBaseGeo=new THREE.CylinderGeometry(1,1.25,1,8);
+let turretHeadGeo=new THREE.BoxGeometry(1,1,1);
+let turretBarrelGeo=new THREE.CylinderGeometry(0.16,0.2,2.4,10);
+let turretBaseMat=new THREE.MeshStandardMaterial({color:0x312a3e,roughness:0.82,metalness:0.42});
+let turretHeadMat=new THREE.MeshStandardMaterial({color:0x554163,emissive:0x16091f,emissiveIntensity:0.22,roughness:0.72,metalness:0.48});
+let turretBarrelMat=new THREE.MeshStandardMaterial({color:0x151923,emissive:0x06162d,emissiveIntensity:0.32,roughness:0.56,metalness:0.7});
 
 function chunkKey(cx,cz){
   return cx+","+cz;
@@ -100,6 +106,30 @@ function hideInstance(mesh,index){
   if(!mesh || index==null || index<0) return;
   mesh.setMatrixAt(index,hiddenInstanceMatrix);
   mesh.instanceMatrix.needsUpdate=true;
+}
+
+function makeTurret(x,y,z,angle){
+  let group=new THREE.Group();
+  let base=new THREE.Mesh(turretBaseGeo,turretBaseMat);
+  let head=new THREE.Mesh(turretHeadGeo,turretHeadMat);
+  let barrel=new THREE.Mesh(turretBarrelGeo,turretBarrelMat);
+
+  base.position.y=0.5;
+  head.position.y=1.45;
+  head.scale.set(1.55,0.9,1.25);
+  barrel.position.set(0,1.48,1.25);
+  barrel.rotation.x=Math.PI/2;
+  barrel.scale.set(1,1,1.15);
+
+  for(let mesh of [base,head,barrel]){
+    mesh.castShadow=true;
+    mesh.receiveShadow=true;
+    group.add(mesh);
+  }
+
+  group.position.set(x,y,z);
+  group.rotation.y=angle;
+  return group;
 }
 
 function collidesWithObstacles(x,z){
@@ -225,6 +255,7 @@ function destroyObstacle(obstacle){
       hideInstance(item.mesh,item.index);
     }
   }
+  if(obstacle.object) obstacle.object.visible=false;
 
   return true;
 }
@@ -557,8 +588,10 @@ function makeChunk(cx,cz){
     let villageRadius=20+(r01(cx-v*3,cz+v*9)*24)+(largeTown ? 16+r01(cx*503-v*7,cz*211+v*5)*10 : 0);
     if(!terrainPatchOk(centerX,centerZ,villageRadius*1.28,largeTown ? 25 : 23,largeTown ? 8 : 6.5)) continue;
 
-    let enemyBudget=5+Math.floor(r01(cx*811+v*31,cz*337-v*13)*7);
-    let village={x:centerX,z:centerZ,y:centerY,r:villageRadius,buildings:[],enemyBudget,enemyRemaining:enemyBudget};
+    let bossVillage=largeTown && r01(cx*1741+v*71,cz*927-v*37)>0.68;
+    let enemyBudget=5+Math.floor(r01(cx*811+v*31,cz*337-v*13)*7)+(bossVillage ? 5 : largeTown ? 2 : 0);
+    let turretCount=bossVillage ? 3 : largeTown ? 1 : 0;
+    let village={x:centerX,z:centerZ,y:centerY,r:villageRadius,buildings:[],turrets:[],enemyBudget,enemyRemaining:enemyBudget,bossVillage,bossSpawned:false};
     villageCenters.push(village);
     let housesInVillage=largeTown
       ? 26+Math.floor(r01(cx+v*7,cz-v*5)*12)
@@ -588,6 +621,20 @@ function makeChunk(cx,cz){
       wallUsed++;
 
       colliders.push({x:wx,z:wz,r:Math.max(1.2,segLen*0.32),type:"wall",instances:[{mesh:villageWalls,index:wallUsed-1}]});
+    }
+
+    for(let t=0;t<turretCount;t++){
+      let angle=(t/turretCount)*Math.PI*2+r01(cx*3001+t*17,cz*2077-t*19)*0.9;
+      let tx=centerX+Math.cos(angle)*villageRadius*0.82;
+      let tz=centerZ+Math.sin(angle)*villageRadius*0.82;
+      let ty=groundHeight(tx,tz);
+      if(ty<waterLevel+0.3 || roadDistance(tx,tz)<20) continue;
+
+      let turret=makeTurret(tx,ty,tz,Math.atan2(centerX-tx,centerZ-tz));
+      scene.add(turret);
+      let collider={x:tx,z:tz,r:3.2,type:"turret",village,object:turret};
+      village.turrets.push(collider);
+      colliders.push(collider);
     }
 
     for(let i=0;i<housesInVillage && buildingUsed<maxBuildings;i++){
@@ -880,6 +927,16 @@ function updateChunks(px,pz){
 }
 
 function disposeChunk(chunk){
+  let turretObjects=[];
+  if(chunk.villageCenters){
+    for(let village of chunk.villageCenters){
+      if(!village.turrets) continue;
+      for(let turret of village.turrets){
+        if(turret.object) turretObjects.push(turret.object);
+      }
+    }
+  }
+
   scene.remove(
     chunk.land,
     chunk.road,
@@ -897,7 +954,8 @@ function disposeChunk(chunk){
     chunk.buildingTrims,
     chunk.buildingPorches,
     chunk.villageWalls,
-    ...chunk.sheep
+    ...chunk.sheep,
+    ...turretObjects
   );
 
   chunk.land.geometry.dispose();

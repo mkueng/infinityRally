@@ -72,6 +72,7 @@ let enemyBudgetRun=0;
 let jetUnlocked=false;
 let score=0;
 let enemyScoreAmount=100;
+let bossScoreAmount=650;
 let villageScoreAmount=1000;
 let scoredVillages=new WeakSet();
 let waterLevel=-20;
@@ -130,6 +131,9 @@ let cannonGlowMat=new THREE.MeshBasicMaterial({
   depthWrite:false,
   blending:THREE.AdditiveBlending
 });
+let droneBodyMat=new THREE.MeshStandardMaterial({color:0x202935,emissive:0x061728,emissiveIntensity:0.35,roughness:0.56,metalness:0.7});
+let droneWingMat=new THREE.MeshStandardMaterial({color:0x58657a,emissive:0x121827,emissiveIntensity:0.22,roughness:0.6,metalness:0.55});
+let droneCoreMat=new THREE.MeshBasicMaterial({color:0x9fd8ff,transparent:true,opacity:0.78,depthWrite:false,blending:THREE.AdditiveBlending});
 let clusterBombRadius=300;
 let clusterBombCooldownFrames=150;
 let clusterBombInitialDropSpeed=0.22;
@@ -491,7 +495,7 @@ function damageEnemy(enemy,amount){
       enemy.shadow=null;
     }
     scene.remove(enemy.group);
-    addScore(enemyScoreAmount);
+    addScore(enemy.isBoss ? bossScoreAmount : enemyScoreAmount);
     spawnRocketExplosion(enemy.x,enemy.y+2.2,enemy.z);
   }
 }
@@ -1379,7 +1383,7 @@ function detonateClusterBomb(owner,x,y,z){
   let debrisCount=0;
   for(let obstacle of destroyed){
     if(debrisCount>=42) break;
-    if(obstacle.type==="rock" || obstacle.type==="smallRock" || obstacle.type==="building" || obstacle.type==="wall"){
+    if(obstacle.type==="rock" || obstacle.type==="smallRock" || obstacle.type==="building" || obstacle.type==="wall" || obstacle.type==="turret"){
       spawnRockDebris(
         obstacle.x,
         drivingSurfaceHeight(obstacle.x,obstacle.z)+Math.max(0.8,(obstacle.r || 2)*0.35),
@@ -1555,7 +1559,7 @@ function updateRockets(){
           : Math.max(rocket.y,surfaceY+0.5);
         spawnRocketExplosion(explosionX,explosionY,explosionZ);
         if(hitObstacle){
-          if(hitObstacle.type==="rock" || hitObstacle.type==="smallRock" || hitObstacle.type==="building" || hitObstacle.type==="wall"){
+          if(hitObstacle.type==="rock" || hitObstacle.type==="smallRock" || hitObstacle.type==="building" || hitObstacle.type==="wall" || hitObstacle.type==="turret"){
             spawnRockDebris(hitObstacle.x,explosionY,hitObstacle.z,hitObstacle);
           }
           destroyWorldObstacle(hitObstacle);
@@ -1628,7 +1632,7 @@ function updateCannonBolts(){
           : Math.max(bolt.y,surfaceY+0.45);
         spawnRocketExplosion(explosionX,explosionY,explosionZ);
         if(hitObstacle){
-          if(hitObstacle.type==="rock" || hitObstacle.type==="smallRock" || hitObstacle.type==="building" || hitObstacle.type==="wall"){
+          if(hitObstacle.type==="rock" || hitObstacle.type==="smallRock" || hitObstacle.type==="building" || hitObstacle.type==="wall" || hitObstacle.type==="turret"){
             spawnRockDebris(hitObstacle.x,explosionY,hitObstacle.z,hitObstacle);
           }
           destroyWorldObstacle(hitObstacle);
@@ -1833,7 +1837,14 @@ function spawnEnemyWave(){
   for(let i=0;i<count;i++){
     let point=enemySpawnPointForVillage(village,i);
     if(!point) continue;
-    let enemy=createEnemyState(++enemySpawnSerial,point.x,point.z);
+    let type="mech";
+    if(village.bossVillage && !village.bossSpawned){
+      type="boss";
+      village.bossSpawned=true;
+    }else if(Math.random()<(village.bossVillage ? 0.38 : 0.22)){
+      type="drone";
+    }
+    let enemy=createEnemyState(++enemySpawnSerial,point.x,point.z,type);
     enemy.spawnVillage=village;
     enemy.guardX=point.x;
     enemy.guardZ=point.z;
@@ -1842,7 +1853,7 @@ function spawnEnemyWave(){
     enemy.velAngle=enemy.angle;
     enemy.group.position.set(enemy.x,enemy.y,enemy.z);
     enemy.group.rotation.y=enemy.angle;
-    enemy.shadow.update({carX:enemy.x,carZ:enemy.z,carY:enemy.y,surfaceY:enemy.y,carVelAngle:enemy.angle});
+    if(enemy.shadow) enemy.shadow.update({carX:enemy.x,carZ:enemy.z,carY:enemy.y,surfaceY:enemy.y,carVelAngle:enemy.angle});
     enemies.push(enemy);
     village.enemyRemaining=Math.max(0,(village.enemyRemaining ?? 0)-1);
   }
@@ -1855,13 +1866,13 @@ function spawnEnemyPatrol(){
   for(let i=0;i<count;i++){
     let point=enemyPatrolSpawnPoint(i);
     if(!point) return false;
-    let enemy=createEnemyState(++enemySpawnSerial,point.x,point.z);
+    let enemy=createEnemyState(++enemySpawnSerial,point.x,point.z,Math.random()<0.45 ? "drone" : "mech");
     enemy.isPatrol=true;
     enemy.angle=roadYawAt(point.z)+Math.PI+(Math.random()-0.5)*1.4;
     enemy.velAngle=enemy.angle;
     enemy.group.position.set(enemy.x,enemy.y,enemy.z);
     enemy.group.rotation.y=enemy.angle;
-    enemy.shadow.update({carX:enemy.x,carZ:enemy.z,carY:enemy.y,surfaceY:enemy.y,carVelAngle:enemy.angle});
+    if(enemy.shadow) enemy.shadow.update({carX:enemy.x,carZ:enemy.z,carY:enemy.y,surfaceY:enemy.y,carVelAngle:enemy.angle});
     enemies.push(enemy);
   }
   return true;
@@ -1901,7 +1912,10 @@ function updateEnemy(enemy){
   let desiredAngle=targetAngle;
   let desiredSpeed;
 
-  if(enemy.spawnVillage && !enemy.isPatrol){
+  if(enemy.isDrone){
+    desiredAngle=targetAngle+enemy.aiStrafe*0.44;
+    desiredSpeed=distance>72 ? 0.34 : distance>38 ? 0.18 : -0.06;
+  }else if(enemy.spawnVillage && !enemy.isPatrol){
     let homeX=Number.isFinite(enemy.guardX) ? enemy.guardX : enemy.spawnVillage.x;
     let homeZ=Number.isFinite(enemy.guardZ) ? enemy.guardZ : enemy.spawnVillage.z;
     let homeDx=homeX-enemy.x;
@@ -1929,12 +1943,12 @@ function updateEnemy(enemy){
     desiredSpeed=distance>58 ? 0.38 : distance>30 ? 0.18 : -0.08;
   }
 
-  let turn=clamp(normalizeAngle(desiredAngle-enemy.angle),-0.045,0.045);
+  let turn=clamp(normalizeAngle(desiredAngle-enemy.angle),enemy.isDrone ? -0.075 : -0.045,enemy.isDrone ? 0.075 : 0.045);
   enemy.angle=normalizeAngle(enemy.angle+turn);
 
   desiredSpeed*=settings.speed;
   enemy.speed+=clamp(desiredSpeed-enemy.speed,-0.012*settings.speed,0.012*settings.speed);
-  let maxEnemySpeed=(enemy.spawnVillage && !enemy.isPatrol ? 0.18 : 0.42)*settings.speed;
+  let maxEnemySpeed=(enemy.isDrone ? 0.48 : enemy.isBoss ? 0.15 : enemy.spawnVillage && !enemy.isPatrol ? 0.18 : 0.42)*settings.speed;
   enemy.speed=clamp(enemy.speed,-0.14*settings.speed,maxEnemySpeed);
 
   let prevX=enemy.x;
@@ -1944,7 +1958,7 @@ function updateEnemy(enemy){
     enemy.z+=Math.cos(enemy.angle)*enemy.speed;
   }
 
-  let collision=movementCollision(enemy,prevX,prevZ,enemy.x,enemy.z);
+  let collision=enemy.isDrone ? {hit:false} : movementCollision(enemy,prevX,prevZ,enemy.x,enemy.z);
   if(collision.hit){
     enemy.x=collision.safeX;
     enemy.z=collision.safeZ;
@@ -1954,7 +1968,17 @@ function updateEnemy(enemy){
   }
 
   let surfaceY=drivingSurfaceHeight(enemy.x,enemy.z);
-  if(settings.hardFlight && enemy.flightTimer>0){
+  if(enemy.isDrone){
+    let hoverOffset=22+Math.sin(performance.now()*0.002+enemy.guardPhase)*4;
+    let targetY=Math.max(surfaceY+hoverOffset,target.y+14);
+    enemy.y+=(targetY-enemy.y)*0.08;
+    enemy.pitch=clamp((target.y-enemy.y)*0.015,-0.32,0.08);
+    enemy.onGround=false;
+    enemy.airborne=true;
+    if(enemy.droneModel && enemy.droneModel.userData.core){
+      enemy.droneModel.userData.core.scale.setScalar(1+Math.sin(performance.now()*0.025+enemy.guardPhase)*0.12);
+    }
+  }else if(settings.hardFlight && enemy.flightTimer>0){
     enemy.flightTimer--;
     let flightOffset=enemy.isPatrol ? 24 : 12;
     let targetY=surfaceY+flightOffset+Math.sin(performance.now()*0.0018+enemy.guardPhase)*3.5;
@@ -1979,9 +2003,12 @@ function updateEnemy(enemy){
   enemy.group.rotation.z=0;
   updateMechAnimation(enemy);
 
-  if(distance<82 && Math.abs(normalizeAngle(targetAngle-enemy.angle))<0.52){
+  let fireRange=enemy.isDrone ? 118 : enemy.isBoss ? 112 : 82;
+  let fireArc=enemy.isDrone ? 0.82 : enemy.isBoss ? 0.68 : 0.52;
+  if(distance<fireRange && Math.abs(normalizeAngle(targetAngle-enemy.angle))<fireArc){
     if(fireCannon(enemy)){
-      enemy.cannonCooldown=scaledDelay(78+Math.floor(Math.random()*58),settings.fireDelay);
+      let baseDelay=enemy.isDrone ? 54+Math.floor(Math.random()*42) : enemy.isBoss ? 44+Math.floor(Math.random()*36) : 78+Math.floor(Math.random()*58);
+      enemy.cannonCooldown=scaledDelay(baseDelay,settings.fireDelay);
     }
   }
 
@@ -1996,7 +2023,7 @@ function updateEnemy(enemy){
     enemy.hitRattle=Math.max(0,enemy.hitRattle-0.055);
   }
 
-  enemy.shadow.update({carX:enemy.x,carZ:enemy.z,carY:enemy.y,surfaceY,carVelAngle:enemy.angle});
+  if(enemy.shadow) enemy.shadow.update({carX:enemy.x,carZ:enemy.z,carY:enemy.y,surfaceY,carVelAngle:enemy.angle});
 }
 
 function updateEnemies(){
@@ -2032,6 +2059,66 @@ function updateEnemies(){
       enemyPatrolDelay=scaledDelay(1500+Math.floor(Math.random()*1200),settings.patrolDelay);
     }else{
       enemyPatrolDelay=scaledDelay(360,settings.patrolDelay);
+    }
+  }
+}
+
+function updateVillageTurrets(){
+  for(let chunk of world.chunks.values()){
+    if(!chunk.colliders) continue;
+    for(let turret of chunk.colliders){
+      if(!turret || turret.type!=="turret" || turret.destroyed) continue;
+      let target=null;
+      let bestDistSq=Infinity;
+
+      for(let car of activeCars()){
+        if(car.health<=0 || !car.group.visible) continue;
+        let dx=car.x-turret.x;
+        let dz=car.z-turret.z;
+        let distSq=dx*dx+dz*dz;
+        if(distSq<bestDistSq){
+          bestDistSq=distSq;
+          target=car;
+        }
+      }
+
+      if(!target || bestDistSq>170*170) continue;
+
+      let y=drivingSurfaceHeight(turret.x,turret.z)+0.2;
+      let angle=Math.atan2(target.x-turret.x,target.z-turret.z);
+      if(turret.object){
+        turret.object.rotation.y+=normalizeAngle(angle-turret.object.rotation.y)*0.12;
+      }
+
+      if(!turret.actor){
+        turret.actor={
+          id:`turret-${Math.round(turret.x)}-${Math.round(turret.z)}`,
+          isEnemy:true,
+          health:1,
+          x:turret.x,
+          y,
+          z:turret.z,
+          angle,
+          aiTarget:target,
+          cannonCooldown:40+Math.floor(Math.random()*70),
+          morphed:false,
+          morphProgress:0,
+          jetMode:false,
+          jetProgress:0
+        };
+      }
+
+      let actor=turret.actor;
+      actor.x=turret.x;
+      actor.y=y;
+      actor.z=turret.z;
+      actor.angle=angle;
+      actor.aiTarget=target;
+      actor.health=1;
+      if(actor.cannonCooldown>0) actor.cannonCooldown--;
+      if(actor.cannonCooldown<=0 && fireCannon(actor)){
+        actor.cannonCooldown=96+Math.floor(Math.random()*58);
+      }
     }
   }
 }
@@ -2695,31 +2782,72 @@ function makeEnemyMechModel(seed=0){
   return mech;
 }
 
-function createEnemyState(index,x,z){
+function makeDroneModel(seed=0){
+  let drone=new THREE.Group();
+  let body=new THREE.Mesh(new THREE.OctahedronGeometry(1.15,1),droneBodyMat.clone());
+  body.scale.set(1.35,0.54,1.05);
+  body.castShadow=true;
+  body.receiveShadow=true;
+  drone.add(body);
+
+  let core=new THREE.Mesh(new THREE.SphereGeometry(0.38,16,10),droneCoreMat.clone());
+  core.position.set(0,0.02,0.82);
+  drone.add(core);
+
+  for(let side of [-1,1]){
+    let wing=new THREE.Mesh(new THREE.BoxGeometry(2.6,0.16,0.52),droneWingMat.clone());
+    wing.position.set(side*1.65,0,0);
+    wing.rotation.z=side*0.12;
+    wing.castShadow=true;
+    wing.receiveShadow=true;
+    drone.add(wing);
+
+    let rotor=new THREE.Mesh(new THREE.CylinderGeometry(0.52,0.52,0.08,18),droneCoreMat.clone());
+    rotor.position.set(side*2.74,0.04,0);
+    rotor.rotation.x=Math.PI/2;
+    drone.add(rotor);
+  }
+
+  drone.userData.core=core;
+  return drone;
+}
+
+function createEnemyState(index,x,z,type="mech"){
   let group=new THREE.Group();
   group.rotation.order="YXZ";
   scene.add(group);
 
-  let mech=makeEnemyMechModel(index);
-  group.add(mech);
+  let isDrone=type==="drone";
+  let isBoss=type==="boss";
+  let mech=isDrone ? null : makeEnemyMechModel(index);
+  let drone=isDrone ? makeDroneModel(index) : null;
+  if(mech){
+    if(isBoss) mech.scale.multiplyScalar(1.55);
+    group.add(mech);
+  }
+  if(drone) group.add(drone);
 
   return {
     id:`enemy-${index}`,
     isEnemy:true,
+    enemyType:type,
+    isDrone,
+    isBoss,
     active:true,
     group,
-    shadow:createCarShadow(scene),
+    shadow:isDrone ? null : createCarShadow(scene),
     mechModel:mech,
+    droneModel:drone,
     carModel:null,
     aimCross:null,
     x,
-    y:drivingSurfaceHeight(x,z),
+    y:drivingSurfaceHeight(x,z)+(isDrone ? 20 : 0),
     z,
     angle:Math.random()*Math.PI*2,
     velAngle:0,
     speed:0,
-    onGround:true,
-    airborne:false,
+    onGround:!isDrone,
+    airborne:isDrone,
     vy:0,
     pitch:0,
     trickPitch:0,
@@ -2742,7 +2870,7 @@ function createEnemyState(index,x,z){
     lastRocketButton:false,
     rocketCooldown:0,
     lastCannonButton:false,
-    cannonCooldown:60+Math.floor(Math.random()*70),
+    cannonCooldown:(isBoss ? 35 : isDrone ? 46 : 60)+Math.floor(Math.random()*(isBoss ? 35 : isDrone ? 38 : 70)),
     clusterBombCooldown:0,
     clusterBombAmmo:0,
     flightTimer:0,
@@ -2752,7 +2880,7 @@ function createEnemyState(index,x,z){
     walkCycle:0,
     lastWalkX:x,
     lastWalkZ:z,
-    health:36,
+    health:isBoss ? 260 : isDrone ? 34 : 36,
     aiTarget:null,
     aiStrafe:Math.random()<0.5 ? -1 : 1,
     aiThink:0,
@@ -3240,6 +3368,7 @@ function loop(){
     updateCar(car);
   }
   updateEnemies();
+  updateVillageTurrets();
   updateSupplyBoxes();
   updateRockets();
   updateCannonBolts();
