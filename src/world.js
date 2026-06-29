@@ -548,13 +548,16 @@ function makeChunk(cx,cz){
 
     if(centerRoadD<24) continue;
 
-    let villageRadius=20+(r01(cx-v*3,cz+v*9)*24);
-    if(!terrainPatchOk(centerX,centerZ,villageRadius*1.28,23,6.5)) continue;
+    let largeTown=r01(cx*1291+v*43,cz*683-v*29)>0.88;
+    let villageRadius=20+(r01(cx-v*3,cz+v*9)*24)+(largeTown ? 16+r01(cx*503-v*7,cz*211+v*5)*10 : 0);
+    if(!terrainPatchOk(centerX,centerZ,villageRadius*1.28,largeTown ? 25 : 23,largeTown ? 8 : 6.5)) continue;
 
     let enemyBudget=5+Math.floor(r01(cx*811+v*31,cz*337-v*13)*7);
     let village={x:centerX,z:centerZ,y:centerY,r:villageRadius,buildings:[],enemyBudget,enemyRemaining:enemyBudget};
     villageCenters.push(village);
-    let housesInVillage=12+Math.floor(r01(cx+v*7,cz-v*5)*10);
+    let housesInVillage=largeTown
+      ? 26+Math.floor(r01(cx+v*7,cz-v*5)*12)
+      : 12+Math.floor(r01(cx+v*7,cz-v*5)*10);
     let placed=[];
 
     // Brick wall ring around each village with a front opening toward the road.
@@ -596,7 +599,7 @@ function makeChunk(cx,cz){
       let width=8+r01(i+cx*5,cz+v*2)*8;
       let depth=8+r01(i+cz*6,cx-v*2)*8;
       let height=4.8+r01(cx-i,cz+i+v*17)*5.6;
-      let minGap=Math.max(width,depth)*1.35;
+      let minGap=Math.max(width,depth)*(largeTown ? 1.05 : 1.35);
       if(!terrainPatchOk(wx,wz,Math.max(width,depth)*0.62,24,4.5)) continue;
 
       let tooClose=false;
@@ -758,19 +761,19 @@ function makeChunk(cx,cz){
   villageWalls.instanceMatrix.needsUpdate=true;
   scene.add(buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls);
 
-  let herdChance=0.18;
+  let herdChance=0.28;
   if((rand(cx*421,cz*733)*0.5+0.5)<herdChance){
     let herdRand=(a,b)=>rand(a,b)*0.5+0.5;
     let centerZ=cz*chunkSize+(herdRand(cx*617,cz*1543)-.5)*chunkSize*0.78;
     let side=herdRand(cx*271,cz*643)<0.5 ? -1 : 1;
-    let offset=58+herdRand(cx*1201,cz*811)*86;
+    let offset=44+herdRand(cx*1201,cz*811)*76;
     let centerX=roadCenterX(centerZ)+side*offset;
     let centerY=groundHeight(centerX,centerZ);
     if(centerY<-12 || centerY>28){
       centerX=roadCenterX(centerZ)-side*offset;
       centerY=groundHeight(centerX,centerZ);
     }
-    let herdSize=2+Math.floor(herdRand(cx*991,cz*379)*3);
+    let herdSize=3+Math.floor(herdRand(cx*991,cz*379)*3);
     let herdHeading=herdRand(cx*233,cz*887)*Math.PI*2;
 
     if(centerY<-12 || centerY>28 || roadDistance(centerX,centerZ)<52){

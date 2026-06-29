@@ -34,24 +34,58 @@ let cameraFollowHeight=7.5;
 let cars=[];
 let gameStarted=false;
 let gameMode="single";
+let gameDifficulty="medium";
+let difficultySettings={
+  easy:{
+    waveCount:0.55,
+    waveDelay:1.35,
+    patrolDelay:1.45,
+    speed:0.68,
+    fireDelay:1.25,
+    villageBudget:0.65,
+    hardFlight:false
+  },
+  medium:{
+    waveCount:1,
+    waveDelay:1,
+    patrolDelay:1,
+    speed:1,
+    fireDelay:1,
+    villageBudget:1,
+    hardFlight:false
+  },
+  hard:{
+    waveCount:1.65,
+    waveDelay:0.72,
+    patrolDelay:0.68,
+    speed:1.14,
+    fireDelay:0.5,
+    villageBudget:1.45,
+    hardFlight:true
+  }
+};
 let enemies=[];
 let enemyWaveDelay=0;
 let enemyPatrolDelay=900;
 let enemySpawnSerial=0;
+let enemyBudgetRun=0;
 let jetUnlocked=false;
 let score=0;
 let enemyScoreAmount=100;
 let villageScoreAmount=1000;
 let scoredVillages=new WeakSet();
 let waterLevel=-20;
-let mechGroundMaxSpeed=0.58;
-let mechAirMaxSpeed=1.15;
-let morphedCarSpeedMultiplier=3;
+let mechGroundMaxSpeed=0.4;
+let mechAirMaxSpeed=0.9;
+let morphedCarSpeedMultiplier=4;
+let jetMaxSpeed=2.4;
 let mechStrideLength=2.35;
 let rocketSpeed=1.75;
 let rocketCooldownFrames=34;
 let rocketTurnRate=0.075;
 let rocketAimYOffset=-4.2;
+let aimOffsetYMin=-9;
+let aimOffsetYMax=13;
 let initialRocketAmmo=30;
 let initialCannonAmmo=200;
 let initialClusterBombAmmo=10;
@@ -192,6 +226,56 @@ function drivingSurfaceHeight(x,z){
   return waterDepthAt(x,z)>0.15 ? Math.max(surfaceY,waterLevel-0.34) : surfaceY;
 }
 
+function terrainSlopeAt(x,z){
+  let sampleDistance=3.2;
+  let center=drivingSurfaceHeight(x,z);
+  let xSlope=Math.abs(drivingSurfaceHeight(x+sampleDistance,z)-drivingSurfaceHeight(x-sampleDistance,z))/(sampleDistance*2);
+  let zSlope=Math.abs(drivingSurfaceHeight(x,z+sampleDistance)-drivingSurfaceHeight(x,z-sampleDistance))/(sampleDistance*2);
+  let diagonalSlope=Math.abs(drivingSurfaceHeight(x+sampleDistance,z+sampleDistance)-drivingSurfaceHeight(x-sampleDistance,z-sampleDistance))/(sampleDistance*2.828);
+  return Math.max(xSlope,zSlope,diagonalSlope,Math.abs(center-drivingSurfaceHeight(x+sampleDistance,z-sampleDistance))/(sampleDistance*1.414));
+}
+
+function mountainClimbBlocked(car,fromX,fromZ,toX,toZ){
+  let fromY=drivingSurfaceHeight(fromX,fromZ);
+  let actuallyFlying=car.y>fromY+1.4 || car.jetMode || car.jetProgress>0.2;
+  if(actuallyFlying) return false;
+  if(roadDistance(toX,toZ)<58) return false;
+
+  let dx=toX-fromX;
+  let dz=toZ-fromZ;
+  let distance=Math.hypot(dx,dz);
+  if(distance<0.01) return false;
+
+  let maxGrade=0;
+  let totalUphill=0;
+  let previousX=fromX;
+  let previousZ=fromZ;
+  let previousY=fromY;
+  let samples=Math.max(3,Math.ceil(distance/0.28));
+
+  for(let i=1;i<=samples;i++){
+    let t=i/samples;
+    let sampleX=fromX+dx*t;
+    let sampleZ=fromZ+dz*t;
+    let sampleY=drivingSurfaceHeight(sampleX,sampleZ);
+    let stepDistance=Math.hypot(sampleX-previousX,sampleZ-previousZ);
+    let uphill=sampleY-previousY;
+
+    if(uphill>0 && stepDistance>0.001){
+      maxGrade=Math.max(maxGrade,uphill/stepDistance);
+      totalUphill+=uphill;
+    }
+
+    previousX=sampleX;
+    previousZ=sampleZ;
+    previousY=sampleY;
+  }
+
+  let localSlope=terrainSlopeAt(toX,toZ);
+  let heightAboveRoad=drivingSurfaceHeight(toX,toZ)-drivingSurfaceHeight(roadCenterX(toZ),toZ);
+  return heightAboveRoad>18 && totalUphill>0.42 && maxGrade>0.95 && localSlope>0.85;
+}
+
 function normalizeAngle(angle){
   while(angle>Math.PI) angle-=Math.PI*2;
   while(angle<-Math.PI) angle+=Math.PI*2;
@@ -242,6 +326,14 @@ function activeEnemies(){
 
 function combatActors(){
   return [...activeCars(),...activeEnemies()];
+}
+
+function currentDifficulty(){
+  return difficultySettings[gameDifficulty] || difficultySettings.medium;
+}
+
+function scaledDelay(frames,scale){
+  return Math.max(1,Math.round(frames*scale));
 }
 
 function createCarState(id,lateralOffset,controls,camera,gamepadIndex){
@@ -819,7 +911,7 @@ function spawnVillageSupplyBoxes(){
     for(let village of chunk.villageCenters){
       if(!world.isVillageCleared(village)) continue;
 
-      if(!jetUnlocked && !supplySpawnKeys.has("jet-unlock")){
+      if(!jetUnlocked && !supplySpawnKeys.has("jet-unlock") && village.buildings && village.buildings.length>4){
         let distSq=nearestActiveCarDistanceSq(village.x,village.z);
         if(Number.isFinite(distSq) && (!jetUnlockCandidate || distSq<jetUnlockCandidate.distSq)){
           jetUnlockCandidate={village,distSq};
@@ -944,7 +1036,7 @@ function updateAimCross(car){
 
   if(gamepadAimActive){
     car.aimOffsetX=clamp(car.aimOffsetX-aim.x*0.42,-11,11);
-    car.aimOffsetY=clamp(car.aimOffsetY-aim.y*0.32,-4.5,7.5);
+    car.aimOffsetY=clamp(car.aimOffsetY-aim.y*0.32,aimOffsetYMin,aimOffsetYMax);
   }else if(gameMode==="single" && car===playerCar && mouseMoved){
     mouseAimPointer.set(
       (input.mouse.x/innerWidth)*2-1,
@@ -959,7 +1051,7 @@ function updateAimCross(car){
     if(mouseAimRaycaster.ray.intersectPlane(mouseAimPlane,mouseAimHitPoint)){
       car.group.worldToLocal(mouseAimHitPoint);
       car.aimOffsetX=clamp(mouseAimHitPoint.x,-11,11);
-      car.aimOffsetY=clamp(mouseAimHitPoint.y-3.15,-4.5,7.5);
+      car.aimOffsetY=clamp(mouseAimHitPoint.y-3.15,aimOffsetYMin,aimOffsetYMax);
       car.lastAimMouseVersion=input.mouse.version;
     }
   }
@@ -1639,12 +1731,24 @@ function playerDistanceSqForEnemy(enemy){
   return best;
 }
 
+function prepareVillageEnemyBudget(village){
+  if(!village) return;
+  if(village.enemyBudgetRun===enemyBudgetRun && village.enemyDifficulty===gameDifficulty) return;
+
+  let settings=currentDifficulty();
+  let baseBudget=village.enemyBudget || 7;
+  village.enemyRemaining=Math.max(1,Math.round(baseBudget*settings.villageBudget));
+  village.enemyBudgetRun=enemyBudgetRun;
+  village.enemyDifficulty=gameDifficulty;
+}
+
 function villageSpawnCenters(center){
   let villages=[];
 
   for(let chunk of world.chunks.values()){
     if(!chunk.villageCenters) continue;
     for(let village of chunk.villageCenters){
+      prepareVillageEnemyBudget(village);
       if((village.enemyRemaining ?? 0)<=0) continue;
       let dx=village.x-center.x;
       let dz=village.z-center.z;
@@ -1721,7 +1825,9 @@ function spawnEnemyWave(){
   let village=enemySpawnVillage();
   if(!village) return false;
 
-  let count=Math.min(village.enemyRemaining ?? 0,Math.random()<0.75 ? 1 : 2);
+  let settings=currentDifficulty();
+  let baseCount=Math.random()<0.75 ? 1 : 2;
+  let count=Math.min(village.enemyRemaining ?? 0,Math.max(1,Math.round(baseCount*settings.waveCount)));
   if(count<=0) return false;
 
   for(let i=0;i<count;i++){
@@ -1744,7 +1850,9 @@ function spawnEnemyWave(){
 }
 
 function spawnEnemyPatrol(){
-  for(let i=0;i<2;i++){
+  let settings=currentDifficulty();
+  let count=Math.max(1,Math.round(2*settings.waveCount));
+  for(let i=0;i<count;i++){
     let point=enemyPatrolSpawnPoint(i);
     if(!point) return false;
     let enemy=createEnemyState(++enemySpawnSerial,point.x,point.z);
@@ -1777,6 +1885,7 @@ function clearEnemies(){
 function updateEnemy(enemy){
   if(!enemy.active || enemy.health<=0) return;
   if(enemy.cannonCooldown>0) enemy.cannonCooldown--;
+  let settings=currentDifficulty();
 
   let target=nearestActivePlayer(enemy);
   if(!target){
@@ -1823,9 +1932,10 @@ function updateEnemy(enemy){
   let turn=clamp(normalizeAngle(desiredAngle-enemy.angle),-0.045,0.045);
   enemy.angle=normalizeAngle(enemy.angle+turn);
 
-  enemy.speed+=clamp(desiredSpeed-enemy.speed,-0.012,0.012);
-  let maxEnemySpeed=enemy.spawnVillage && !enemy.isPatrol ? 0.18 : 0.42;
-  enemy.speed=clamp(enemy.speed,-0.14,maxEnemySpeed);
+  desiredSpeed*=settings.speed;
+  enemy.speed+=clamp(desiredSpeed-enemy.speed,-0.012*settings.speed,0.012*settings.speed);
+  let maxEnemySpeed=(enemy.spawnVillage && !enemy.isPatrol ? 0.18 : 0.42)*settings.speed;
+  enemy.speed=clamp(enemy.speed,-0.14*settings.speed,maxEnemySpeed);
 
   let prevX=enemy.x;
   let prevZ=enemy.z;
@@ -1844,9 +1954,24 @@ function updateEnemy(enemy){
   }
 
   let surfaceY=drivingSurfaceHeight(enemy.x,enemy.z);
-  enemy.y=surfaceY;
-  enemy.onGround=true;
-  enemy.airborne=false;
+  if(settings.hardFlight && enemy.flightTimer>0){
+    enemy.flightTimer--;
+    let flightOffset=enemy.isPatrol ? 24 : 12;
+    let targetY=surfaceY+flightOffset+Math.sin(performance.now()*0.0018+enemy.guardPhase)*3.5;
+    enemy.y+=(targetY-enemy.y)*0.045;
+    enemy.onGround=false;
+    enemy.airborne=true;
+  }else{
+    if(settings.hardFlight && enemy.flightCooldown>0) enemy.flightCooldown--;
+    if(settings.hardFlight && enemy.flightCooldown<=0 && distance>34 && Math.random()<0.018){
+      enemy.flightTimer=150+Math.floor(Math.random()*130);
+      enemy.flightCooldown=260+Math.floor(Math.random()*220);
+    }
+    enemy.y+=(surfaceY-enemy.y)*0.22;
+    if(Math.abs(enemy.y-surfaceY)<0.05) enemy.y=surfaceY;
+    enemy.onGround=true;
+    enemy.airborne=false;
+  }
   enemy.velAngle=enemy.angle;
   enemy.group.position.set(enemy.x,enemy.y,enemy.z);
   enemy.group.rotation.y=enemy.angle;
@@ -1856,7 +1981,7 @@ function updateEnemy(enemy){
 
   if(distance<82 && Math.abs(normalizeAngle(targetAngle-enemy.angle))<0.52){
     if(fireCannon(enemy)){
-      enemy.cannonCooldown=78+Math.floor(Math.random()*58);
+      enemy.cannonCooldown=scaledDelay(78+Math.floor(Math.random()*58),settings.fireDelay);
     }
   }
 
@@ -1875,6 +2000,7 @@ function updateEnemy(enemy){
 }
 
 function updateEnemies(){
+  let settings=currentDifficulty();
   for(let enemy of enemies){
     updateEnemy(enemy);
     if(enemy.active && playerDistanceSqForEnemy(enemy)>720*720){
@@ -1893,9 +2019,9 @@ function updateEnemies(){
     if(enemyWaveDelay>0) enemyWaveDelay--;
     else{
       if(spawnEnemyWave()){
-        enemyWaveDelay=420;
+        enemyWaveDelay=scaledDelay(420,settings.waveDelay);
       }else{
-        enemyWaveDelay=90;
+        enemyWaveDelay=scaledDelay(90,settings.waveDelay);
       }
     }
   }
@@ -1903,9 +2029,9 @@ function updateEnemies(){
   if(enemyPatrolDelay>0) enemyPatrolDelay--;
   else{
     if(activeEnemies().length<8 && spawnEnemyPatrol()){
-      enemyPatrolDelay=1500+Math.floor(Math.random()*1200);
+      enemyPatrolDelay=scaledDelay(1500+Math.floor(Math.random()*1200),settings.patrolDelay);
     }else{
-      enemyPatrolDelay=360;
+      enemyPatrolDelay=scaledDelay(360,settings.patrolDelay);
     }
   }
 }
@@ -2619,6 +2745,8 @@ function createEnemyState(index,x,z){
     cannonCooldown:60+Math.floor(Math.random()*70),
     clusterBombCooldown:0,
     clusterBombAmmo:0,
+    flightTimer:0,
+    flightCooldown:90+Math.floor(Math.random()*220),
     hitRattle:0,
     hitRattleSeed:0,
     walkCycle:0,
@@ -2628,6 +2756,7 @@ function createEnemyState(index,x,z){
     aiTarget:null,
     aiStrafe:Math.random()<0.5 ? -1 : 1,
     aiThink:0,
+    guardPhase:Math.random()*Math.PI*2,
     lateralOffset:0
   };
 }
@@ -2836,6 +2965,7 @@ function updateCar(car){
   let roadDist=roadDistance(car.x,car.z);
   let localMaxSpeed=mechGroundMaxSpeed;
   let morphSpeedMultiplier=car.morphProgress>0.65 ? morphedCarSpeedMultiplier : 1;
+  let jetMovement=car.jetMode || car.jetProgress>0.65;
   let airborneMovement=car.airborne || !car.onGround;
   let carDisabled=car.health<=0;
 
@@ -2852,7 +2982,7 @@ function updateCar(car){
 
     if(throttle){
       let airThrust=airborneMovement ? 1.85 : 1;
-      car.speed+=0.0032*airThrust*throttlePower*(1-speedRatio*0.35);
+      car.speed+=0.0052*airThrust*throttlePower*(1-speedRatio*0.35);
     }else if(brakeOrReverse){
       car.speed+=(car.speed>0.03 ? -0.02 : -0.0045)*throttlePower;
     }else{
@@ -2860,7 +2990,7 @@ function updateCar(car){
       if(Math.abs(car.speed)<0.008) car.speed=0;
     }
 
-    let forwardMaxSpeed=airborneMovement ? mechAirMaxSpeed*morphSpeedMultiplier : localMaxSpeed*morphSpeedMultiplier;
+    let forwardMaxSpeed=jetMovement ? jetMaxSpeed : airborneMovement ? mechAirMaxSpeed*morphSpeedMultiplier : localMaxSpeed*morphSpeedMultiplier;
     car.speed=clamp(car.speed,-localMaxSpeed*0.42,forwardMaxSpeed);
 
     let movingSteer=clamp(speedAbs/0.34,0,1);
@@ -2877,16 +3007,23 @@ function updateCar(car){
   if(!gameOver && !carDisabled){
     car.x+=Math.sin(car.angle)*car.speed;
     car.z+=Math.cos(car.angle)*car.speed;
+    if(mountainClimbBlocked(car,prevX,prevZ,car.x,car.z)){
+      car.x=prevX;
+      car.z=prevZ;
+      car.speed=Math.min(0,car.speed*0.18);
+      car.vy=Math.min(car.vy,0);
+    }
   }
 
   roadDist=roadDistance(car.x,car.z);
   car.surfaceDistance=roadDist;
   localMaxSpeed=mechGroundMaxSpeed;
   morphSpeedMultiplier=car.morphProgress>0.65 ? morphedCarSpeedMultiplier : 1;
+  jetMovement=car.jetMode || car.jetProgress>0.65;
   airborneMovement=car.airborne || !car.onGround;
   car.speed=Math.max(
     -localMaxSpeed*0.42,
-    Math.min((airborneMovement ? mechAirMaxSpeed : localMaxSpeed)*morphSpeedMultiplier,car.speed)
+    Math.min(jetMovement ? jetMaxSpeed : (airborneMovement ? mechAirMaxSpeed : localMaxSpeed)*morphSpeedMultiplier,car.speed)
   );
 
   let surfaceY=drivingSurfaceHeight(car.x,car.z);
@@ -2896,7 +3033,7 @@ function updateCar(car){
   let jetHovering=car.jetMode || car.jetProgress>0.65;
   if(jetHovering && !gameOver && !carDisabled){
     let climbInput=Math.max(0,car.liftInput || 0);
-    car.speed=clamp(car.speed+climbInput*0.027,-mechGroundMaxSpeed*0.42,mechAirMaxSpeed*morphSpeedMultiplier*2.025);
+    car.speed=clamp(car.speed+climbInput*0.027,-mechGroundMaxSpeed*0.42,jetMaxSpeed);
     if(!Number.isFinite(car.jetAltitudeTarget)){
       car.jetAltitudeTarget=Math.max(car.y,surfaceY+8);
     }
@@ -3205,8 +3342,10 @@ function findSafeStartZ(lateralOffsets){
   return bestDry.z;
 }
 
-function startGame(mode){
+function startGame(mode,difficulty="medium"){
   gameMode=mode;
+  gameDifficulty=difficultySettings[difficulty] ? difficulty : "medium";
+  enemyBudgetRun++;
   gameStarted=true;
   document.body.classList.toggle("single-player",mode==="single");
   document.body.classList.toggle("double-player",mode==="double");
@@ -3235,8 +3374,9 @@ function startGame(mode){
   hud.init();
   lastChunkSignature=chunkSignatureForCars();
   world.updateChunksForCenters(activeCars().map(car=>({x:car.x,z:car.z})));
-  enemyWaveDelay=90;
-  enemyPatrolDelay=900+Math.floor(Math.random()*420);
+  let settings=currentDifficulty();
+  enemyWaveDelay=scaledDelay(90,settings.waveDelay);
+  enemyPatrolDelay=scaledDelay(900+Math.floor(Math.random()*420),settings.patrolDelay);
 }
 
 let startScreen=document.getElementById("startScreen");
@@ -3244,7 +3384,8 @@ if(startScreen){
   startScreen.addEventListener("click",event=>{
     let button=event.target.closest("[data-mode]");
     if(!button || gameStarted) return;
-    startGame(button.dataset.mode==="double" ? "double" : "single");
+    let difficulty=startScreen.dataset.difficulty || "medium";
+    startGame(button.dataset.mode==="double" ? "double" : "single",difficulty);
   });
 }
 

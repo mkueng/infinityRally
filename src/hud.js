@@ -1,5 +1,5 @@
 import { chunkSize } from "./constants.js";
-import { carSurfaceHeight } from "./terrain.js";
+import { carSurfaceHeight } from "./terrain.js?v=no-ramps";
 
 export function createHud({getCarStates,getChunks,getEnemyStates=()=>[]}){
   let panels=[];
@@ -132,7 +132,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[]}){
     if(!panel.speedCtx) return;
 
     let speed=Math.round(Math.abs(state.carSpeed)*50);
-    let maxSpeed=80;
+    let maxSpeed=120;
     let pct=Math.max(0,Math.min(1,speed/maxSpeed));
     let start=Math.PI*0.82;
     let end=Math.PI*2.18;
@@ -186,7 +186,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[]}){
     ctx.font="700 9px Arial";
     ctx.textAlign="center";
     ctx.fillText("0",22,66);
-    ctx.fillText("80",100,66);
+    ctx.fillText("120",100,66);
     if(panel.ammoLabel){
       panel.ammoLabel.innerHTML=[
         `<span>R ${state.rocketAmmo ?? 0}</span>`,
@@ -288,18 +288,17 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[]}){
     let radius=chunkSize*2.3;
 
     mapCtx.clearRect(0,0,size,size);
-    let cells=32;
+    let cells=48;
     let cellSize=size/cells;
     for(let gy=0;gy<cells;gy++){
       for(let gx=0;gx<cells;gx++){
         let wx=centerX-radius+((gx+0.5)/cells)*radius*2;
         let wz=centerZ-radius+((gy+0.5)/cells)*radius*2;
         let h=carSurfaceHeight(wx,wz);
-        if(h>34) mapCtx.fillStyle="rgba(63,52,86,0.96)";
-        else if(h>22) mapCtx.fillStyle="rgba(90,59,112,0.96)";
-        else if(h>8) mapCtx.fillStyle="rgba(139,56,82,0.95)";
-        else if(h>-19) mapCtx.fillStyle="rgba(111,45,70,0.94)";
-        else mapCtx.fillStyle="rgba(32,255,212,0.5)";
+        if(h<-20) mapCtx.fillStyle="rgba(32,255,212,0.5)";
+        else if(h<15) mapCtx.fillStyle="rgba(139,56,82,0.95)";
+        else if(h<30) mapCtx.fillStyle="rgba(90,59,112,0.96)";
+        else mapCtx.fillStyle="rgba(63,52,86,0.96)";
         mapCtx.fillRect(gx*cellSize,gy*cellSize,cellSize+1,cellSize+1);
       }
     }
@@ -308,6 +307,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[]}){
     mapCtx.lineWidth=1;
     mapCtx.strokeRect(0.5,0.5,size-1,size-1);
 
+    drawVillages(mapCtx,centerX,centerZ,radius,size);
     drawEnemyDots(mapCtx,enemies,centerX,centerZ,radius,size);
     drawOtherCars(mapCtx,state,states,centerX,centerZ,radius,size);
 
@@ -326,6 +326,31 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[]}){
     mapCtx.fill();
     mapCtx.stroke();
     mapCtx.restore();
+  }
+
+  function drawVillages(mapCtx,centerX,centerZ,radius,size){
+    let chunks=getChunks();
+    if(!chunks) return;
+
+    for(let chunk of chunks.values()){
+      if(!chunk.villageCenters) continue;
+      for(let village of chunk.villageCenters){
+        let p=mapToCanvas(village.x,village.z,centerX,centerZ,radius,size);
+        let villageSize=Math.max(12,Math.min(36,((village.r || 28)/(radius*2))*size*2));
+        let halfVillageSize=villageSize*0.5;
+        if(p.x<-halfVillageSize || p.x>size+halfVillageSize || p.y<-halfVillageSize || p.y>size+halfVillageSize) continue;
+
+        let cleared=!!(village.buildings && village.buildings.length>0 && village.buildings.every(building=>building.destroyed));
+        mapCtx.fillStyle=cleared ? "rgba(124,255,120,0.18)" : "rgba(214,178,90,0.24)";
+        mapCtx.strokeStyle=cleared ? "rgba(124,255,120,0.72)" : "rgba(255,226,111,0.82)";
+        mapCtx.lineWidth=1.3;
+        mapCtx.fillRect(p.x-halfVillageSize,p.y-halfVillageSize,villageSize,villageSize);
+        mapCtx.strokeRect(p.x-halfVillageSize+0.5,p.y-halfVillageSize+0.5,villageSize-1,villageSize-1);
+
+        mapCtx.fillStyle=cleared ? "rgba(124,255,120,0.86)" : "rgba(255,226,111,0.92)";
+        mapCtx.fillRect(p.x-2.5,p.y-2.5,5,5);
+      }
+    }
   }
 
   function drawOtherCars(mapCtx,state,states,centerX,centerZ,radius,size){

@@ -1,5 +1,5 @@
 import { THREE } from "./three.js";
-import { groundHeight, rand, roadDistance } from "./terrain.js";
+import { groundHeight, rand, roadDistance } from "./terrain.js?v=no-ramps";
 
 let sheepCoreGeo=new THREE.CapsuleGeometry(0.55,1.35,8,18);
 let sheepWoolGeo=new THREE.SphereGeometry(0.42,12,8);

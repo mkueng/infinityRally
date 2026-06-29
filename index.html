@@ -71,6 +71,30 @@
       gap: 12px;
     }
 
+    .difficulty-actions {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    .difficulty-actions button {
+      height: 42px;
+      border: 1px solid rgba(141,255,242,0.34);
+      background: rgba(20,28,34,0.58);
+      color: #e8f8ff;
+      font-size: 13px;
+      font-weight: 900;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .difficulty-actions button.is-selected {
+      background: #d6b25a;
+      border-color: #efcf72;
+      color: #1c211f;
+    }
+
     .start-actions button {
       height: 52px;
       border: 0;
@@ -200,6 +224,11 @@
 <div id="startScreen" class="start-screen">
   <div class="start-panel">
     <h1 class="start-title">SOL 8</h1>
+    <div class="difficulty-actions" aria-label="Difficulty">
+      <button type="button" data-difficulty="easy">Easy</button>
+      <button type="button" data-difficulty="medium" class="is-selected">Medium</button>
+      <button type="button" data-difficulty="hard">Hard</button>
+    </div>
     <div class="start-actions">
       <button type="button" data-mode="single">Single Player</button>
       <button type="button" data-mode="double">Double Player</button>
@@ -239,6 +268,17 @@
     window.addEventListener("pointerup", () => {
       cursor.classList.remove("is-pressing");
     });
+
+    startScreen.addEventListener("click", event => {
+      const button = event.target.closest("[data-difficulty]");
+      if (!button) return;
+      startScreen.querySelectorAll("[data-difficulty]").forEach(item => {
+        item.classList.toggle("is-selected", item === button);
+      });
+      startScreen.dataset.difficulty = button.dataset.difficulty;
+    });
+
+    startScreen.dataset.difficulty = "medium";
   })();
 </script>
 <script type="importmap">
