@@ -1,6 +1,6 @@
 import { THREE } from "./three.js";
 import { gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize } from "./constants.js";
-import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance } from "./terrain.js?v=no-ramps";
+import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=no-ramps";
 import { createInput } from "./input.js";
 import { createHud } from "./hud.js";
 import { createBirds, createCarShadow, createClouds, createDust, createWheelTracks } from "./effects.js?v=alien-planet-world";
@@ -1351,7 +1351,7 @@ function spawnEnemyWave(){
   let village=enemySpawnVillage();
   if(!village) return false;
 
-  let count=Math.min(village.enemyRemaining ?? 0,2+Math.floor(Math.random()*4));
+  let count=Math.min(village.enemyRemaining ?? 0,Math.random()<0.75 ? 1 : 2);
   if(count<=0) return false;
 
   for(let i=0;i<count;i++){
@@ -1359,6 +1359,9 @@ function spawnEnemyWave(){
     if(!point) continue;
     let enemy=createEnemyState(++enemySpawnSerial,point.x,point.z);
     enemy.spawnVillage=village;
+    enemy.guardX=point.x;
+    enemy.guardZ=point.z;
+    enemy.guardPhase=Math.random()*Math.PI*2;
     enemy.angle=roadYawAt(point.z)+Math.PI+(Math.random()-0.5)*0.8;
     enemy.velAngle=enemy.angle;
     enemy.group.position.set(enemy.x,enemy.y,enemy.z);
@@ -1417,17 +1420,42 @@ function updateEnemy(enemy){
   let distance=Math.max(0.001,Math.hypot(dx,dz));
   let targetAngle=Math.atan2(dx,dz);
   let desiredAngle=targetAngle;
+  let desiredSpeed;
 
-  if(distance<48){
-    desiredAngle+=enemy.aiStrafe*clamp((48-distance)/28,0,1)*0.68;
+  if(enemy.spawnVillage && !enemy.isPatrol){
+    let homeX=Number.isFinite(enemy.guardX) ? enemy.guardX : enemy.spawnVillage.x;
+    let homeZ=Number.isFinite(enemy.guardZ) ? enemy.guardZ : enemy.spawnVillage.z;
+    let homeDx=homeX-enemy.x;
+    let homeDz=homeZ-enemy.z;
+    let homeDistance=Math.hypot(homeDx,homeDz);
+    let homeAngle=Math.atan2(homeDx,homeDz);
+
+    if(distance>74 && homeDistance<18){
+      desiredAngle=targetAngle;
+      desiredSpeed=0.035;
+    }else if(homeDistance>24){
+      desiredAngle=homeAngle;
+      desiredSpeed=0.16;
+    }else if(homeDistance>10){
+      desiredAngle=homeAngle;
+      desiredSpeed=0.055;
+    }else{
+      desiredAngle=targetAngle+enemy.aiStrafe*0.18*Math.sin(performance.now()*0.0015+enemy.guardPhase);
+      desiredSpeed=0.012*Math.sin(performance.now()*0.002+enemy.guardPhase);
+    }
+  }else{
+    if(distance<48){
+      desiredAngle+=enemy.aiStrafe*clamp((48-distance)/28,0,1)*0.68;
+    }
+    desiredSpeed=distance>58 ? 0.38 : distance>30 ? 0.18 : -0.08;
   }
 
   let turn=clamp(normalizeAngle(desiredAngle-enemy.angle),-0.045,0.045);
   enemy.angle=normalizeAngle(enemy.angle+turn);
 
-  let desiredSpeed=distance>58 ? 0.38 : distance>30 ? 0.18 : -0.08;
   enemy.speed+=clamp(desiredSpeed-enemy.speed,-0.012,0.012);
-  enemy.speed=clamp(enemy.speed,-0.14,0.42);
+  let maxEnemySpeed=enemy.spawnVillage && !enemy.isPatrol ? 0.18 : 0.42;
+  enemy.speed=clamp(enemy.speed,-0.14,maxEnemySpeed);
 
   let prevX=enemy.x;
   let prevZ=enemy.z;
@@ -2225,6 +2253,8 @@ function startGame(mode){
   clearRockets();
   clearEnemies();
   clearSupplyBoxes();
+  setWorldSeed(Math.random()*100000);
+  world.resetChunks();
   playerCar.lateralOffset=mode==="single" ? 0 : -4.2;
   secondCar.lateralOffset=4.2;
   placeCarOnRoad(playerCar,0);

@@ -1,7 +1,13 @@
 import { offroadMaxSpeed, roadMaxSpeed } from "./constants.js";
 
+let worldSeed=0;
+
+export function setWorldSeed(seed){
+  worldSeed=Number.isFinite(seed) ? seed : 0;
+}
+
 export function rand(x,z){
-  return Math.sin(x*127.1+z*311.7)*43355.5453%1;
+  return Math.sin((x+worldSeed)*127.1+(z-worldSeed)*311.7)*43355.5453%1;
 }
 
 export function smooth(t){

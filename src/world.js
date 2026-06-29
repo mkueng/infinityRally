@@ -931,6 +931,20 @@ function updateWind(time){
   if(grassWindShader) grassWindShader.uniforms.windTime.value=time*0.001;
 }
 
+function resetChunks(){
+  for(let chunk of chunks.values()){
+    disposeChunk(chunk);
+  }
+  for(let chunk of removalQueue){
+    disposeChunk(chunk);
+  }
+  chunks.clear();
+  neededChunks.clear();
+  chunkQueue=[];
+  removalQueue=[];
+  lastChunkBuildTime=0;
+}
+
   return {
     chunks,
     collidesWithObstacles,
@@ -942,6 +956,7 @@ function updateWind(time){
     updateChunks,
     updateChunksForCenters,
     updateWind,
-    processChunkQueue
+    processChunkQueue,
+    resetChunks
   };
 }
