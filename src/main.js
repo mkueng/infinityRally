@@ -321,7 +321,7 @@ function damageCar(car,amount){
   car.health=Math.max(0,car.health-amount);
   healthDamageCooldown=42;
   hud.updateHealthHud();
-  if(activeCars().every(item=>item.health<=0)) showGameOver();
+  if(activeCars().some(item=>item.health<=0)) showGameOver();
 }
 
 function damageEnemy(enemy,amount){
@@ -931,11 +931,11 @@ function updateRocketInput(car){
   if(car.rocketCooldown>0) car.rocketCooldown--;
 
   let buttons=input.getGamepadFaceButtons(car.gamepadIndex);
-  let pressedB=buttons.b && !car.lastRocketButton;
+  let pressedRocketTrigger=buttons.leftTrigger && !car.lastRocketButton;
   let mouseRocket=gameMode==="single" && car===playerCar && input.mouse.left;
   let pressedMouse=mouseRocket && !car.lastRocketButton;
-  if(pressedB || pressedMouse) fireRocket(car);
-  car.lastRocketButton=buttons.b || mouseRocket;
+  if(pressedRocketTrigger || pressedMouse) fireRocket(car);
+  car.lastRocketButton=buttons.leftTrigger || mouseRocket;
 }
 
 function makeCannonBoltMesh(){
@@ -1033,7 +1033,7 @@ function updateCannonInput(car){
 
   let buttons=input.getGamepadFaceButtons(car.gamepadIndex);
   let mouseShot=gameMode==="single" && car===playerCar && input.mouse.right;
-  let cannonButton=buttons.y || mouseShot;
+  let cannonButton=buttons.rightTrigger || mouseShot;
   if(cannonButton) fireCannon(car);
   car.lastCannonButton=cannonButton;
 }
@@ -1589,6 +1589,7 @@ function updateFlightThrust(car,surfaceY){
   let buttons=input.getGamepadFaceButtons(car.gamepadIndex);
   let keyboardFlight=gameMode==="single" && car===playerCar && input.keys[" "];
   if(!(buttons.x || keyboardFlight) || gameOver || car.health<=0) return false;
+  if(car.morphed || car.morphProgress>0.35) return false;
   if(car.boostCharge<=0) return false;
 
   let altitude=car.y-surfaceY;
@@ -2253,7 +2254,8 @@ function updateCar(car){
 
     let movingSteer=clamp(speedAbs/0.34,0,1);
     let highSpeedCalm=1-clamp((speedAbs-0.32)/0.32,0,0.18);
-    let steeringResponse=(0.52+movingSteer*0.54)*highSpeedCalm;
+    let robotTurnBoost=1+0.42*(1-smoothStep(car.morphProgress/0.65));
+    let steeringResponse=(0.52+movingSteer*0.54)*highSpeedCalm*robotTurnBoost;
     let reverseSteer=car.speed< -0.04 ? -1 : 1;
     car.angle+=turn*reverseSteer*0.031*steeringResponse;
 
