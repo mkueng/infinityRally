@@ -6,7 +6,7 @@ import { createHud } from "./hud.js";
 import { createBirds, createCarShadow, createClouds, createDust, createWheelTracks } from "./effects.js?v=alien-planet-world";
 import { createWorld } from "./world.js?v=alien-planet";
 import { createMotorAudio } from "./audio.js?v=alien-planet-world";
-import { loadCarModel, makeMechModel } from "./models.js?v=walking-mech";
+import { loadCarModel, makeMechModel } from "./models.js?v=transformer-morph";
 import { updateSheep } from "./sheep.js";
 import { makeSkyTexture } from "./textures.js?v=alien-planet";
 
@@ -247,6 +247,7 @@ function createCarState(id,lateralOffset,controls,camera,gamepadIndex){
     lastMorphButton:false,
     morphed:false,
     morphProgress:0,
+    lastMorphProgress:0,
     mechModel:null,
     carModel:null,
     aimCross:null,
@@ -1633,6 +1634,244 @@ function resetMechPart(part){
   if(!part || !part.userData.basePosition || !part.userData.baseRotation) return;
   part.position.copy(part.userData.basePosition);
   part.rotation.copy(part.userData.baseRotation);
+  if(part.userData.baseScale) part.scale.copy(part.userData.baseScale);
+}
+
+function morphStage(progress,start,end){
+  return smoothStep((progress-start)/(end-start));
+}
+
+function morphPulse(progress,center,width){
+  return clamp(1-Math.abs(progress-center)/width,0,1);
+}
+
+function crossedMorphStage(previous,current,stage){
+  return (previous<stage && current>=stage) || (previous>stage && current<=stage);
+}
+
+function emitMorphSparks(car,count=12){
+  let forwardX=Math.sin(car.angle);
+  let forwardZ=Math.cos(car.angle);
+  let rightX=Math.cos(car.angle);
+  let rightZ=-Math.sin(car.angle);
+
+  for(let i=0;i<count;i++){
+    let side=i%2===0 ? -1 : 1;
+    let lateral=side*(0.65+Math.random()*1.55);
+    let longitudinal=-1.45+Math.random()*3.5;
+    let height=0.7+Math.random()*2.6;
+    let burst=1.1+Math.random()*2.4;
+
+    dust.spawnThrusterParticle(
+      car.x+rightX*lateral+forwardX*longitudinal,
+      car.y+height,
+      car.z+rightZ*lateral+forwardZ*longitudinal,
+      rightX*side*burst+forwardX*(Math.random()-0.5)*1.8,
+      rightZ*side*burst+forwardZ*(Math.random()-0.5)*1.8,
+      0.6+Math.random()*2.2,
+      0.16+Math.random()*0.12,
+      0.045+Math.random()*0.035
+    );
+  }
+}
+
+function applyTransformerFold(model,progress){
+  let parts=model && model.userData ? model.userData.walkParts : null;
+  if(!parts) return;
+
+  let unlock=morphStage(progress,0.02,0.2);
+  let crouch=morphStage(progress,0.08,0.38);
+  let fold=morphStage(progress,0.2,0.56);
+  let tuck=morphStage(progress,0.36,0.72);
+  let lock=morphStage(progress,0.62,0.94);
+  let jitter=morphPulse(progress,0.48,0.32)*Math.sin(performance.now()*0.055)*0.028;
+
+  if(parts.pelvis){
+    parts.pelvis.position.y-=0.26*crouch+0.62*tuck;
+    parts.pelvis.position.z+=0.34*fold+0.42*lock;
+    parts.pelvis.rotation.x+=0.38*fold+0.22*lock;
+    parts.pelvis.scale.y*=1-0.22*tuck;
+  }
+  if(parts.torso){
+    parts.torso.position.y-=0.54*crouch+0.76*fold;
+    parts.torso.position.z+=0.26*fold+0.38*lock;
+    parts.torso.rotation.x+=0.62*fold-0.16*lock+jitter;
+    parts.torso.scale.y*=1-0.24*fold;
+    parts.torso.scale.z*=1+0.26*tuck;
+  }
+  if(parts.chestPlate){
+    parts.chestPlate.position.y-=0.58*crouch+0.92*fold;
+    parts.chestPlate.position.z+=0.2*fold+0.72*lock;
+    parts.chestPlate.rotation.x+=0.72*fold-0.24*lock;
+    parts.chestPlate.scale.x*=1+0.16*lock;
+  }
+  if(parts.cockpit){
+    parts.cockpit.position.y-=0.72*crouch+1.06*fold;
+    parts.cockpit.position.z+=0.38*fold+0.96*lock;
+    parts.cockpit.rotation.x+=0.82*fold-0.28*lock;
+    parts.cockpit.scale.x*=1+0.32*lock;
+    parts.cockpit.scale.y*=1-0.16*lock;
+  }
+  if(parts.reactorPack){
+    parts.reactorPack.position.y-=0.36*crouch+0.48*fold;
+    parts.reactorPack.position.z-=0.32*fold+0.78*tuck;
+    parts.reactorPack.rotation.x-=0.7*fold;
+    parts.reactorPack.scale.z*=1+0.42*lock;
+  }
+  if(parts.neck){
+    parts.neck.position.y-=0.86*fold;
+    parts.neck.scale.y*=1-0.72*fold;
+  }
+  if(parts.head){
+    parts.head.position.y-=0.9*crouch+1.18*fold;
+    parts.head.position.z-=0.22*fold+0.34*tuck;
+    parts.head.rotation.x+=1.12*fold;
+    let headScale=1-0.34*fold;
+    parts.head.scale.multiplyScalar(headScale);
+  }
+  if(parts.visor){
+    parts.visor.position.y-=0.92*crouch+1.2*fold;
+    parts.visor.position.z-=0.2*fold+0.36*tuck;
+    parts.visor.rotation.x+=1.12*fold;
+    parts.visor.scale.multiplyScalar(1-0.2*fold);
+  }
+  if(parts.antenna){
+    parts.antenna.position.y-=0.86*fold;
+    parts.antenna.position.z-=0.2*fold;
+    parts.antenna.rotation.x+=1.45*fold;
+    parts.antenna.rotation.z-=0.55*fold;
+  }
+
+  for(let sideName of ["left","right"]){
+    let side=sideName==="left" ? -1 : 1;
+    let sideParts=parts[sideName];
+    if(!sideParts) continue;
+
+    if(sideParts.shoulder){
+      sideParts.shoulder.position.x+=side*(0.24*unlock+0.54*tuck);
+      sideParts.shoulder.position.y-=0.42*crouch+0.74*fold;
+      sideParts.shoulder.position.z-=0.48*fold;
+      sideParts.shoulder.rotation.z+=side*(0.42*fold+0.92*tuck);
+      sideParts.shoulder.rotation.x-=0.24*fold;
+    }
+    if(sideParts.upperArm){
+      sideParts.upperArm.position.x+=side*(0.18*unlock+0.42*tuck);
+      sideParts.upperArm.position.y-=0.5*crouch+0.42*fold;
+      sideParts.upperArm.position.z-=0.22*fold+0.24*lock;
+      sideParts.upperArm.rotation.x-=0.78*fold+0.42*tuck;
+      sideParts.upperArm.rotation.z+=side*(0.3*fold+0.72*tuck);
+      sideParts.upperArm.scale.y*=1-0.18*lock;
+    }
+    if(sideParts.elbow){
+      sideParts.elbow.position.x+=side*(0.2*unlock+0.46*tuck);
+      sideParts.elbow.position.y-=0.42*crouch+0.38*fold;
+      sideParts.elbow.position.z-=0.12*fold+0.18*lock;
+    }
+    if(sideParts.forearm){
+      sideParts.forearm.position.x+=side*(0.24*unlock+0.62*tuck);
+      sideParts.forearm.position.y-=0.38*crouch+0.12*fold;
+      sideParts.forearm.position.z+=0.18*fold+0.72*lock;
+      sideParts.forearm.rotation.x-=0.62*fold;
+      sideParts.forearm.rotation.z+=side*(0.5*fold+1.08*tuck);
+      sideParts.forearm.scale.y*=1-0.28*lock;
+    }
+    if(sideParts.hand){
+      sideParts.hand.position.x+=side*(0.26*unlock+0.76*tuck);
+      sideParts.hand.position.y-=0.32*crouch;
+      sideParts.hand.position.z+=0.36*fold+0.9*lock;
+      sideParts.hand.rotation.z+=side*1.12*tuck;
+      sideParts.hand.scale.y*=1-0.34*lock;
+    }
+    if(sideParts.cannon){
+      sideParts.cannon.position.x+=side*(0.28*unlock+0.76*tuck);
+      sideParts.cannon.position.y-=0.32*crouch+0.2*fold;
+      sideParts.cannon.position.z+=0.72*fold+1.05*lock;
+      sideParts.cannon.rotation.y+=side*0.26*lock;
+      sideParts.cannon.rotation.z+=side*0.36*tuck;
+    }
+    if(sideParts.cannonShroud){
+      sideParts.cannonShroud.position.x+=side*(0.28*unlock+0.72*tuck);
+      sideParts.cannonShroud.position.y-=0.36*crouch+0.28*fold;
+      sideParts.cannonShroud.position.z+=0.52*fold+0.88*lock;
+      sideParts.cannonShroud.rotation.z+=side*0.86*tuck;
+    }
+
+    if(sideParts.hip){
+      sideParts.hip.position.y-=0.28*crouch+0.54*fold;
+      sideParts.hip.position.z+=0.22*fold+0.24*lock;
+      sideParts.hip.rotation.x+=side*0.18*tuck;
+    }
+    if(sideParts.upperLeg){
+      sideParts.upperLeg.position.x+=side*0.12*tuck;
+      sideParts.upperLeg.position.y+=0.1*crouch-0.36*fold+0.42*tuck;
+      sideParts.upperLeg.position.z+=0.24*fold+0.52*lock;
+      sideParts.upperLeg.rotation.x-=0.88*fold+0.42*tuck;
+      sideParts.upperLeg.scale.y*=1-0.22*lock;
+    }
+    if(sideParts.knee){
+      sideParts.knee.position.x+=side*0.18*tuck;
+      sideParts.knee.position.y+=0.24*tuck;
+      sideParts.knee.position.z+=0.38*fold+0.62*lock;
+    }
+    if(sideParts.kneePlate){
+      sideParts.kneePlate.position.x+=side*0.18*tuck;
+      sideParts.kneePlate.position.y+=0.26*tuck;
+      sideParts.kneePlate.position.z+=0.54*fold+0.82*lock;
+      sideParts.kneePlate.rotation.x-=0.42*lock;
+    }
+    if(sideParts.shin){
+      sideParts.shin.position.x+=side*0.2*tuck;
+      sideParts.shin.position.y+=0.72*tuck;
+      sideParts.shin.position.z+=0.62*fold+1.02*lock;
+      sideParts.shin.rotation.x+=0.72*fold-0.36*lock;
+      sideParts.shin.scale.y*=1-0.28*lock;
+    }
+    if(sideParts.foot){
+      sideParts.foot.position.x+=side*(0.18*tuck+0.34*lock);
+      sideParts.foot.position.y+=0.9*tuck;
+      sideParts.foot.position.z+=0.88*fold+1.48*lock;
+      sideParts.foot.rotation.x-=0.2*fold+0.16*lock;
+      sideParts.foot.rotation.z+=side*0.16*lock;
+      sideParts.foot.scale.z*=1+0.28*lock;
+      sideParts.foot.scale.y*=1-0.22*lock;
+    }
+    if(sideParts.toePlate){
+      sideParts.toePlate.position.x+=side*(0.18*tuck+0.34*lock);
+      sideParts.toePlate.position.y+=0.9*tuck;
+      sideParts.toePlate.position.z+=1.02*fold+1.74*lock;
+      sideParts.toePlate.rotation.x-=0.36*fold+0.08*lock;
+      sideParts.toePlate.scale.z*=1+0.34*lock;
+    }
+
+    if(sideParts.frontWheel){
+      sideParts.frontWheel.position.x+=side*(0.18*unlock+0.6*tuck);
+      sideParts.frontWheel.position.y-=0.74*crouch+0.92*fold;
+      sideParts.frontWheel.position.z+=0.68*fold+1.34*lock;
+      sideParts.frontWheel.rotation.x+=progress*8;
+      sideParts.frontWheel.scale.multiplyScalar(1+0.18*lock);
+    }
+    if(sideParts.frontHub){
+      sideParts.frontHub.position.x+=side*(0.18*unlock+0.6*tuck);
+      sideParts.frontHub.position.y-=0.74*crouch+0.92*fold;
+      sideParts.frontHub.position.z+=0.68*fold+1.34*lock;
+      sideParts.frontHub.rotation.x+=progress*8;
+      sideParts.frontHub.scale.multiplyScalar(1+0.18*lock);
+    }
+    if(sideParts.rearWheel){
+      sideParts.rearWheel.position.x+=side*(0.2*tuck+0.46*lock);
+      sideParts.rearWheel.position.y+=0.92*tuck;
+      sideParts.rearWheel.position.z+=0.58*fold+1.12*lock;
+      sideParts.rearWheel.rotation.x+=progress*8;
+      sideParts.rearWheel.scale.multiplyScalar(1+0.22*lock);
+    }
+    if(sideParts.rearHub){
+      sideParts.rearHub.position.x+=side*(0.2*tuck+0.46*lock);
+      sideParts.rearHub.position.y+=0.92*tuck;
+      sideParts.rearHub.position.z+=0.58*fold+1.12*lock;
+      sideParts.rearHub.rotation.x+=progress*8;
+      sideParts.rearHub.scale.multiplyScalar(1+0.22*lock);
+    }
+  }
 }
 
 function makeAimCross(accentColor){
@@ -1723,6 +1962,7 @@ function makeEnemyMechModel(seed=0){
     mesh.receiveShadow=true;
     mesh.userData.basePosition=mesh.position.clone();
     mesh.userData.baseRotation=mesh.rotation.clone();
+    mesh.userData.baseScale=mesh.scale.clone();
     mech.add(mesh);
   }
 
@@ -1784,6 +2024,7 @@ function createEnemyState(index,x,z){
     lastTrickButtons:{a:false,b:false,x:false,y:false},
     morphed:false,
     morphProgress:0,
+    lastMorphProgress:0,
     aimOffsetX:0,
     aimOffsetY:0,
     lastRocketButton:false,
@@ -1805,34 +2046,56 @@ function createEnemyState(index,x,z){
 
 function updateMorphVisual(car){
   let target=car.morphed ? 1 : 0;
+  let previous=car.morphProgress;
   car.morphProgress+=(target-car.morphProgress)*0.16;
   if(Math.abs(target-car.morphProgress)<0.003) car.morphProgress=target;
 
   let p=car.morphProgress;
-  let eased=p*p*(3-2*p);
+  let bodyFold=morphStage(p,0.08,0.62);
+  let vehicleReveal=morphStage(p,0.3,0.82);
+  let lockIn=morphStage(p,0.64,0.96);
+  let transformShake=morphPulse(p,0.5,0.32);
 
   if(car.mechModel){
     let baseY=car.mechModel.userData.baseY || 0.72;
-    let scale=1.05*(1-eased*0.78);
-    car.mechModel.visible=p<0.99;
-    car.mechModel.scale.set(scale,scale,scale);
-    car.mechModel.position.y=baseY*(1-eased)+0.18*eased;
-    car.mechModel.rotation.z=eased*0.12;
+    let finalHide=morphStage(p,0.82,1);
+    let scaleX=1.05*(1+0.12*bodyFold-0.72*finalHide);
+    let scaleY=1.05*(1-0.38*bodyFold-0.42*finalHide);
+    let scaleZ=1.05*(1+0.28*bodyFold-0.68*finalHide);
+
+    car.mechModel.visible=p<0.995;
+    car.mechModel.scale.set(scaleX,scaleY,scaleZ);
+    car.mechModel.position.y=car.mechModel.position.y*(1-bodyFold)+((baseY*0.28)+0.2)*bodyFold;
+    car.mechModel.rotation.x+=-0.22*bodyFold+Math.sin(performance.now()*0.07)*0.02*transformShake;
+    car.mechModel.rotation.z+=Math.sin(performance.now()*0.049)*0.035*transformShake;
+    applyTransformerFold(car.mechModel,p);
   }
 
   if(car.carModel){
     let baseY=car.carModel.userData.baseY || 0.04;
     let baseScale=car.carModel.userData.baseScale || new THREE.Vector3(1,1,1);
-    let scale=0.18+eased*0.82;
-    car.carModel.visible=p>0.01;
-    car.carModel.scale.set(baseScale.x*scale,baseScale.y*scale,baseScale.z*scale);
-    car.carModel.position.y=baseY+(1-eased)*0.72;
-    car.carModel.rotation.x=(1-eased)*0.16;
+    let wheelDrop=morphStage(p,0.18,0.48);
+    let scale=0.28+vehicleReveal*0.72;
+    let widthSnap=1+0.18*wheelDrop*(1-lockIn);
+    let heightSquash=1-0.22*lockIn*(1-vehicleReveal);
+
+    car.carModel.visible=p>0.12;
+    car.carModel.scale.set(baseScale.x*scale*widthSnap,baseScale.y*scale*heightSquash,baseScale.z*scale);
+    car.carModel.position.y=baseY+(1-vehicleReveal)*0.86+Math.sin(p*Math.PI*5)*0.06*transformShake;
+    car.carModel.rotation.x=(1-vehicleReveal)*0.34-0.08*wheelDrop*(1-lockIn);
+    car.carModel.rotation.z=Math.sin(performance.now()*0.061)*0.028*transformShake*(1-lockIn);
   }
 
   if(car.aimCross){
     car.aimCross.scale.setScalar(1+Math.sin(performance.now()*0.004)*0.035);
   }
+
+  if(car.group.visible && car.health>0 && !gameOver && previous!==p){
+    if(crossedMorphStage(previous,p,0.22)) emitMorphSparks(car,10);
+    if(crossedMorphStage(previous,p,0.48)) emitMorphSparks(car,16);
+    if(crossedMorphStage(previous,p,0.78)) emitMorphSparks(car,12);
+  }
+  car.lastMorphProgress=p;
 }
 
 function updateMechAnimation(car){
@@ -2321,6 +2584,7 @@ function placeCarOnRoad(car,z){
   car.trickYawVel=0;
   car.morphed=false;
   car.morphProgress=0;
+  car.lastMorphProgress=0;
   car.lastMorphButton=false;
   car.aimOffsetX=0;
   car.aimOffsetY=0;

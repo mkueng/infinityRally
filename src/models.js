@@ -284,6 +284,8 @@ export function makeMechModel(accentColor=0xb83a32){
 
   walkParts.torso=mech.getObjectByName("torso");
   walkParts.pelvis=mech.getObjectByName("pelvis");
+  walkParts.chestPlate=mech.getObjectByName("chest-plate");
+  walkParts.cockpit=mech.getObjectByName("cockpit");
   walkParts.reactorPack=mech.getObjectByName("reactor-pack");
 
   for(let side of [-1,1]){
@@ -307,13 +309,21 @@ export function makeMechModel(accentColor=0xb83a32){
     parts.kneePlate=box(`${sideName}-knee-plate`,0.58,0.28,0.16,accentMat,side*0.72,0.52,0.45,-0.18,0,0);
     parts.foot=box(`${sideName}-foot`,0.78,0.28,1.28,armorMat,side*0.72,-0.68,0.28,0,0,side*0.03);
     parts.toePlate=box(`${sideName}-toe-plate`,0.72,0.16,0.52,accentMat,side*0.72,-0.52,0.95,0.08,0,0);
+
+    parts.frontWheel=cylinder(`${sideName}-front-wheel`,0.32,0.24,darkMat,side*1.72,3.18,-0.48,0,0,Math.PI/2,20);
+    parts.frontHub=cylinder(`${sideName}-front-hub`,0.17,0.28,accentMat,side*1.73,3.18,-0.48,0,0,Math.PI/2,16);
+    parts.rearWheel=cylinder(`${sideName}-rear-wheel`,0.36,0.26,darkMat,side*0.96,-0.08,-0.18,0,0,Math.PI/2,20);
+    parts.rearHub=cylinder(`${sideName}-rear-hub`,0.18,0.3,accentMat,side*0.97,-0.08,-0.18,0,0,Math.PI/2,16);
   }
 
   cylinder("neck",0.22,0.38,jointMat,0,4.22,0.05,0,0,0,14);
   box("head",0.9,0.5,0.72,armorMat,0,4.52,0.12,-0.04,0,0);
   box("visor",0.68,0.16,0.08,glassMat,0,4.56,0.51);
   cylinder("antenna",0.035,0.78,darkMat,0.38,4.92,0.02,0.1,0,0,8);
+  walkParts.neck=mech.getObjectByName("neck");
   walkParts.head=mech.getObjectByName("head");
+  walkParts.visor=mech.getObjectByName("visor");
+  walkParts.antenna=mech.getObjectByName("antenna");
 
   mech.scale.set(1.05,1.05,1.05);
   mech.position.y=0.72;
@@ -324,6 +334,7 @@ export function makeMechModel(accentColor=0xb83a32){
       if(child.geometry) child.geometry.computeVertexNormals();
       child.userData.basePosition=child.position.clone();
       child.userData.baseRotation=child.rotation.clone();
+      child.userData.baseScale=child.scale.clone();
     }
   });
   mech.userData.walkParts=walkParts;
