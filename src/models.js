@@ -157,7 +157,7 @@ export function normalizeCarModel(car){
   box.getSize(size);
   box.getCenter(center);
 
-  let scale=4.8/Math.max(size.x,size.z,0.001);
+  let scale=5.016/Math.max(size.x,size.z,0.001);
   model.scale.setScalar(scale);
   model.updateMatrixWorld(true);
 
@@ -314,6 +314,10 @@ export function makeMechModel(accentColor=0xb83a32){
     parts.frontHub=cylinder(`${sideName}-front-hub`,0.17,0.28,accentMat,side*1.73,3.18,-0.48,0,0,Math.PI/2,16);
     parts.rearWheel=cylinder(`${sideName}-rear-wheel`,0.36,0.26,darkMat,side*0.96,-0.08,-0.18,0,0,Math.PI/2,20);
     parts.rearHub=cylinder(`${sideName}-rear-hub`,0.18,0.3,accentMat,side*0.97,-0.08,-0.18,0,0,Math.PI/2,16);
+    parts.frontWheel.visible=false;
+    parts.frontHub.visible=false;
+    parts.rearWheel.visible=false;
+    parts.rearHub.visible=false;
   }
 
   cylinder("neck",0.22,0.38,jointMat,0,4.22,0.05,0,0,0,14);

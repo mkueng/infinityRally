@@ -1746,6 +1746,7 @@ function applyTransformerFold(model,progress){
     let side=sideName==="left" ? -1 : 1;
     let sideParts=parts[sideName];
     if(!sideParts) continue;
+    let wheelsVisible=progress>0.08;
 
     if(sideParts.shoulder){
       sideParts.shoulder.position.x+=side*(0.24*unlock+0.54*tuck);
@@ -1844,6 +1845,7 @@ function applyTransformerFold(model,progress){
     }
 
     if(sideParts.frontWheel){
+      sideParts.frontWheel.visible=wheelsVisible;
       sideParts.frontWheel.position.x+=side*(0.18*unlock+0.6*tuck);
       sideParts.frontWheel.position.y-=0.74*crouch+0.92*fold;
       sideParts.frontWheel.position.z+=0.68*fold+1.34*lock;
@@ -1851,6 +1853,7 @@ function applyTransformerFold(model,progress){
       sideParts.frontWheel.scale.multiplyScalar(1+0.18*lock);
     }
     if(sideParts.frontHub){
+      sideParts.frontHub.visible=wheelsVisible;
       sideParts.frontHub.position.x+=side*(0.18*unlock+0.6*tuck);
       sideParts.frontHub.position.y-=0.74*crouch+0.92*fold;
       sideParts.frontHub.position.z+=0.68*fold+1.34*lock;
@@ -1858,6 +1861,7 @@ function applyTransformerFold(model,progress){
       sideParts.frontHub.scale.multiplyScalar(1+0.18*lock);
     }
     if(sideParts.rearWheel){
+      sideParts.rearWheel.visible=wheelsVisible;
       sideParts.rearWheel.position.x+=side*(0.2*tuck+0.46*lock);
       sideParts.rearWheel.position.y+=0.92*tuck;
       sideParts.rearWheel.position.z+=0.58*fold+1.12*lock;
@@ -1865,6 +1869,7 @@ function applyTransformerFold(model,progress){
       sideParts.rearWheel.scale.multiplyScalar(1+0.22*lock);
     }
     if(sideParts.rearHub){
+      sideParts.rearHub.visible=wheelsVisible;
       sideParts.rearHub.position.x+=side*(0.2*tuck+0.46*lock);
       sideParts.rearHub.position.y+=0.92*tuck;
       sideParts.rearHub.position.z+=0.58*fold+1.12*lock;
@@ -2507,6 +2512,68 @@ function setCarActive(car,active){
   car.shadow.setVisible(active);
 }
 
+function roadPointForOffset(z,lateralOffset){
+  let yaw=roadYawAt(z);
+  let centerX=roadCenterX(z);
+  return {
+    x:centerX+Math.cos(yaw)*lateralOffset,
+    z:z-Math.sin(yaw)*lateralOffset,
+    angle:yaw
+  };
+}
+
+function startPlacementInfo(z,lateralOffsets){
+  let maxHeight=-Infinity;
+  let maxSlope=0;
+
+  for(let offset of lateralOffsets){
+    let point=roadPointForOffset(z,offset);
+    if(!Number.isFinite(point.x) || !Number.isFinite(point.z)) return null;
+    if(waterDepthAt(point.x,point.z)>0.05) return null;
+
+    let y=groundHeight(point.x,point.z);
+    let ahead=roadPointForOffset(z+40,offset);
+    let behind=roadPointForOffset(z-40,offset);
+    let rightX=Math.cos(point.angle);
+    let rightZ=-Math.sin(point.angle);
+    let forwardSlope=Math.abs(groundHeight(ahead.x,ahead.z)-groundHeight(behind.x,behind.z))/80;
+    let sideSlope=Math.abs(
+      groundHeight(point.x+rightX*18,point.z+rightZ*18)
+      - groundHeight(point.x-rightX*18,point.z-rightZ*18)
+    )/36;
+
+    maxHeight=Math.max(maxHeight,y);
+    maxSlope=Math.max(maxSlope,forwardSlope,sideSlope);
+  }
+
+  let preferredMaxHeight=waterLevel+30;
+  let preferredMaxSlope=0.16;
+  let mountainPenalty=Math.max(0,maxHeight-preferredMaxHeight);
+
+  return {
+    preferred:maxHeight<=preferredMaxHeight && maxSlope<=preferredMaxSlope,
+    score:Math.abs(z)*0.002+maxHeight*2.5+maxSlope*90+mountainPenalty*18
+  };
+}
+
+function findSafeStartZ(lateralOffsets){
+  let step=80;
+  let maxSteps=120;
+  let bestDry={z:0,score:Infinity};
+
+  for(let i=0;i<=maxSteps;i++){
+    for(let direction of (i===0 ? [1] : [1,-1])){
+      let z=i*step*direction;
+      let info=startPlacementInfo(z,lateralOffsets);
+      if(!info) continue;
+      if(info.score<bestDry.score) bestDry={z,score:info.score};
+      if(info.preferred) return z;
+    }
+  }
+
+  return bestDry.z;
+}
+
 function startGame(mode){
   gameMode=mode;
   gameStarted=true;
@@ -2520,8 +2587,9 @@ function startGame(mode){
   world.resetChunks();
   playerCar.lateralOffset=mode==="single" ? 0 : -4.2;
   secondCar.lateralOffset=4.2;
-  placeCarOnRoad(playerCar,0);
-  placeCarOnRoad(secondCar,0);
+  let startZ=findSafeStartZ(mode==="double" ? [playerCar.lateralOffset,secondCar.lateralOffset] : [playerCar.lateralOffset]);
+  placeCarOnRoad(playerCar,startZ);
+  placeCarOnRoad(secondCar,startZ);
   setCarActive(playerCar,true);
   setCarActive(secondCar,mode==="double");
   playerCar.cameraYaw=playerCar.angle;
@@ -2563,12 +2631,11 @@ loadCarModel()
   });
 
 function placeCarOnRoad(car,z){
-  let yaw=roadYawAt(z);
-  let centerX=roadCenterX(z);
-  car.x=centerX+Math.cos(yaw)*car.lateralOffset;
-  car.z=z-Math.sin(yaw)*car.lateralOffset;
-  car.angle=yaw;
-  car.velAngle=yaw;
+  let point=roadPointForOffset(z,car.lateralOffset);
+  car.x=point.x;
+  car.z=point.z;
+  car.angle=point.angle;
+  car.velAngle=point.angle;
   car.speed=0;
   car.throttleInput=0;
   car.surfaceDistance=roadDistance(car.x,car.z);
@@ -2610,8 +2677,9 @@ function placeCarOnRoad(car,z){
   updateMorphVisual(car);
 }
 
-placeCarOnRoad(playerCar,0);
-placeCarOnRoad(secondCar,0);
+let initialStartZ=findSafeStartZ([playerCar.lateralOffset]);
+placeCarOnRoad(playerCar,initialStartZ);
+placeCarOnRoad(secondCar,initialStartZ);
 playerCar.cameraYaw=playerCar.angle;
 secondCar.cameraYaw=secondCar.angle;
 updateCameras();
