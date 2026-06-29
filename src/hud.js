@@ -88,9 +88,9 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[]}){
       "right:8px",
       "bottom:25px",
       "display:grid",
-      "grid-template-columns:1fr 1fr",
-      "gap:6px",
-      "font-size:14px",
+      "grid-template-columns:1fr 1fr 1fr",
+      "gap:4px",
+      "font-size:13px",
       "font-weight:900",
       "line-height:1",
       "text-align:center",
@@ -190,7 +190,8 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[]}){
     if(panel.ammoLabel){
       panel.ammoLabel.innerHTML=[
         `<span>R ${state.rocketAmmo ?? 0}</span>`,
-        `<span>C ${state.cannonAmmo ?? 0}</span>`
+        `<span>C ${state.cannonAmmo ?? 0}</span>`,
+        `<span>B ${state.clusterBombAmmo ?? 0}</span>`
       ].join("");
     }
     if(panel.boostFill){

@@ -49,6 +49,7 @@ let rocketTurnRate=0.075;
 let rocketAimYOffset=-4.2;
 let initialRocketAmmo=30;
 let initialCannonAmmo=200;
+let initialClusterBombAmmo=10;
 let maxBoostCharge=100;
 let rocketSupplyAmount=6;
 let cannonSupplyAmount=40;
@@ -92,7 +93,9 @@ let cannonGlowMat=new THREE.MeshBasicMaterial({
 });
 let clusterBombRadius=300;
 let clusterBombCooldownFrames=150;
-let clusterBombFallSpeed=2.7;
+let clusterBombInitialDropSpeed=0.22;
+let clusterBombArcDistance=260;
+let clusterBombArcDrop=58;
 let clusterBombs=[];
 let clusterBombBodyGeo=new THREE.DodecahedronGeometry(0.52,0);
 let clusterBombFinGeo=new THREE.BoxGeometry(0.12,0.36,0.42);
@@ -289,6 +292,7 @@ function createCarState(id,lateralOffset,controls,camera,gamepadIndex){
     cannonCooldown:0,
     cannonAmmo:initialCannonAmmo,
     clusterBombCooldown:0,
+    clusterBombAmmo:initialClusterBombAmmo,
     boostCharge:maxBoostCharge,
     hitRattle:0,
     hitRattleSeed:0,
@@ -324,6 +328,7 @@ let hud=createHud({
     carHealth:car.health,
     rocketAmmo:car.rocketAmmo,
     cannonAmmo:car.cannonAmmo,
+    clusterBombAmmo:car.clusterBombAmmo,
     boostCharge:car.boostCharge
   })),
   getEnemyStates:()=>activeEnemies().map(enemy=>({
@@ -1135,13 +1140,16 @@ function fireCannon(car){
 function fireClusterBomb(car){
   if(gameOver || car.health<=0 || car.clusterBombCooldown>0) return false;
   if(!(car.jetMode || car.jetProgress>0.65)) return false;
+  if(!car.isEnemy && car.clusterBombAmmo<=0) return false;
 
   let forwardX=Math.sin(car.angle);
   let forwardZ=Math.cos(car.angle);
+  let rightX=Math.cos(car.angle);
+  let rightZ=-Math.sin(car.angle);
   let mesh=makeClusterBombMesh();
-  let startX=car.x-forwardX*0.8;
-  let startY=car.y+0.1;
-  let startZ=car.z-forwardZ*0.8;
+  let startX=car.x+forwardX*4.2+rightX*0.25;
+  let startY=car.y-1.25;
+  let startZ=car.z+forwardZ*4.2+rightZ*0.25;
 
   mesh.position.set(startX,startY,startZ);
   mesh.rotation.y=car.angle;
@@ -1150,17 +1158,21 @@ function fireClusterBomb(car){
   clusterBombs.push({
     owner:car,
     mesh,
+    startX,
+    startY,
+    startZ,
+    forwardX,
+    forwardZ,
+    carriedSpeed:Math.max(0,car.speed || 0),
     x:startX,
     y:startY,
     z:startZ,
-    vx:forwardX*Math.max(0.45,Math.abs(car.speed)*0.72),
-    vy:-clusterBombFallSpeed,
-    vz:forwardZ*Math.max(0.45,Math.abs(car.speed)*0.72),
     age:0,
     life:180
   });
 
   car.clusterBombCooldown=clusterBombCooldownFrames;
+  if(!car.isEnemy) car.clusterBombAmmo=Math.max(0,car.clusterBombAmmo-1);
   motorAudio.playRocketLaunch(car);
   return true;
 }
@@ -1468,12 +1480,12 @@ function updateClusterBombs(){
     let bomb=clusterBombs[i];
     bomb.age++;
 
-    bomb.x+=bomb.vx;
-    bomb.y+=bomb.vy;
-    bomb.z+=bomb.vz;
-    bomb.vx*=0.992;
-    bomb.vz*=0.992;
-    bomb.vy-=0.065;
+    let arcT=Math.min(1,bomb.age/118);
+    let forwardTravel=clusterBombArcDistance*(1-Math.pow(1-arcT,1.55))+(bomb.carriedSpeed || 0)*bomb.age;
+    let downwardDrop=clusterBombArcDrop*arcT*arcT+clusterBombInitialDropSpeed*bomb.age;
+    bomb.x=bomb.startX+bomb.forwardX*forwardTravel;
+    bomb.z=bomb.startZ+bomb.forwardZ*forwardTravel;
+    bomb.y=bomb.startY-downwardDrop;
 
     bomb.mesh.position.set(bomb.x,bomb.y,bomb.z);
     bomb.mesh.rotation.x+=0.16;
@@ -2530,6 +2542,7 @@ function createEnemyState(index,x,z){
     lastCannonButton:false,
     cannonCooldown:60+Math.floor(Math.random()*70),
     clusterBombCooldown:0,
+    clusterBombAmmo:0,
     hitRattle:0,
     hitRattleSeed:0,
     walkCycle:0,
@@ -3206,6 +3219,7 @@ function placeCarOnRoad(car,z){
   car.cannonCooldown=0;
   car.cannonAmmo=initialCannonAmmo;
   car.clusterBombCooldown=0;
+  car.clusterBombAmmo=initialClusterBombAmmo;
   car.boostCharge=maxBoostCharge;
   car.hitRattle=0;
   car.hitRattleSeed=0;
