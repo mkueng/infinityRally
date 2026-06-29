@@ -64,9 +64,9 @@ export function makeCarShadowTexture(){
 export function makeCloudTexture(){
   let canvas=document.createElement("canvas");
   canvas.width=512;
-  canvas.height=256;
+  canvas.height=384;
   let ctx=canvas.getContext("2d");
-  ctx.clearRect(0,0,512,256);
+  ctx.clearRect(0,0,512,384);
 
   function puff(x,y,r,alpha){
     let gradient=ctx.createRadialGradient(x,y,0,x,y,r);
@@ -84,6 +84,16 @@ export function makeCloudTexture(){
   puff(270,132,104,0.84);
   puff(360,142,82,0.72);
   puff(250,160,150,0.48);
+
+  let fade=ctx.createLinearGradient(0,0,0,384);
+  fade.addColorStop(0,"rgba(255,255,255,0)");
+  fade.addColorStop(0.18,"rgba(255,255,255,1)");
+  fade.addColorStop(0.72,"rgba(255,255,255,1)");
+  fade.addColorStop(1,"rgba(255,255,255,0)");
+  ctx.globalCompositeOperation="destination-in";
+  ctx.fillStyle=fade;
+  ctx.fillRect(0,0,512,384);
+  ctx.globalCompositeOperation="source-over";
 
   let tex=new THREE.CanvasTexture(canvas);
   tex.minFilter=THREE.LinearFilter;

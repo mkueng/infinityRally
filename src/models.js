@@ -346,3 +346,95 @@ export function makeMechModel(accentColor=0xb83a32){
 
   return mech;
 }
+
+export function makeJetModel(accentColor=0xb83a32){
+  let jet=new THREE.Group();
+
+  let armorMat=new THREE.MeshStandardMaterial({
+    color:0x3f474a,
+    roughness:0.5,
+    metalness:0.62
+  });
+  let darkMat=new THREE.MeshStandardMaterial({
+    color:0x111517,
+    roughness:0.72,
+    metalness:0.5
+  });
+  let accentMat=new THREE.MeshStandardMaterial({
+    color:accentColor,
+    roughness:0.38,
+    metalness:0.42
+  });
+  let glassMat=new THREE.MeshStandardMaterial({
+    color:0x78d7ff,
+    emissive:0x0a3a52,
+    emissiveIntensity:0.85,
+    roughness:0.12,
+    metalness:0.08
+  });
+
+  function add(mesh){
+    mesh.castShadow=true;
+    mesh.receiveShadow=true;
+    if(mesh.geometry) mesh.geometry.computeVertexNormals();
+    jet.add(mesh);
+    return mesh;
+  }
+
+  let body=add(new THREE.Mesh(new THREE.CylinderGeometry(0.42,0.58,4.2,18),armorMat));
+  body.name="jet-body";
+  body.rotation.x=Math.PI/2;
+  body.position.set(0,0.78,0.1);
+
+  let nose=add(new THREE.Mesh(new THREE.ConeGeometry(0.43,1.15,18),accentMat));
+  nose.name="jet-nose";
+  nose.rotation.x=Math.PI/2;
+  nose.position.set(0,0.78,2.76);
+
+  let cockpit=add(new THREE.Mesh(new THREE.BoxGeometry(0.72,0.34,0.92),glassMat));
+  cockpit.name="jet-cockpit";
+  cockpit.position.set(0,1.18,1.22);
+  cockpit.rotation.x=-0.18;
+
+  let intake=add(new THREE.Mesh(new THREE.BoxGeometry(0.8,0.28,0.42),darkMat));
+  intake.name="jet-intake";
+  intake.position.set(0,0.48,1.2);
+
+  for(let side of [-1,1]){
+    let wing=add(new THREE.Mesh(new THREE.BoxGeometry(2.45,0.12,1.26),armorMat));
+    wing.name=side<0 ? "jet-left-wing" : "jet-right-wing";
+    wing.position.set(side*1.22,0.62,0.08);
+    wing.rotation.y=-side*0.32;
+    wing.rotation.z=-side*0.08;
+
+    let wingTip=add(new THREE.Mesh(new THREE.BoxGeometry(0.78,0.1,0.28),accentMat));
+    wingTip.name=side<0 ? "jet-left-wing-tip" : "jet-right-wing-tip";
+    wingTip.position.set(side*2.38,0.58,-0.16);
+    wingTip.rotation.y=-side*0.32;
+
+    let tail=add(new THREE.Mesh(new THREE.BoxGeometry(0.22,1.0,0.78),accentMat));
+    tail.name=side<0 ? "jet-left-tail-fin" : "jet-right-tail-fin";
+    tail.position.set(side*0.54,1.1,-1.74);
+    tail.rotation.z=-side*0.22;
+  }
+
+  let centerTail=add(new THREE.Mesh(new THREE.BoxGeometry(0.22,1.15,0.9),accentMat));
+  centerTail.name="jet-center-tail-fin";
+  centerTail.position.set(0,1.34,-1.82);
+  centerTail.rotation.x=0.1;
+
+  for(let side of [-1,1]){
+    let thruster=add(new THREE.Mesh(new THREE.CylinderGeometry(0.18,0.22,0.62,16),darkMat));
+    thruster.name=side<0 ? "jet-left-thruster" : "jet-right-thruster";
+    thruster.rotation.x=Math.PI/2;
+    thruster.position.set(side*0.38,0.72,-2.16);
+  }
+
+  jet.scale.set(1.32,1.32,1.32);
+  jet.position.y=0.45;
+  jet.visible=false;
+  jet.userData.baseY=jet.position.y;
+  jet.userData.baseScale=jet.scale.clone();
+
+  return jet;
+}

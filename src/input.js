@@ -5,7 +5,8 @@ export function createInput(){
     y:0,
     left:false,
     right:false,
-    hasPosition:false
+    hasPosition:false,
+    version:0
   };
   let gamepads=[];
 
@@ -29,6 +30,7 @@ export function createInput(){
     mouse.x=event.clientX;
     mouse.y=event.clientY;
     mouse.hasPosition=true;
+    mouse.version++;
   }
 
   window.addEventListener("mousemove",updateMousePosition);
@@ -66,7 +68,7 @@ export function createInput(){
   function getGamepadControls(index){
     let pads=navigator.getGamepads ? navigator.getGamepads() : gamepads;
     let pad=pads[index];
-    if(!pad) return {forward:0,turn:0};
+    if(!pad) return {forward:0,turn:0,lift:0,dpadForward:0};
 
     let leftStickX=axis(pad.axes[0] || 0);
     let dpadLeft=buttonValue(pad.buttons[14])>0.35 ? -1 : 0;
@@ -76,11 +78,14 @@ export function createInput(){
     let dpadUp=buttonValue(pad.buttons[12]);
     let dpadDown=buttonValue(pad.buttons[13]);
     let stickThrottle=-axis(pad.axes[1] || 0,0.35);
+    let dpadForward=dpadUp-dpadDown;
     let forward=Math.max(dpadUp,stickThrottle)-Math.max(dpadDown,-stickThrottle);
 
     return {
       forward:Math.max(-1,Math.min(1,forward)),
-      turn:Math.max(-1,Math.min(1,turn))
+      turn:Math.max(-1,Math.min(1,turn)),
+      lift:Math.max(-1,Math.min(1,stickThrottle)),
+      dpadForward:Math.max(-1,Math.min(1,dpadForward))
     };
   }
 

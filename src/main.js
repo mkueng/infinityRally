@@ -3,10 +3,10 @@ import { gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize } from "./con
 import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=no-ramps";
 import { createInput } from "./input.js";
 import { createHud } from "./hud.js";
-import { createBirds, createCarShadow, createClouds, createDust, createWheelTracks } from "./effects.js?v=alien-planet-world";
+import { createBirds, createCarShadow, createClouds, createDust, createWheelTracks } from "./effects.js?v=soft-clouds";
 import { createWorld } from "./world.js?v=alien-planet";
 import { createMotorAudio } from "./audio.js?v=alien-planet-world";
-import { loadCarModel, makeMechModel } from "./models.js?v=transformer-morph";
+import { loadCarModel, makeJetModel, makeMechModel } from "./models.js?v=jet-morph";
 import { updateSheep } from "./sheep.js";
 import { makeSkyTexture } from "./textures.js?v=alien-planet";
 
@@ -231,6 +231,7 @@ function createCarState(id,lateralOffset,controls,camera,gamepadIndex){
     velAngle:0,
     speed:0,
     throttleInput:0,
+    liftInput:0,
     surfaceDistance:0,
     slipAmount:0,
     onGround:false,
@@ -245,14 +246,20 @@ function createCarState(id,lateralOffset,controls,camera,gamepadIndex){
     trickYawVel:0,
     lastTrickButtons:{a:false,b:false,x:false,y:false},
     lastMorphButton:false,
+    lastJetButton:false,
     morphed:false,
     morphProgress:0,
     lastMorphProgress:0,
+    jetMode:false,
+    jetProgress:0,
+    jetAltitudeTarget:20,
     mechModel:null,
+    jetModel:null,
     carModel:null,
     aimCross:null,
     aimOffsetX:0,
     aimOffsetY:0,
+    lastAimMouseVersion:-1,
     lastRocketButton:false,
     rocketCooldown:0,
     rocketAmmo:initialRocketAmmo,
@@ -318,7 +325,8 @@ function showGameOver(){
 
 function damageCar(car,amount){
   if(healthDamageCooldown>0 || car.health<=0) return;
-  car.health=Math.max(0,car.health-amount);
+  let reducedAmount=Math.max(1,Math.ceil(amount*0.5));
+  car.health=Math.max(0,car.health-reducedAmount);
   healthDamageCooldown=42;
   hud.updateHealthHud();
   if(activeCars().some(item=>item.health<=0)) showGameOver();
@@ -366,6 +374,7 @@ function landingDamageAmount(car,x,z,impactSpeed){
 function controlsFor(car){
   let forward=0;
   let turn=0;
+  let lift=0;
 
   if(!gameOver){
     if(input.keys[car.controls.up]) forward=1;
@@ -374,15 +383,17 @@ function controlsFor(car){
     if(input.keys[car.controls.right]) turn=-1;
 
     let gamepadControls=input.getGamepadControls(car.gamepadIndex);
-    if(Math.abs(gamepadControls.forward)>Math.abs(forward)){
-      forward=gamepadControls.forward;
+    let gamepadForward=car.jetMode || car.jetProgress>0.35 ? gamepadControls.dpadForward : gamepadControls.forward;
+    if(Math.abs(gamepadForward)>Math.abs(forward)){
+      forward=gamepadForward;
     }
     if(Math.abs(gamepadControls.turn)>Math.abs(turn)){
       turn=-gamepadControls.turn;
     }
+    lift=gamepadControls.lift || 0;
   }
 
-  return {forward,turn};
+  return {forward,turn,lift};
 }
 
 function collidesWithOtherCars(car,nextX,nextZ){
@@ -793,7 +804,14 @@ function aimTargetForCar(car){
 function updateAimCross(car){
   if(!car.aimCross) return;
 
-  if(gameMode==="single" && car===playerCar && input.mouse.hasPosition){
+  let aim=input.getGamepadAim(car.gamepadIndex);
+  let gamepadAimActive=Math.abs(aim.x)>0.001 || Math.abs(aim.y)>0.001;
+  let mouseMoved=input.mouse.hasPosition && input.mouse.version!==car.lastAimMouseVersion;
+
+  if(gamepadAimActive){
+    car.aimOffsetX=clamp(car.aimOffsetX-aim.x*0.42,-11,11);
+    car.aimOffsetY=clamp(car.aimOffsetY-aim.y*0.32,-4.5,7.5);
+  }else if(gameMode==="single" && car===playerCar && mouseMoved){
     mouseAimPointer.set(
       (input.mouse.x/innerWidth)*2-1,
       -(input.mouse.y/innerHeight)*2+1
@@ -808,11 +826,8 @@ function updateAimCross(car){
       car.group.worldToLocal(mouseAimHitPoint);
       car.aimOffsetX=clamp(mouseAimHitPoint.x,-11,11);
       car.aimOffsetY=clamp(mouseAimHitPoint.y-3.15,-4.5,7.5);
+      car.lastAimMouseVersion=input.mouse.version;
     }
-  }else{
-    let aim=input.getGamepadAim(car.gamepadIndex);
-    car.aimOffsetX=clamp(car.aimOffsetX-aim.x*0.42,-11,11);
-    car.aimOffsetY=clamp(car.aimOffsetY-aim.y*0.32,-4.5,7.5);
   }
 
   car.aimCross.position.set(car.aimOffsetX,3.15+car.aimOffsetY,32);
@@ -875,6 +890,7 @@ function rocketTargetPoint(target){
 function fireRocket(car){
   if(gameOver || car.health<=0 || car.rocketCooldown>0) return;
   if(car.morphed || car.morphProgress>0.22) return;
+  if(car.jetMode || car.jetProgress>0.35) return;
   if(!car.isEnemy && car.rocketAmmo<=0) return;
 
   let mesh=makeRocketMesh();
@@ -978,6 +994,7 @@ function cannonLaunchPointForCar(car){
 function fireCannon(car){
   if(gameOver || car.health<=0 || car.cannonCooldown>0) return false;
   if(car.morphed || car.morphProgress>0.35) return false;
+  if(car.jetMode || car.jetProgress>0.35) return false;
   if(!car.isEnemy && car.cannonAmmo<=0) return false;
 
   let mesh=makeCannonBoltMesh();
@@ -1580,9 +1597,21 @@ function updateMorphInput(car){
   let keyboardMorph=gameMode==="single" && car===playerCar && input.keys.t;
   let morphButton=buttons.a || keyboardMorph;
   let pressedMorph=morphButton && !car.lastMorphButton;
+  let pressedJet=buttons.b && !car.lastJetButton;
 
-  if(pressedMorph && !gameOver && car.health>0) car.morphed=!car.morphed;
+  if(pressedMorph && !gameOver && car.health>0){
+    car.morphed=!car.morphed;
+    if(car.morphed) car.jetMode=false;
+  }
+  if(pressedJet && !gameOver && car.health>0){
+    car.jetMode=!car.jetMode;
+    if(car.jetMode){
+      car.morphed=false;
+      car.jetAltitudeTarget=Math.max(car.y,drivingSurfaceHeight(car.x,car.z)+8);
+    }
+  }
   car.lastMorphButton=morphButton;
+  car.lastJetButton=buttons.b;
 }
 
 function updateFlightThrust(car,surfaceY){
@@ -1628,6 +1657,30 @@ function emitFlightExhaust(car){
         0.12+Math.random()*0.08
       );
     }
+  }
+}
+
+function emitJetHoverExhaust(car){
+  let speedAbs=Math.abs(car.speed || 0);
+  let forwardX=Math.sin(car.angle);
+  let forwardZ=Math.cos(car.angle);
+  let rightX=Math.cos(car.angle);
+  let rightZ=-Math.sin(car.angle);
+
+  for(let side of [-1,1]){
+    let px=car.x-forwardX*2.25+rightX*side*0.42;
+    let pz=car.z-forwardZ*2.25+rightZ*side*0.42;
+
+    dust.spawnThrusterParticle(
+      px+(Math.random()-0.5)*0.16,
+      car.y+0.7+Math.random()*0.12,
+      pz+(Math.random()-0.5)*0.16,
+      -forwardX*(1.4+speedAbs*0.6)+(Math.random()-0.5)*0.22,
+      -forwardZ*(1.4+speedAbs*0.6)+(Math.random()-0.5)*0.22,
+      -1.8-Math.random()*1.1,
+      0.18+Math.random()*0.08,
+      0.08+Math.random()*0.04
+    );
   }
 }
 
@@ -1880,6 +1933,174 @@ function applyTransformerFold(model,progress){
   }
 }
 
+function applyJetFold(model,progress){
+  let parts=model && model.userData ? model.userData.walkParts : null;
+  if(!parts) return;
+
+  let crouch=morphStage(progress,0.04,0.26);
+  let flatten=morphStage(progress,0.16,0.58);
+  let sweep=morphStage(progress,0.34,0.78);
+  let hide=morphStage(progress,0.72,1);
+  let shiver=morphPulse(progress,0.42,0.28)*Math.sin(performance.now()*0.064)*0.025;
+
+  if(parts.pelvis){
+    parts.pelvis.position.y-=0.45*crouch+0.82*flatten;
+    parts.pelvis.position.z-=0.18*flatten+0.46*sweep;
+    parts.pelvis.rotation.x+=0.9*flatten;
+    parts.pelvis.scale.y*=1-0.32*sweep;
+  }
+  if(parts.torso){
+    parts.torso.position.y-=0.72*crouch+1.15*flatten;
+    parts.torso.position.z+=0.22*flatten+0.72*sweep;
+    parts.torso.rotation.x+=1.08*flatten+shiver;
+    parts.torso.scale.y*=1-0.42*sweep;
+    parts.torso.scale.z*=1+0.44*sweep;
+  }
+  if(parts.chestPlate){
+    parts.chestPlate.position.y-=0.8*crouch+1.28*flatten;
+    parts.chestPlate.position.z+=0.66*sweep;
+    parts.chestPlate.rotation.x+=1.18*flatten;
+    parts.chestPlate.scale.x*=1+0.18*sweep;
+  }
+  if(parts.cockpit){
+    parts.cockpit.position.y-=0.92*crouch+1.34*flatten;
+    parts.cockpit.position.z+=0.94*sweep;
+    parts.cockpit.rotation.x+=1.08*flatten-0.28*sweep;
+    parts.cockpit.scale.x*=1+0.42*sweep;
+  }
+  if(parts.reactorPack){
+    parts.reactorPack.position.y-=0.58*crouch+0.92*flatten;
+    parts.reactorPack.position.z-=0.72*sweep;
+    parts.reactorPack.rotation.x-=0.72*flatten;
+    parts.reactorPack.scale.z*=1+0.52*sweep;
+  }
+  if(parts.neck){
+    parts.neck.position.y-=0.98*flatten;
+    parts.neck.scale.y*=1-0.8*flatten;
+  }
+  if(parts.head){
+    parts.head.position.y-=0.96*crouch+1.36*flatten;
+    parts.head.position.z+=0.34*sweep;
+    parts.head.rotation.x+=1.35*flatten;
+    parts.head.scale.multiplyScalar(1-0.28*flatten);
+  }
+  if(parts.visor){
+    parts.visor.position.y-=0.98*crouch+1.38*flatten;
+    parts.visor.position.z+=0.36*sweep;
+    parts.visor.rotation.x+=1.35*flatten;
+    parts.visor.scale.multiplyScalar(1-0.18*flatten);
+  }
+  if(parts.antenna){
+    parts.antenna.position.y-=1.1*flatten;
+    parts.antenna.rotation.x+=1.5*flatten;
+    parts.antenna.rotation.z-=0.5*flatten;
+  }
+
+  for(let sideName of ["left","right"]){
+    let side=sideName==="left" ? -1 : 1;
+    let sideParts=parts[sideName];
+    if(!sideParts) continue;
+
+    for(let wheel of [sideParts.frontWheel,sideParts.frontHub,sideParts.rearWheel,sideParts.rearHub]){
+      if(wheel) wheel.visible=false;
+    }
+
+    if(sideParts.shoulder){
+      sideParts.shoulder.position.x+=side*(0.42*crouch+1.35*sweep);
+      sideParts.shoulder.position.y-=0.52*crouch+0.96*flatten;
+      sideParts.shoulder.position.z+=0.16*flatten-0.22*sweep;
+      sideParts.shoulder.rotation.z+=side*(0.64*flatten+0.56*sweep);
+      sideParts.shoulder.scale.x*=1+0.22*sweep;
+    }
+    if(sideParts.upperArm){
+      sideParts.upperArm.position.x+=side*(0.7*crouch+1.82*sweep);
+      sideParts.upperArm.position.y-=0.56*crouch+0.72*flatten;
+      sideParts.upperArm.position.z+=0.14*flatten-0.34*sweep;
+      sideParts.upperArm.rotation.z+=side*(1.16*sweep);
+      sideParts.upperArm.rotation.x-=0.54*flatten;
+      sideParts.upperArm.scale.y*=1-0.22*sweep;
+    }
+    if(sideParts.elbow){
+      sideParts.elbow.position.x+=side*(0.84*crouch+1.96*sweep);
+      sideParts.elbow.position.y-=0.48*crouch+0.6*flatten;
+      sideParts.elbow.position.z-=0.22*sweep;
+    }
+    if(sideParts.forearm){
+      sideParts.forearm.position.x+=side*(0.95*crouch+2.34*sweep);
+      sideParts.forearm.position.y-=0.42*crouch+0.44*flatten;
+      sideParts.forearm.position.z-=0.12*flatten-0.26*sweep;
+      sideParts.forearm.rotation.z+=side*(1.34*sweep);
+      sideParts.forearm.rotation.x-=0.38*flatten;
+      sideParts.forearm.scale.y*=1-0.3*sweep;
+    }
+    if(sideParts.hand){
+      sideParts.hand.position.x+=side*(1.05*crouch+2.55*sweep);
+      sideParts.hand.position.y-=0.32*crouch+0.36*flatten;
+      sideParts.hand.position.z-=0.12*sweep;
+      sideParts.hand.rotation.z+=side*1.48*sweep;
+    }
+    if(sideParts.cannon){
+      sideParts.cannon.position.x+=side*(0.94*crouch+2.48*sweep);
+      sideParts.cannon.position.y-=0.34*crouch+0.38*flatten;
+      sideParts.cannon.position.z+=0.2*flatten+0.18*sweep;
+      sideParts.cannon.rotation.z+=side*1.12*sweep;
+    }
+    if(sideParts.cannonShroud){
+      sideParts.cannonShroud.position.x+=side*(0.88*crouch+2.24*sweep);
+      sideParts.cannonShroud.position.y-=0.4*crouch+0.42*flatten;
+      sideParts.cannonShroud.position.z+=0.16*flatten+0.1*sweep;
+      sideParts.cannonShroud.rotation.z+=side*1.18*sweep;
+    }
+
+    if(sideParts.hip){
+      sideParts.hip.position.x+=side*0.16*sweep;
+      sideParts.hip.position.y-=0.38*crouch+0.62*flatten;
+      sideParts.hip.position.z-=0.18*sweep;
+    }
+    if(sideParts.upperLeg){
+      sideParts.upperLeg.position.x+=side*0.22*sweep;
+      sideParts.upperLeg.position.y-=0.18*crouch+0.2*flatten;
+      sideParts.upperLeg.position.z-=0.82*sweep;
+      sideParts.upperLeg.rotation.x+=1.02*flatten;
+      sideParts.upperLeg.scale.y*=1-0.28*sweep;
+    }
+    if(sideParts.knee){
+      sideParts.knee.position.x+=side*0.26*sweep;
+      sideParts.knee.position.y+=0.38*sweep;
+      sideParts.knee.position.z-=0.96*sweep;
+    }
+    if(sideParts.kneePlate){
+      sideParts.kneePlate.position.x+=side*0.26*sweep;
+      sideParts.kneePlate.position.y+=0.38*sweep;
+      sideParts.kneePlate.position.z-=0.84*sweep;
+      sideParts.kneePlate.rotation.x+=0.62*sweep;
+    }
+    if(sideParts.shin){
+      sideParts.shin.position.x+=side*0.34*sweep;
+      sideParts.shin.position.y+=0.82*sweep;
+      sideParts.shin.position.z-=1.38*sweep;
+      sideParts.shin.rotation.x+=1.18*flatten;
+      sideParts.shin.scale.y*=1-0.32*sweep;
+    }
+    if(sideParts.foot){
+      sideParts.foot.position.x+=side*0.42*sweep;
+      sideParts.foot.position.y+=1.1*sweep;
+      sideParts.foot.position.z-=1.84*sweep;
+      sideParts.foot.rotation.x+=0.58*flatten;
+      sideParts.foot.scale.z*=1+0.18*sweep;
+      sideParts.foot.scale.y*=1-0.24*sweep;
+    }
+    if(sideParts.toePlate){
+      sideParts.toePlate.position.x+=side*0.42*sweep;
+      sideParts.toePlate.position.y+=1.1*sweep;
+      sideParts.toePlate.position.z-=2.02*sweep;
+      sideParts.toePlate.rotation.x+=0.72*flatten;
+    }
+  }
+
+  model.scale.multiplyScalar(1-0.55*hide);
+}
+
 function makeAimCross(accentColor){
   let group=new THREE.Group();
   group.position.set(0,3.15,32);
@@ -1925,11 +2146,13 @@ function makeAimCross(accentColor){
 
 function setupMorphModels(car,accentColor){
   let mech=makeMechModel(accentColor);
+  let jet=makeJetModel(accentColor);
   let aimCross=makeAimCross(accentColor);
 
   car.group.clear();
-  car.group.add(mech,aimCross);
+  car.group.add(mech,jet,aimCross);
   car.mechModel=mech;
+  car.jetModel=jet;
   car.carModel=null;
   car.aimCross=aimCross;
 }
@@ -2031,8 +2254,13 @@ function createEnemyState(index,x,z){
     morphed:false,
     morphProgress:0,
     lastMorphProgress:0,
+    jetMode:false,
+    jetProgress:0,
+    jetAltitudeTarget:drivingSurfaceHeight(x,z)+8,
+    jetModel:null,
     aimOffsetX:0,
     aimOffsetY:0,
+    lastAimMouseVersion:-1,
     lastRocketButton:false,
     rocketCooldown:0,
     lastCannonButton:false,
@@ -2056,25 +2284,36 @@ function updateMorphVisual(car){
   car.morphProgress+=(target-car.morphProgress)*0.16;
   if(Math.abs(target-car.morphProgress)<0.003) car.morphProgress=target;
 
+  let jetTarget=car.jetMode ? 1 : 0;
+  let previousJet=car.jetProgress || 0;
+  car.jetProgress+=(jetTarget-car.jetProgress)*0.16;
+  if(Math.abs(jetTarget-car.jetProgress)<0.003) car.jetProgress=jetTarget;
+
   let p=car.morphProgress;
+  let jetP=car.jetProgress;
   let bodyFold=morphStage(p,0.08,0.62);
   let vehicleReveal=morphStage(p,0.58,0.88);
   let lockIn=morphStage(p,0.64,0.96);
-  let transformShake=morphPulse(p,0.5,0.32);
+  let jetReveal=morphStage(jetP,0.46,0.86);
+  let jetFold=morphStage(jetP,0.1,0.72);
+  let transformShake=Math.max(morphPulse(p,0.5,0.32),morphPulse(jetP,0.46,0.32));
 
   if(car.mechModel){
     let baseY=car.mechModel.userData.baseY || 0.72;
-    let finalHide=morphStage(p,0.82,1);
-    let scaleX=1.05*(1+0.12*bodyFold-0.72*finalHide);
-    let scaleY=1.05*(1-0.38*bodyFold-0.42*finalHide);
-    let scaleZ=1.05*(1+0.28*bodyFold-0.68*finalHide);
+    let finalHide=Math.max(morphStage(p,0.82,1),morphStage(jetP,0.78,1));
+    let scaleX=1.05*(1+0.12*bodyFold+0.08*jetFold-0.72*finalHide);
+    let scaleY=1.05*(1-0.38*bodyFold-0.46*jetFold-0.42*finalHide);
+    let scaleZ=1.05*(1+0.28*bodyFold+0.34*jetFold-0.68*finalHide);
 
     car.mechModel.visible=p<0.995;
+    car.mechModel.visible=finalHide<0.995;
     car.mechModel.scale.set(scaleX,scaleY,scaleZ);
-    car.mechModel.position.y=car.mechModel.position.y*(1-bodyFold)+((baseY*0.28)+0.2)*bodyFold;
-    car.mechModel.rotation.x+=-0.22*bodyFold+Math.sin(performance.now()*0.07)*0.02*transformShake;
+    let foldAmount=Math.max(bodyFold,jetFold);
+    car.mechModel.position.y=car.mechModel.position.y*(1-foldAmount)+((baseY*0.28)+0.2)*foldAmount;
+    car.mechModel.rotation.x+=-0.22*bodyFold-0.18*jetFold+Math.sin(performance.now()*0.07)*0.02*transformShake;
     car.mechModel.rotation.z+=Math.sin(performance.now()*0.049)*0.035*transformShake;
-    applyTransformerFold(car.mechModel,p);
+    if(jetP>0.001) applyJetFold(car.mechModel,jetP);
+    else applyTransformerFold(car.mechModel,p);
   }
 
   if(car.carModel){
@@ -2092,6 +2331,19 @@ function updateMorphVisual(car){
     car.carModel.rotation.z=Math.sin(performance.now()*0.061)*0.028*transformShake*(1-lockIn);
   }
 
+  if(car.jetModel){
+    let baseY=car.jetModel.userData.baseY || 0.45;
+    let baseScale=car.jetModel.userData.baseScale || new THREE.Vector3(1,1,1);
+    let scale=0.82+jetReveal*0.18;
+    let snap=morphStage(jetP,0.72,1);
+
+    car.jetModel.visible=jetP>0.34;
+    car.jetModel.scale.set(baseScale.x*scale,baseScale.y*(0.74+jetReveal*0.26),baseScale.z*scale);
+    car.jetModel.position.y=baseY+(1-jetReveal)*0.62+Math.sin(performance.now()*0.006)*0.12*jetReveal;
+    car.jetModel.rotation.x=(1-jetReveal)*0.28-0.08*snap;
+    car.jetModel.rotation.z=Math.sin(performance.now()*0.052)*0.035*transformShake*(1-snap);
+  }
+
   if(car.aimCross){
     car.aimCross.scale.setScalar(1+Math.sin(performance.now()*0.004)*0.035);
   }
@@ -2100,6 +2352,10 @@ function updateMorphVisual(car){
     if(crossedMorphStage(previous,p,0.22)) emitMorphSparks(car,10);
     if(crossedMorphStage(previous,p,0.48)) emitMorphSparks(car,16);
     if(crossedMorphStage(previous,p,0.78)) emitMorphSparks(car,12);
+  }
+  if(car.group.visible && car.health>0 && !gameOver && previousJet!==jetP){
+    if(crossedMorphStage(previousJet,jetP,0.24)) emitMorphSparks(car,12);
+    if(crossedMorphStage(previousJet,jetP,0.54)) emitMorphSparks(car,18);
   }
   car.lastMorphProgress=p;
 }
@@ -2217,11 +2473,12 @@ function updateCar(car){
   let prevX=car.x;
   let prevZ=car.z;
   let prevY=car.y;
-  let {forward,turn}=controlsFor(car);
+  let {forward,turn,lift}=controlsFor(car);
   updateMorphInput(car);
   updateAimCross(car);
   updateRocketInput(car);
   car.throttleInput=forward;
+  car.liftInput=lift;
   let roadDist=roadDistance(car.x,car.z);
   let localMaxSpeed=mechGroundMaxSpeed;
   let morphSpeedMultiplier=car.morphProgress>0.65 ? morphedCarSpeedMultiplier : 1;
@@ -2282,17 +2539,30 @@ function updateCar(car){
 
   let flying=updateFlightThrust(car,surfaceY);
   if(flying) emitFlightExhaust(car);
+  let jetHovering=car.jetMode || car.jetProgress>0.65;
+  if(jetHovering && !gameOver && !carDisabled){
+    let climbInput=Math.max(0,car.liftInput || 0);
+    car.speed=clamp(car.speed+climbInput*0.027,-mechGroundMaxSpeed*0.42,mechAirMaxSpeed*morphSpeedMultiplier*2.025);
+    if(!Number.isFinite(car.jetAltitudeTarget)){
+      car.jetAltitudeTarget=Math.max(car.y,surfaceY+8);
+    }
+    car.jetAltitudeTarget=clamp(car.jetAltitudeTarget+(car.liftInput || 0)*0.224,waterLevel+5,154);
+    let hoverTarget=car.jetAltitudeTarget+Math.sin(performance.now()*0.004)*0.22;
+    let lift=(hoverTarget-car.y)*0.045-car.vy*0.2;
+    car.vy=clamp(car.vy+lift,-0.42,0.78);
+    emitJetHoverExhaust(car);
+  }
 
   let waterDrag=clamp(waterDepthAt(car.x,car.z)/3.5,0,1);
-  if(!gameOver && !carDisabled && waterDrag>0){
+  if(!gameOver && !carDisabled && !jetHovering && waterDrag>0){
     car.speed*=1-0.12*waterDrag;
   }
 
-  if(!gameOver && !carDisabled) car.vy-=flying ? gravityStrength*0.22 : gravityStrength;
+  if(!gameOver && !carDisabled) car.vy-=flying ? gravityStrength*0.22 : jetHovering ? 0 : gravityStrength;
   let landingVy=car.vy;
   car.y+=car.vy;
 
-  if(car.y<surfaceY){
+  if(!jetHovering && car.y<surfaceY){
     if(!gameOver && landingVy<-0.9){
       let landingDamage=landingDamageAmount(car,car.x,car.z,-landingVy);
       if(landingDamage>0) damageCar(car,landingDamage);
@@ -2302,7 +2572,7 @@ function updateCar(car){
   }
 
   let collision=movementCollision(car,prevX,prevZ,car.x,car.z);
-  if(!gameOver && !carDisabled && collision.hit){
+  if(!gameOver && !carDisabled && !jetHovering && collision.hit){
     car.x=collision.safeX;
     car.z=collision.safeZ;
     car.y=prevY;
@@ -2315,10 +2585,10 @@ function updateCar(car){
   }
 
   let waterDepth=waterDepthAt(car.x,car.z);
-  let inWater=waterDepth>0.15 && car.y<=waterLevel+1.1;
-  let emitSplash=!carDisabled && inWater && car.y<=waterLevel+1.1 && Math.abs(car.speed)>0.08;
-  car.onGround=car.y<=surfaceY+0.18;
-  wheelTracks.addCarTracks(car,surfaceY,inWater);
+  let inWater=!jetHovering && waterDepth>0.15 && car.y<=waterLevel+1.1;
+  let emitSplash=!jetHovering && !carDisabled && inWater && car.y<=waterLevel+1.1 && Math.abs(car.speed)>0.08;
+  car.onGround=!jetHovering && car.y<=surfaceY+0.18;
+  if(!jetHovering) wheelTracks.addCarTracks(car,surfaceY,inWater);
   if(emitSplash){
     let speedAbs=Math.abs(car.speed);
     let splashAmount=Math.ceil(speedAbs*18);
@@ -2356,7 +2626,8 @@ function updateCar(car){
   let backZ=car.z-Math.cos(car.angle)*pitchSampleDist;
   let frontY=drivingSurfaceHeight(frontX,frontZ);
   let backY=drivingSurfaceHeight(backX,backZ);
-  let targetPitch=-Math.atan2(frontY-backY,pitchSampleDist*2);
+  let jetPitch=clamp(-(car.liftInput || 0)*0.18-Math.max(0,car.speed)*0.025,-0.3,0.12);
+  let targetPitch=jetHovering ? jetPitch : -Math.atan2(frontY-backY,pitchSampleDist*2);
   car.pitch+=(targetPitch-car.pitch)*0.18;
 
   car.group.position.set(car.x,car.y,car.z);
@@ -2413,7 +2684,7 @@ function updateCameras(){
 }
 
 function aimCrossVisibleFor(car){
-  return car.aimCross && car.morphProgress<0.35 && car.health>0 && !gameOver && car.group.visible;
+  return car.aimCross && car.morphProgress<0.35 && car.jetProgress<0.35 && car.health>0 && !gameOver && car.group.visible;
 }
 
 function setAimCrossForRender(focusedCar){
@@ -2640,6 +2911,7 @@ function placeCarOnRoad(car,z){
   car.velAngle=point.angle;
   car.speed=0;
   car.throttleInput=0;
+  car.liftInput=0;
   car.surfaceDistance=roadDistance(car.x,car.z);
   car.slipAmount=0;
   car.onGround=true;
@@ -2655,8 +2927,13 @@ function placeCarOnRoad(car,z){
   car.morphProgress=0;
   car.lastMorphProgress=0;
   car.lastMorphButton=false;
+  car.jetMode=false;
+  car.jetProgress=0;
+  car.jetAltitudeTarget=drivingSurfaceHeight(car.x,car.z)+8;
+  car.lastJetButton=false;
   car.aimOffsetX=0;
   car.aimOffsetY=0;
+  car.lastAimMouseVersion=input.mouse.version;
   if(car.aimCross) car.aimCross.position.set(0,3.15,32);
   car.lastRocketButton=false;
   car.rocketCooldown=0;
