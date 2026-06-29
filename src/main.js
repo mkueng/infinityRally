@@ -90,6 +90,28 @@ let cannonGlowMat=new THREE.MeshBasicMaterial({
   depthWrite:false,
   blending:THREE.AdditiveBlending
 });
+let clusterBombRadius=300;
+let clusterBombCooldownFrames=150;
+let clusterBombFallSpeed=2.7;
+let clusterBombs=[];
+let clusterBombBodyGeo=new THREE.DodecahedronGeometry(0.52,0);
+let clusterBombFinGeo=new THREE.BoxGeometry(0.12,0.36,0.42);
+let clusterBombBodyMat=new THREE.MeshStandardMaterial({color:0x1a2023,roughness:0.42,metalness:0.72});
+let clusterBombBandMat=new THREE.MeshStandardMaterial({
+  color:0xffc743,
+  emissive:0x8a4a00,
+  emissiveIntensity:0.42,
+  roughness:0.36,
+  metalness:0.28
+});
+let clusterBombGlowGeo=new THREE.SphereGeometry(0.82,18,12);
+let clusterBombGlowMat=new THREE.MeshBasicMaterial({
+  color:0xffd36a,
+  transparent:true,
+  opacity:0.34,
+  depthWrite:false,
+  blending:THREE.AdditiveBlending
+});
 let mouseAimRaycaster=new THREE.Raycaster();
 let mouseAimPointer=new THREE.Vector2();
 let mouseAimPlane=new THREE.Plane();
@@ -266,6 +288,7 @@ function createCarState(id,lateralOffset,controls,camera,gamepadIndex){
     lastCannonButton:false,
     cannonCooldown:0,
     cannonAmmo:initialCannonAmmo,
+    clusterBombCooldown:0,
     boostCharge:maxBoostCharge,
     hitRattle:0,
     hitRattleSeed:0,
@@ -500,6 +523,32 @@ function spawnRocketExplosion(x,y,z){
   }
 }
 
+function spawnRadiusExplosion(x,y,z,radius){
+  motorAudio.playExplosion();
+
+  let flash=new THREE.Mesh(explosionFlashGeo,explosionFlashMat.clone());
+  flash.position.set(x,y,z);
+  flash.scale.setScalar(Math.max(4,radius*0.04));
+  scene.add(flash);
+
+  let ring=new THREE.Mesh(explosionRingGeo,explosionRingMat.clone());
+  ring.position.set(x,y+0.08,z);
+  ring.rotation.x=Math.PI/2;
+  ring.scale.setScalar(Math.max(6,radius*0.08));
+  scene.add(ring);
+
+  explosionBursts.push({
+    flash,
+    ring,
+    age:0,
+    life:0.9,
+    startFlashScale:Math.max(4,radius*0.04),
+    endFlashScale:Math.max(20,radius*0.72),
+    startRingScale:Math.max(6,radius*0.08),
+    endRingScale:radius
+  });
+}
+
 function clearExplosions(){
   for(let burst of explosionBursts){
     scene.remove(burst.flash,burst.ring);
@@ -514,8 +563,12 @@ function updateExplosions(){
     let burst=explosionBursts[i];
     burst.age+=0.016;
     let t=Math.min(1,burst.age/burst.life);
-    let flashScale=0.35+Math.sin(t*Math.PI)*3.4;
-    let ringScale=0.55+t*6.8;
+    let flashScale=burst.startFlashScale!==undefined
+      ? burst.startFlashScale+(burst.endFlashScale-burst.startFlashScale)*Math.sin(t*Math.PI*0.5)
+      : 0.35+Math.sin(t*Math.PI)*3.4;
+    let ringScale=burst.startRingScale!==undefined
+      ? burst.startRingScale+(burst.endRingScale-burst.startRingScale)*t
+      : 0.55+t*6.8;
 
     burst.flash.scale.setScalar(flashScale);
     burst.ring.scale.setScalar(ringScale);
@@ -971,6 +1024,40 @@ function makeCannonBoltMesh(){
   return group;
 }
 
+function makeClusterBombMesh(){
+  let group=new THREE.Group();
+  let body=new THREE.Mesh(clusterBombBodyGeo,clusterBombBodyMat);
+  body.scale.set(1.7,1.7,2.35);
+  group.add(body);
+
+  let band=new THREE.Mesh(new THREE.TorusGeometry(0.86,0.09,8,22),clusterBombBandMat);
+  band.rotation.x=Math.PI/2;
+  band.position.z=0.04;
+  group.add(band);
+
+  for(let side of [-1,1]){
+    let fin=new THREE.Mesh(clusterBombFinGeo,clusterBombBandMat);
+    fin.scale.set(2.2,2.2,2.2);
+    fin.position.set(side*0.86,0,-0.82);
+    fin.rotation.z=side*0.35;
+    group.add(fin);
+  }
+
+  let glow=new THREE.Mesh(clusterBombGlowGeo,clusterBombGlowMat.clone());
+  glow.name="cluster-bomb-glow";
+  group.add(glow);
+  group.userData.glow=glow;
+
+  group.traverse(child=>{
+    if(child.isMesh){
+      child.castShadow=true;
+      child.receiveShadow=true;
+    }
+  });
+
+  return group;
+}
+
 function cannonLaunchPointForCar(car){
   let parts=car.mechModel && car.mechModel.userData ? car.mechModel.userData.walkParts : null;
   let hand=parts && parts.left ? parts.left.hand : null;
@@ -1045,13 +1132,132 @@ function fireCannon(car){
   return true;
 }
 
+function fireClusterBomb(car){
+  if(gameOver || car.health<=0 || car.clusterBombCooldown>0) return false;
+  if(!(car.jetMode || car.jetProgress>0.65)) return false;
+
+  let forwardX=Math.sin(car.angle);
+  let forwardZ=Math.cos(car.angle);
+  let mesh=makeClusterBombMesh();
+  let startX=car.x-forwardX*0.8;
+  let startY=car.y+0.1;
+  let startZ=car.z-forwardZ*0.8;
+
+  mesh.position.set(startX,startY,startZ);
+  mesh.rotation.y=car.angle;
+  scene.add(mesh);
+
+  clusterBombs.push({
+    owner:car,
+    mesh,
+    x:startX,
+    y:startY,
+    z:startZ,
+    vx:forwardX*Math.max(0.45,Math.abs(car.speed)*0.72),
+    vy:-clusterBombFallSpeed,
+    vz:forwardZ*Math.max(0.45,Math.abs(car.speed)*0.72),
+    age:0,
+    life:180
+  });
+
+  car.clusterBombCooldown=clusterBombCooldownFrames;
+  motorAudio.playRocketLaunch(car);
+  return true;
+}
+
+function destroyObstaclesInRadius(x,z,radius){
+  let destroyed=[];
+
+  for(let chunk of world.chunks.values()){
+    if(!chunk.colliders) continue;
+    for(let obstacle of chunk.colliders){
+      if(!obstacle || obstacle.destroyed) continue;
+      let dx=obstacle.x-x;
+      let dz=obstacle.z-z;
+      let reach=radius+(obstacle.r || 0);
+      if(dx*dx+dz*dz>reach*reach) continue;
+      if(world.destroyObstacle(obstacle)) destroyed.push(obstacle);
+    }
+  }
+
+  return destroyed;
+}
+
+function detonateClusterBomb(owner,x,y,z){
+  spawnRadiusExplosion(x,y,z,clusterBombRadius);
+
+  for(let i=0;i<12;i++){
+    let angle=(i/12)*Math.PI*2+Math.random()*0.28;
+    let dist=clusterBombRadius*(0.18+Math.random()*0.74);
+    let bx=x+Math.cos(angle)*dist;
+    let bz=z+Math.sin(angle)*dist;
+    let by=drivingSurfaceHeight(bx,bz)+0.8+Math.random()*2.2;
+    spawnRocketExplosion(bx,by,bz);
+  }
+
+  let destroyed=destroyObstaclesInRadius(x,z,clusterBombRadius);
+  let debrisCount=0;
+  for(let obstacle of destroyed){
+    if(debrisCount>=42) break;
+    if(obstacle.type==="rock" || obstacle.type==="smallRock" || obstacle.type==="building" || obstacle.type==="wall"){
+      spawnRockDebris(
+        obstacle.x,
+        drivingSurfaceHeight(obstacle.x,obstacle.z)+Math.max(0.8,(obstacle.r || 2)*0.35),
+        obstacle.z,
+        obstacle
+      );
+      debrisCount++;
+    }
+  }
+
+  for(let enemy of activeEnemies()){
+    let dx=enemy.x-x;
+    let dz=enemy.z-z;
+    if(dx*dx+dz*dz<=clusterBombRadius*clusterBombRadius){
+      damageEnemy(enemy,enemy.health);
+      rattleActor(enemy,1);
+    }
+  }
+
+  for(let i=supplyBoxes.length-1;i>=0;i--){
+    let box=supplyBoxes[i];
+    let dx=box.position.x-x;
+    let dz=box.position.z-z;
+    if(dx*dx+dz*dz<=clusterBombRadius*clusterBombRadius){
+      scene.remove(box);
+      supplyBoxes.splice(i,1);
+    }
+  }
+
+  for(let i=0;i<80;i++){
+    let angle=Math.random()*Math.PI*2;
+    let speed=8+Math.random()*20;
+    dust.spawnThrusterParticle(
+      x+Math.cos(angle)*Math.random()*18,
+      y+Math.random()*5,
+      z+Math.sin(angle)*Math.random()*18,
+      Math.cos(angle)*speed,
+      Math.sin(angle)*speed,
+      2+Math.random()*9,
+      0.32+Math.random()*0.24,
+      0.18+Math.random()*0.12
+    );
+  }
+
+  motorAudio.playExplosion();
+}
+
 function updateCannonInput(car){
   if(car.cannonCooldown>0) car.cannonCooldown--;
+  if(car.clusterBombCooldown>0) car.clusterBombCooldown--;
 
   let buttons=input.getGamepadFaceButtons(car.gamepadIndex);
   let mouseShot=gameMode==="single" && car===playerCar && input.mouse.right;
   let cannonButton=buttons.rightTrigger || mouseShot;
-  if(cannonButton) fireCannon(car);
+  if(cannonButton){
+    if(car.jetMode || car.jetProgress>0.65) fireClusterBomb(car);
+    else fireCannon(car);
+  }
   car.lastCannonButton=cannonButton;
 }
 
@@ -1067,6 +1273,12 @@ function removeCannonBolt(index){
   cannonBolts.splice(index,1);
 }
 
+function removeClusterBomb(index){
+  let bomb=clusterBombs[index];
+  scene.remove(bomb.mesh);
+  clusterBombs.splice(index,1);
+}
+
 function clearRockets(){
   for(let rocket of rockets){
     scene.remove(rocket.mesh);
@@ -1076,6 +1288,10 @@ function clearRockets(){
     scene.remove(bolt.mesh);
   }
   cannonBolts=[];
+  for(let bomb of clusterBombs){
+    scene.remove(bomb.mesh);
+  }
+  clusterBombs=[];
   clearExplosions();
   clearRockDebris();
 }
@@ -1243,6 +1459,54 @@ function updateCannonBolts(){
         }
       }
       removeCannonBolt(i);
+    }
+  }
+}
+
+function updateClusterBombs(){
+  for(let i=clusterBombs.length-1;i>=0;i--){
+    let bomb=clusterBombs[i];
+    bomb.age++;
+
+    bomb.x+=bomb.vx;
+    bomb.y+=bomb.vy;
+    bomb.z+=bomb.vz;
+    bomb.vx*=0.992;
+    bomb.vz*=0.992;
+    bomb.vy-=0.065;
+
+    bomb.mesh.position.set(bomb.x,bomb.y,bomb.z);
+    bomb.mesh.rotation.x+=0.16;
+    bomb.mesh.rotation.y+=0.08;
+    bomb.mesh.rotation.z+=0.11;
+    if(bomb.mesh.userData.glow){
+      let pulse=1+Math.sin(bomb.age*0.42)*0.18;
+      bomb.mesh.userData.glow.scale.setScalar(pulse);
+      bomb.mesh.userData.glow.material.opacity=0.28+Math.sin(bomb.age*0.42)*0.08;
+    }
+
+    if(bomb.age%2===0){
+      let trailCount=3;
+      for(let t=0;t<trailCount;t++){
+      dust.spawnThrusterParticle(
+        bomb.x+(Math.random()-0.5)*0.8,
+        bomb.y+0.35,
+        bomb.z+(Math.random()-0.5)*0.8,
+        (Math.random()-0.5)*1.4,
+        (Math.random()-0.5)*1.4,
+        1.2+Math.random()*1.4,
+        0.18,
+        0.11+Math.random()*0.05
+      );
+      }
+    }
+
+    let surfaceY=drivingSurfaceHeight(bomb.x,bomb.z);
+    let hitGround=bomb.y<=surfaceY+0.5 || bomb.y<=waterLevel+0.6;
+    if(hitGround || bomb.age>bomb.life){
+      let detonationY=Math.max(surfaceY+0.8,Math.min(bomb.y,bomb.owner.y));
+      detonateClusterBomb(bomb.owner,bomb.x,detonationY,bomb.z);
+      removeClusterBomb(i);
     }
   }
 }
@@ -2265,6 +2529,7 @@ function createEnemyState(index,x,z){
     rocketCooldown:0,
     lastCannonButton:false,
     cannonCooldown:60+Math.floor(Math.random()*70),
+    clusterBombCooldown:0,
     hitRattle:0,
     hitRattleSeed:0,
     walkCycle:0,
@@ -2749,6 +3014,7 @@ function loop(){
   updateSupplyBoxes();
   updateRockets();
   updateCannonBolts();
+  updateClusterBombs();
   if(healthDamageCooldown>0) healthDamageCooldown--;
 
   dust.update();
@@ -2939,6 +3205,7 @@ function placeCarOnRoad(car,z){
   car.lastCannonButton=false;
   car.cannonCooldown=0;
   car.cannonAmmo=initialCannonAmmo;
+  car.clusterBombCooldown=0;
   car.boostCharge=maxBoostCharge;
   car.hitRattle=0;
   car.hitRattleSeed=0;
