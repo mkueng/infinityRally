@@ -2052,7 +2052,7 @@ function updateMorphVisual(car){
 
   let p=car.morphProgress;
   let bodyFold=morphStage(p,0.08,0.62);
-  let vehicleReveal=morphStage(p,0.3,0.82);
+  let vehicleReveal=morphStage(p,0.58,0.88);
   let lockIn=morphStage(p,0.64,0.96);
   let transformShake=morphPulse(p,0.5,0.32);
 
@@ -2075,11 +2075,11 @@ function updateMorphVisual(car){
     let baseY=car.carModel.userData.baseY || 0.04;
     let baseScale=car.carModel.userData.baseScale || new THREE.Vector3(1,1,1);
     let wheelDrop=morphStage(p,0.18,0.48);
-    let scale=0.28+vehicleReveal*0.72;
+    let scale=0.78+vehicleReveal*0.22;
     let widthSnap=1+0.18*wheelDrop*(1-lockIn);
     let heightSquash=1-0.22*lockIn*(1-vehicleReveal);
 
-    car.carModel.visible=p>0.12;
+    car.carModel.visible=p>0.56;
     car.carModel.scale.set(baseScale.x*scale*widthSnap,baseScale.y*scale*heightSquash,baseScale.z*scale);
     car.carModel.position.y=baseY+(1-vehicleReveal)*0.86+Math.sin(p*Math.PI*5)*0.06*transformShake;
     car.carModel.rotation.x=(1-vehicleReveal)*0.34-0.08*wheelDrop*(1-lockIn);
