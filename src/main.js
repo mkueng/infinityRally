@@ -38,6 +38,7 @@ let enemies=[];
 let enemyWaveDelay=0;
 let enemyPatrolDelay=900;
 let enemySpawnSerial=0;
+let jetUnlocked=false;
 let waterLevel=-20;
 let mechGroundMaxSpeed=0.58;
 let mechAirMaxSpeed=1.15;
@@ -160,11 +161,14 @@ let rocketSupplyMat=new THREE.MeshStandardMaterial({color:0x763627,roughness:0.7
 let cannonSupplyMat=new THREE.MeshStandardMaterial({color:0x23516b,roughness:0.68,metalness:0.2});
 let healthSupplyMat=new THREE.MeshStandardMaterial({color:0x275f38,roughness:0.66,metalness:0.16});
 let boostSupplyMat=new THREE.MeshStandardMaterial({color:0x5f4b18,roughness:0.62,metalness:0.2});
+let jetSupplyMat=new THREE.MeshStandardMaterial({color:0x22313c,roughness:0.5,metalness:0.38});
 let supplyLidMat=new THREE.MeshStandardMaterial({color:0x161c1e,roughness:0.82,metalness:0.3});
 let rocketSupplyBandMat=new THREE.MeshStandardMaterial({color:0xff7a32,emissive:0x742000,emissiveIntensity:0.28,roughness:0.48,metalness:0.12});
 let cannonSupplyBandMat=new THREE.MeshStandardMaterial({color:0x7ff8ff,emissive:0x115e66,emissiveIntensity:0.36,roughness:0.38,metalness:0.1});
 let healthSupplyBandMat=new THREE.MeshStandardMaterial({color:0x7cff78,emissive:0x116b21,emissiveIntensity:0.38,roughness:0.42,metalness:0.08});
 let boostSupplyBandMat=new THREE.MeshStandardMaterial({color:0xffe46f,emissive:0x7a5b00,emissiveIntensity:0.42,roughness:0.34,metalness:0.1});
+let jetSupplyBandMat=new THREE.MeshStandardMaterial({color:0x74e7ff,emissive:0x0e5e72,emissiveIntensity:0.62,roughness:0.24,metalness:0.12});
+let jetLogoMat=new THREE.MeshStandardMaterial({color:0xe8fbff,emissive:0x2fcfff,emissiveIntensity:0.58,roughness:0.22,metalness:0.18});
 
 function clamp(value,min,max){
   return Math.max(min,Math.min(max,value));
@@ -684,8 +688,8 @@ function hash01(a,b){
 
 function makeSupplyBox(type){
   let group=new THREE.Group();
-  let baseMat=type==="rocket" ? rocketSupplyMat : type==="health" ? healthSupplyMat : type==="boost" ? boostSupplyMat : cannonSupplyMat;
-  let bandMat=type==="rocket" ? rocketSupplyBandMat : type==="health" ? healthSupplyBandMat : type==="boost" ? boostSupplyBandMat : cannonSupplyBandMat;
+  let baseMat=type==="rocket" ? rocketSupplyMat : type==="health" ? healthSupplyMat : type==="boost" ? boostSupplyMat : type==="jet" ? jetSupplyMat : cannonSupplyMat;
+  let bandMat=type==="rocket" ? rocketSupplyBandMat : type==="health" ? healthSupplyBandMat : type==="boost" ? boostSupplyBandMat : type==="jet" ? jetSupplyBandMat : cannonSupplyBandMat;
   let body=new THREE.Mesh(supplyBoxGeo,baseMat);
   let lid=new THREE.Mesh(supplyLidGeo,supplyLidMat);
   let bandA=new THREE.Mesh(supplyBandGeo,bandMat);
@@ -705,6 +709,25 @@ function makeSupplyBox(type){
   bandB.rotation.y=Math.PI/2;
 
   group.add(body,lid,bandA,bandB);
+
+  if(type==="jet"){
+    let logoRoot=new THREE.Group();
+    logoRoot.position.set(0,0.84,0);
+    logoRoot.rotation.x=-Math.PI/2;
+
+    let jetBody=new THREE.Mesh(new THREE.BoxGeometry(0.18,1.12,0.06),jetLogoMat);
+    let jetNose=new THREE.Mesh(new THREE.ConeGeometry(0.14,0.34,3),jetLogoMat);
+    let jetWing=new THREE.Mesh(new THREE.BoxGeometry(1.05,0.2,0.06),jetLogoMat);
+    let jetTail=new THREE.Mesh(new THREE.BoxGeometry(0.62,0.14,0.06),jetLogoMat);
+
+    jetNose.rotation.z=-Math.PI/2;
+    jetNose.position.y=0.72;
+    jetWing.position.y=0.04;
+    jetTail.position.y=-0.44;
+    logoRoot.add(jetBody,jetNose,jetWing,jetTail);
+    group.add(logoRoot);
+  }
+
   group.userData.type=type;
   group.userData.baseY=0;
   return group;
@@ -716,7 +739,7 @@ function supplyKeyForVillage(village,type){
 
 function supplyPointForVillage(village,type,index){
   let baseA=Math.round(village.x*0.37+index*19);
-  let typeOffset=type==="rocket" ? 7 : type==="health" ? 31 : type==="boost" ? 47 : 23;
+  let typeOffset=type==="rocket" ? 7 : type==="health" ? 31 : type==="boost" ? 47 : type==="jet" ? 67 : 23;
   let baseB=Math.round(village.z*0.41+typeOffset);
   let villageRadius=village.r || 32;
 
@@ -737,17 +760,49 @@ function supplyPointForVillage(village,type,index){
     }
   }
 
-  let fallbackAngle=(type==="rocket" ? 0.3 : type==="health" ? 0.72 : type==="boost" ? 0.95 : 1.15)*Math.PI;
+  let fallbackAngle=(type==="rocket" ? 0.3 : type==="health" ? 0.72 : type==="boost" ? 0.95 : type==="jet" ? 1.32 : 1.15)*Math.PI;
   let x=village.x+Math.cos(fallbackAngle)*villageRadius*0.22;
   let z=village.z+Math.sin(fallbackAngle)*villageRadius*0.22;
   return {x,y:drivingSurfaceHeight(x,z),z,angle:fallbackAngle};
 }
 
+function nearestActiveCarDistanceSq(x,z){
+  let best=Infinity;
+  for(let car of activeCars()){
+    if(car.health<=0 || !car.group.visible) continue;
+    let dx=x-car.x;
+    let dz=z-car.z;
+    best=Math.min(best,dx*dx+dz*dz);
+  }
+  return best;
+}
+
+function spawnSupplyBoxForVillage(village,type,index,key){
+  let point=supplyPointForVillage(village,type,index);
+  let box=makeSupplyBox(type);
+  box.position.set(point.x,point.y+0.68,point.z);
+  box.rotation.y=point.angle;
+  box.userData.baseY=box.position.y;
+  box.userData.key=key;
+  scene.add(box);
+  supplyBoxes.push(box);
+  supplySpawnKeys.add(key);
+}
+
 function spawnVillageSupplyBoxes(){
+  let jetUnlockCandidate=null;
+
   for(let chunk of world.chunks.values()){
     if(!chunk.villageCenters) continue;
     for(let village of chunk.villageCenters){
       if(!world.isVillageCleared(village)) continue;
+
+      if(!jetUnlocked && !supplySpawnKeys.has("jet-unlock")){
+        let distSq=nearestActiveCarDistanceSq(village.x,village.z);
+        if(Number.isFinite(distSq) && (!jetUnlockCandidate || distSq<jetUnlockCandidate.distSq)){
+          jetUnlockCandidate={village,distSq};
+        }
+      }
 
       let supplySets=gameMode==="double" ? 2 : 1;
       for(let set=0;set<supplySets;set++){
@@ -756,18 +811,14 @@ function spawnVillageSupplyBoxes(){
           if(supplySpawnKeys.has(key)) continue;
 
           let typeIndex=type==="rocket" ? 0 : type==="cannon" ? 1 : type==="health" ? 2 : 3;
-          let point=supplyPointForVillage(village,type,typeIndex+set*4);
-          let box=makeSupplyBox(type);
-          box.position.set(point.x,point.y+0.68,point.z);
-          box.rotation.y=point.angle;
-          box.userData.baseY=box.position.y;
-          box.userData.key=key;
-          scene.add(box);
-          supplyBoxes.push(box);
-          supplySpawnKeys.add(key);
+          spawnSupplyBoxForVillage(village,type,typeIndex+set*4,key);
         }
       }
     }
+  }
+
+  if(jetUnlockCandidate && !supplySpawnKeys.has("jet-unlock")){
+    spawnSupplyBoxForVillage(jetUnlockCandidate.village,"jet",8,"jet-unlock");
   }
 }
 
@@ -783,6 +834,9 @@ function collectSupplyBox(box,car){
   }else if(type==="boost"){
     if(car.boostCharge>=maxBoostCharge) return false;
     car.boostCharge=Math.min(maxBoostCharge,car.boostCharge+boostSupplyAmount);
+  }else if(type==="jet"){
+    if(jetUnlocked) return false;
+    jetUnlocked=true;
   }else{
     if(car.health>=100) return false;
     car.health=Math.min(100,car.health+healthSupplyAmount);
@@ -1873,7 +1927,7 @@ function updateMorphInput(car){
   let keyboardMorph=gameMode==="single" && car===playerCar && input.keys.t;
   let morphButton=buttons.a || keyboardMorph;
   let pressedMorph=morphButton && !car.lastMorphButton;
-  let pressedJet=buttons.b && !car.lastJetButton;
+  let pressedJet=jetUnlocked && buttons.b && !car.lastJetButton;
 
   if(pressedMorph && !gameOver && car.health>0){
     car.morphed=!car.morphed;
@@ -3135,6 +3189,7 @@ function startGame(mode){
   clearRockets();
   clearEnemies();
   clearSupplyBoxes();
+  jetUnlocked=false;
   playerCar.lateralOffset=mode==="single" ? 0 : -4.2;
   secondCar.lateralOffset=4.2;
   let startZ=findSafeStartZ(mode==="double" ? [playerCar.lateralOffset,secondCar.lateralOffset] : [playerCar.lateralOffset]);
