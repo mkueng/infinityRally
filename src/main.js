@@ -39,6 +39,10 @@ let enemyWaveDelay=0;
 let enemyPatrolDelay=900;
 let enemySpawnSerial=0;
 let jetUnlocked=false;
+let score=0;
+let enemyScoreAmount=100;
+let villageScoreAmount=1000;
+let scoredVillages=new WeakSet();
 let waterLevel=-20;
 let mechGroundMaxSpeed=0.58;
 let mechAirMaxSpeed=1.15;
@@ -333,7 +337,8 @@ let hud=createHud({
     rocketAmmo:car.rocketAmmo,
     cannonAmmo:car.cannonAmmo,
     clusterBombAmmo:car.clusterBombAmmo,
-    boostCharge:car.boostCharge
+    boostCharge:car.boostCharge,
+    score
   })),
   getEnemyStates:()=>activeEnemies().map(enemy=>({
     id:enemy.id,
@@ -364,6 +369,22 @@ function damageCar(car,amount){
   if(activeCars().some(item=>item.health<=0)) showGameOver();
 }
 
+function addScore(amount){
+  score+=amount;
+  if(hud) hud.updateCompassHud();
+}
+
+function destroyWorldObstacle(obstacle){
+  if(!world.destroyObstacle(obstacle)) return false;
+
+  if(obstacle.village && world.isVillageCleared(obstacle.village) && !scoredVillages.has(obstacle.village)){
+    scoredVillages.add(obstacle.village);
+    addScore(villageScoreAmount);
+  }
+
+  return true;
+}
+
 function damageEnemy(enemy,amount){
   if(!enemy.active || enemy.health<=0) return;
   enemy.health=Math.max(0,enemy.health-amount);
@@ -378,6 +399,7 @@ function damageEnemy(enemy,amount){
       enemy.shadow=null;
     }
     scene.remove(enemy.group);
+    addScore(enemyScoreAmount);
     spawnRocketExplosion(enemy.x,enemy.y+2.2,enemy.z);
   }
 }
@@ -1242,7 +1264,7 @@ function destroyObstaclesInRadius(x,z,radius){
       let dz=obstacle.z-z;
       let reach=radius+(obstacle.r || 0);
       if(dx*dx+dz*dz>reach*reach) continue;
-      if(world.destroyObstacle(obstacle)) destroyed.push(obstacle);
+      if(destroyWorldObstacle(obstacle)) destroyed.push(obstacle);
     }
   }
 
@@ -1444,7 +1466,7 @@ function updateRockets(){
           if(hitObstacle.type==="rock" || hitObstacle.type==="smallRock" || hitObstacle.type==="building" || hitObstacle.type==="wall"){
             spawnRockDebris(hitObstacle.x,explosionY,hitObstacle.z,hitObstacle);
           }
-          world.destroyObstacle(hitObstacle);
+          destroyWorldObstacle(hitObstacle);
         }
         if(hitActor){
           damageActor(hitActor,18);
@@ -1517,7 +1539,7 @@ function updateCannonBolts(){
           if(hitObstacle.type==="rock" || hitObstacle.type==="smallRock" || hitObstacle.type==="building" || hitObstacle.type==="wall"){
             spawnRockDebris(hitObstacle.x,explosionY,hitObstacle.z,hitObstacle);
           }
-          world.destroyObstacle(hitObstacle);
+          destroyWorldObstacle(hitObstacle);
         }
         if(hitActor){
           damageActor(hitActor,9);
@@ -3069,7 +3091,10 @@ function loop(){
 
   if(!gameStarted){
     updateCameras();
-    world.processChunkQueue();
+    world.processChunkQueue(4,true);
+    world.updateWind(performance.now());
+    clouds.update();
+    birds.update();
     renderGame();
     return;
   }
@@ -3190,6 +3215,8 @@ function startGame(mode){
   clearEnemies();
   clearSupplyBoxes();
   jetUnlocked=false;
+  score=0;
+  scoredVillages=new WeakSet();
   playerCar.lateralOffset=mode==="single" ? 0 : -4.2;
   secondCar.lateralOffset=4.2;
   let startZ=findSafeStartZ(mode==="double" ? [playerCar.lateralOffset,secondCar.lateralOffset] : [playerCar.lateralOffset]);
@@ -3300,6 +3327,7 @@ updateCameras();
 
 lastChunkSignature=chunkSignatureForCars();
 world.updateChunksForCenters(activeCars().map(car=>({x:car.x,z:car.z})));
+world.processChunkQueue(80,true);
 clouds.makeClouds();
 birds.makeBirds();
 loop();

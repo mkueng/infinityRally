@@ -246,8 +246,28 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[]}){
     let compassCtx=compassCanvas.getContext("2d");
     compassHud.appendChild(compassCanvas);
     document.body.appendChild(compassHud);
+
+    let scoreLabel=document.createElement("div");
+    scoreLabel.style.cssText=[
+      "position:fixed",
+      "top:138px",
+      `left:${panel.side==="full" ? "50%" : panel.side==="left" ? "25%" : "75%"}`,
+      "transform:translateX(-50%)",
+      "z-index:11",
+      "font-family:\"Microgramma D Extended\",\"Eurostile Extended\",\"Bank Gothic\",\"Copperplate\",\"Arial Black\",Arial,sans-serif",
+      "font-size:22px",
+      "font-weight:900",
+      "letter-spacing:0.1em",
+      "color:rgba(245,255,249,0.94)",
+      "text-shadow:0 0 6px rgba(103,244,255,0.58),0 3px 0 rgba(0,0,0,0.68)",
+      "text-transform:uppercase",
+      "pointer-events:none"
+    ].join(";");
+    document.body.appendChild(scoreLabel);
+
     panel.compassCanvas=compassCanvas;
     panel.compassCtx=compassCtx;
+    panel.scoreLabel=scoreLabel;
   }
 
   function mapToCanvas(wx,wz,cx,cz,radius,size){
@@ -443,6 +463,10 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[]}){
     ctx.lineTo(cx+5,24);
     ctx.closePath();
     ctx.fill();
+
+    if(panel.scoreLabel){
+      panel.scoreLabel.textContent=`Score ${Math.max(0,Math.round(state.score ?? 0))}`;
+    }
   }
 
   function makeGameOverOverlay(){

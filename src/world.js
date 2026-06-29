@@ -910,10 +910,12 @@ function disposeChunk(chunk){
   chunk.villageWalls.dispose();
 }
 
-function processChunkQueue(){
-  if(chunkQueue.length>0){
+function processChunkQueue(maxItems=1,immediate=false){
+  let processed=0;
+
+  while(chunkQueue.length>0 && processed<maxItems){
     let now=performance.now();
-    if(now-lastChunkBuildTime<35) return;
+    if(!immediate && now-lastChunkBuildTime<35) return;
     lastChunkBuildTime=now;
 
     let item=chunkQueue.shift();
@@ -921,10 +923,13 @@ function processChunkQueue(){
     if(!chunks.has(item.key)){
       chunks.set(item.key,makeChunk(item.cx,item.cz));
     }
-    return;
+    processed++;
   }
 
-  if(removalQueue.length>0) disposeChunk(removalQueue.shift());
+  while(removalQueue.length>0 && processed<maxItems){
+    disposeChunk(removalQueue.shift());
+    processed++;
+  }
 }
 
 function updateWind(time){
