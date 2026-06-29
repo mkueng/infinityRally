@@ -280,7 +280,12 @@ function makeChunk(cx,cz){
 
     let color=new THREE.Color();
 
-    if(h<-20) color.set(0x8f5a6c);
+    if(h<waterLevel) color.set(0x8f5a6c);
+    else if(h<waterLevel+3.8) color.set(0xd6b25a);
+    else if(h<waterLevel+7.5){
+      let t=(h-(waterLevel+3.8))/3.7;
+      color.set(0xd6b25a).lerp(new THREE.Color(0x8b3852),t);
+    }
     else if(h<15) color.set(0x8b3852);
     else if(h<30) color.set(0x5a3b70);
     else color.set(0x3f3456);

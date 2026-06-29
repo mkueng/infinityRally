@@ -18,7 +18,7 @@ renderer.setSize(innerWidth,innerHeight);
 renderer.setScissorTest(true);
 document.body.appendChild(renderer.domElement);
 scene.background=makeSkyTexture();
-scene.fog=new THREE.FogExp2(0x7b4771,0.00024);
+scene.fog=new THREE.FogExp2(0x7b4771,0.00042);
 
 scene.add(new THREE.HemisphereLight(0xffb8d4,0x21484d,1.35));
 let sun=new THREE.DirectionalLight(0xffd29b,2.05);
