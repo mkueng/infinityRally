@@ -2856,8 +2856,6 @@ function startGame(mode){
   clearRockets();
   clearEnemies();
   clearSupplyBoxes();
-  setWorldSeed(Math.random()*100000);
-  world.resetChunks();
   playerCar.lateralOffset=mode==="single" ? 0 : -4.2;
   secondCar.lateralOffset=4.2;
   let startZ=findSafeStartZ(mode==="double" ? [playerCar.lateralOffset,secondCar.lateralOffset] : [playerCar.lateralOffset]);
@@ -2956,7 +2954,8 @@ function placeCarOnRoad(car,z){
   updateMorphVisual(car);
 }
 
-let initialStartZ=findSafeStartZ([playerCar.lateralOffset]);
+setWorldSeed(Math.random()*100000);
+let initialStartZ=findSafeStartZ([playerCar.lateralOffset,0,secondCar.lateralOffset]);
 placeCarOnRoad(playerCar,initialStartZ);
 placeCarOnRoad(secondCar,initialStartZ);
 playerCar.cameraYaw=playerCar.angle;
