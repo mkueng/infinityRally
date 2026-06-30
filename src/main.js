@@ -1,5 +1,5 @@
 import { THREE } from "./three.js";
-import { gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize } from "./constants.js";
+import { gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize, mothershipDropCount, mothershipDropInterval, mothershipDropLineSpacing, mothershipHoverDistance, mothershipHoverFrames, mothershipMinDelay, mothershipRandomDelay, mothershipRocketHits } from "./constants.js";
 import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=no-ramps";
 import { createInput } from "./input.js";
 import { createHud } from "./hud.js";
@@ -37,12 +37,12 @@ let gameMode="single";
 let gameDifficulty="medium";
 let difficultySettings={
   easy:{
-    waveCount:0.55,
-    waveDelay:1.35,
-    patrolDelay:1.45,
-    speed:0.68,
-    fireDelay:1.25,
-    villageBudget:0.65,
+    waveCount:0.38,
+    waveDelay:1.75,
+    patrolDelay:2.05,
+    speed:0.58,
+    fireDelay:1.55,
+    villageBudget:0.42,
     hardFlight:false
   },
   medium:{
@@ -69,6 +69,8 @@ let enemyWaveDelay=0;
 let enemyPatrolDelay=900;
 let enemySpawnSerial=0;
 let enemyBudgetRun=0;
+let mothership=null;
+let mothershipDelay=mothershipMinDelay+Math.floor(Math.random()*mothershipRandomDelay);
 let jetUnlocked=false;
 let score=0;
 let enemyScoreAmount=100;
@@ -134,6 +136,10 @@ let cannonGlowMat=new THREE.MeshBasicMaterial({
 let droneBodyMat=new THREE.MeshStandardMaterial({color:0x202935,emissive:0x061728,emissiveIntensity:0.35,roughness:0.56,metalness:0.7});
 let droneWingMat=new THREE.MeshStandardMaterial({color:0x58657a,emissive:0x121827,emissiveIntensity:0.22,roughness:0.6,metalness:0.55});
 let droneCoreMat=new THREE.MeshBasicMaterial({color:0x9fd8ff,transparent:true,opacity:0.78,depthWrite:false,blending:THREE.AdditiveBlending});
+let spiderBodyMat=new THREE.MeshStandardMaterial({color:0x151821,emissive:0x220912,emissiveIntensity:0.38,roughness:0.76,metalness:0.52});
+let spiderLegMat=new THREE.MeshStandardMaterial({color:0x3a2334,emissive:0x120512,emissiveIntensity:0.26,roughness:0.68,metalness:0.48});
+let mothershipHullMat=new THREE.MeshStandardMaterial({color:0x211c32,emissive:0x09051a,emissiveIntensity:0.42,roughness:0.72,metalness:0.58});
+let mothershipGlowMat=new THREE.MeshBasicMaterial({color:0x9fd8ff,transparent:true,opacity:0.46,depthWrite:false,blending:THREE.AdditiveBlending});
 let clusterBombRadius=300;
 let clusterBombCooldownFrames=150;
 let clusterBombInitialDropSpeed=0.22;
@@ -414,7 +420,7 @@ cars=[playerCar,secondCar];
 secondCar.group.visible=false;
 secondCar.shadow.setVisible(false);
 
-let world=createWorld(scene);
+let world=createWorld(scene,{getDifficulty:()=>gameDifficulty});
 let clouds=createClouds(scene,()=>({carX:playerCar.x,carZ:playerCar.z}));
 let birds=createBirds(scene,()=>({carX:playerCar.x,carZ:playerCar.z}));
 let dust=createDust(scene);
@@ -1534,6 +1540,7 @@ function updateRockets(){
 
     let surfaceY=drivingSurfaceHeight(rocket.x,rocket.z);
     let hitActor=null;
+    let hitMothership=false;
     if(rocket.age>4){
       for(let actor of combatActors()){
         if(actor===rocket.owner) continue;
@@ -1545,10 +1552,19 @@ function updateRockets(){
           break;
         }
       }
+      if(!rocket.owner.isEnemy && mothership && mothership.health>0){
+        let shipY=mothership.group ? mothership.group.position.y : mothership.y;
+        let dx=rocket.x-mothership.x;
+        let dy=(rocket.y-shipY)/0.45;
+        let dz=rocket.z-mothership.z;
+        if((dx*dx)/(34*34)+(dy*dy)/(12*12)+(dz*dz)/(18*18)<1){
+          hitMothership=true;
+        }
+      }
     }
 
     let hitObstacle=world.obstacleAlongSegment3D(prevX,prevY,prevZ,rocket.x,rocket.y,rocket.z,1.25);
-    let hit=rocket.y<=surfaceY+0.35 || hitObstacle || hitActor;
+    let hit=rocket.y<=surfaceY+0.35 || hitObstacle || hitActor || hitMothership;
 
     if(hit || rocket.age>rocket.life){
       if(hit){
@@ -1558,6 +1574,7 @@ function updateRockets(){
           ? Math.max(groundHeight(hitObstacle.x,hitObstacle.z)+Math.max(0.8,hitObstacle.r*0.45),surfaceY+0.5)
           : Math.max(rocket.y,surfaceY+0.5);
         spawnRocketExplosion(explosionX,explosionY,explosionZ);
+        if(hitMothership) damageMothership(explosionX,explosionY,explosionZ);
         if(hitObstacle){
           if(hitObstacle.type==="rock" || hitObstacle.type==="smallRock" || hitObstacle.type==="building" || hitObstacle.type==="wall" || hitObstacle.type==="turret"){
             spawnRockDebris(hitObstacle.x,explosionY,hitObstacle.z,hitObstacle);
@@ -1741,7 +1758,9 @@ function prepareVillageEnemyBudget(village){
 
   let settings=currentDifficulty();
   let baseBudget=village.enemyBudget || 7;
-  village.enemyRemaining=Math.max(1,Math.round(baseBudget*settings.villageBudget));
+  village.enemyRemaining=gameDifficulty==="easy"
+    ? Math.max(0,Math.round(baseBudget*settings.villageBudget))
+    : Math.max(1,Math.round(baseBudget*settings.villageBudget));
   village.enemyBudgetRun=enemyBudgetRun;
   village.enemyDifficulty=gameDifficulty;
 }
@@ -1878,6 +1897,224 @@ function spawnEnemyPatrol(){
   return true;
 }
 
+function playerCenter(){
+  let players=activeCars().filter(car=>car.health>0);
+  if(!players.length) return {x:playerCar.x,z:playerCar.z};
+  return players.reduce((acc,car)=>({
+    x:acc.x+car.x/players.length,
+    z:acc.z+car.z/players.length
+  }),{x:0,z:0});
+}
+
+function scheduleNextMothership(){
+  mothershipDelay=mothershipMinDelay+Math.floor(Math.random()*mothershipRandomDelay);
+}
+
+function removeMothership(){
+  if(!mothership) return;
+  scene.remove(mothership.group);
+  mothership=null;
+}
+
+function damageMothership(x,y,z){
+  if(!mothership || mothership.health<=0) return;
+  mothership.health--;
+  mothership.hitFlash=10;
+
+  for(let i=0;i<8;i++){
+    dust.spawnThrusterParticle(
+      x,
+      y,
+      z,
+      (Math.random()-0.5)*2.4,
+      (Math.random()-0.5)*2.4,
+      (Math.random()-0.5)*2.2,
+      0.18,
+      0.08+Math.random()*0.06
+    );
+  }
+
+  if(mothership.health<=0){
+    let shipY=mothership.group ? mothership.group.position.y : mothership.y;
+    spawnRadiusExplosion(mothership.x,shipY,mothership.z,96);
+    for(let i=0;i<7;i++){
+      let angle=(i/7)*Math.PI*2+Math.random()*0.25;
+      let dist=12+Math.random()*26;
+      spawnRocketExplosion(
+        mothership.x+Math.cos(angle)*dist,
+        shipY-4+Math.random()*12,
+        mothership.z+Math.sin(angle)*dist
+      );
+    }
+    addScore(900);
+    removeMothership();
+    scheduleNextMothership();
+  }
+}
+
+function spawnMothership(){
+  if(mothership || gameOver || activeEnemies().length>10) return false;
+
+  let center=playerCenter();
+  let angle=Math.random()*Math.PI*2;
+  let startDistance=mothershipHoverDistance+360;
+  let x=center.x+Math.cos(angle)*startDistance;
+  let z=center.z+Math.sin(angle)*startDistance;
+  let hoverX=center.x+Math.cos(angle)*mothershipHoverDistance;
+  let hoverZ=center.z+Math.sin(angle)*mothershipHoverDistance;
+  let exitX=center.x-Math.cos(angle)*(mothershipHoverDistance+520);
+  let exitZ=center.z-Math.sin(angle)*(mothershipHoverDistance+520);
+  let targetX=hoverX;
+  let targetZ=hoverZ;
+  let dx=targetX-x;
+  let dz=targetZ-z;
+  let len=Math.max(0.001,Math.hypot(dx,dz));
+  let speed=1.05;
+  let group=makeMothershipModel();
+  let y=drivingSurfaceHeight(hoverX,hoverZ)+38+Math.random()*12;
+
+  group.position.set(x,y,z);
+  group.rotation.y=Math.atan2(dx,dz);
+  scene.add(group);
+
+  mothership={
+    group,
+    x,
+    y,
+    z,
+    hoverX,
+    hoverZ,
+    exitX,
+    exitZ,
+    vx:(dx/len)*speed,
+    vz:(dz/len)*speed,
+    age:0,
+    health:mothershipRocketHits,
+    hitFlash:0,
+    hasReachedHover:false,
+    hoverFrames:0,
+    life:mothershipHoverFrames+760,
+    dropTimer:70,
+    dropsRemaining:mothershipDropCount,
+    dropsDone:0,
+    phase:Math.random()*Math.PI*2
+  };
+  return true;
+}
+
+function dropSpiderFromMothership(){
+  if(!mothership || activeEnemies().length>14) return false;
+
+  let rightX=Math.cos(mothership.group.rotation.y);
+  let rightZ=-Math.sin(mothership.group.rotation.y);
+  let forwardX=Math.sin(mothership.group.rotation.y);
+  let forwardZ=Math.cos(mothership.group.rotation.y);
+  let dropIndex=mothership.dropsDone || 0;
+  let centerOffset=(dropIndex-(mothershipDropCount-1)*0.5)*mothershipDropLineSpacing;
+  let x=mothership.hoverX+rightX*centerOffset;
+  let z=mothership.hoverZ+rightZ*centerOffset;
+
+  for(let attempt=0;attempt<5;attempt++){
+    let testX=x+forwardX*attempt*12;
+    let testZ=z+forwardZ*attempt*12;
+    if(waterDepthAt(testX,testZ)<=1.2 && !world.collidesWithObstacles(testX,testZ)){
+      x=testX;
+      z=testZ;
+      break;
+    }
+  }
+  if(waterDepthAt(x,z)>1.2 || world.collidesWithObstacles(x,z)) return false;
+
+  let spider=createEnemyState(++enemySpawnSerial,x,z,"spider");
+  spider.isPatrol=true;
+  let shipY=mothership.group ? mothership.group.position.y : mothership.y;
+  spider.y=shipY-10;
+  spider.group.position.set(spider.x,spider.y,spider.z);
+  spider.angle=mothership.group.rotation.y+Math.PI+(Math.random()-0.5)*0.8;
+  spider.velAngle=spider.angle;
+  if(spider.shadow) spider.shadow.update({carX:spider.x,carZ:spider.z,carY:spider.y,surfaceY:drivingSurfaceHeight(x,z),carVelAngle:spider.angle});
+  enemies.push(spider);
+
+  for(let i=0;i<10;i++){
+    dust.spawnThrusterParticle(
+      x,
+      shipY-9,
+      z,
+      (Math.random()-0.5)*0.8,
+      (Math.random()-0.5)*0.8,
+      -1.2-Math.random()*1.6,
+      0.16,
+      0.06+Math.random()*0.05
+    );
+  }
+  mothership.dropsDone=dropIndex+1;
+  return true;
+}
+
+function updateMothership(){
+  if(!mothership){
+    if(!gameOver && gameStarted){
+      mothershipDelay--;
+      if(mothershipDelay<=0 && !spawnMothership()) scheduleNextMothership();
+    }
+    return;
+  }
+
+  mothership.age++;
+  let hoverDx=mothership.hoverX-mothership.x;
+  let hoverDz=mothership.hoverZ-mothership.z;
+  let hoverDistance=Math.hypot(hoverDx,hoverDz);
+  if(hoverDistance<18) mothership.hasReachedHover=true;
+  let hovering=mothership.hasReachedHover && mothership.hoverFrames<mothershipHoverFrames;
+
+  if(hovering){
+    mothership.hoverFrames++;
+    mothership.x=mothership.hoverX+Math.sin(mothership.age*0.018+mothership.phase)*3.6;
+    mothership.z=mothership.hoverZ+Math.cos(mothership.age*0.016+mothership.phase)*3.6;
+  }else{
+    let targetX=mothership.hoverFrames>=mothershipHoverFrames ? mothership.exitX : mothership.hoverX;
+    let targetZ=mothership.hoverFrames>=mothershipHoverFrames ? mothership.exitZ : mothership.hoverZ;
+    let dx=targetX-mothership.x;
+    let dz=targetZ-mothership.z;
+    let len=Math.max(0.001,Math.hypot(dx,dz));
+    let speed=mothership.hoverFrames>=mothershipHoverFrames ? 1.12 : 1.05;
+    mothership.vx=(dx/len)*speed;
+    mothership.vz=(dz/len)*speed;
+    mothership.x+=mothership.vx;
+    mothership.z+=mothership.vz;
+    mothership.group.rotation.y+=normalizeAngle(Math.atan2(dx,dz)-mothership.group.rotation.y)*0.04;
+  }
+  let bob=Math.sin(mothership.age*0.025+mothership.phase)*4;
+  if(mothership.hoverFrames<mothershipHoverFrames){
+    let targetY=drivingSurfaceHeight(mothership.x,mothership.z)+42;
+    mothership.y+=(targetY-mothership.y)*0.035;
+  }
+  mothership.group.position.set(mothership.x,mothership.y+bob,mothership.z);
+  mothership.group.rotation.z=Math.sin(mothership.age*0.018+mothership.phase)*0.035;
+  if(mothership.group.userData.bay){
+    mothership.group.userData.bay.scale.setScalar(1+Math.sin(mothership.age*0.18)*0.08);
+  }
+  if(mothership.hitFlash>0){
+    mothership.group.scale.setScalar(1+Math.sin(mothership.hitFlash*1.7)*0.012);
+    mothership.hitFlash--;
+  }else{
+    mothership.group.scale.setScalar(1);
+  }
+
+  if(mothership.hoverFrames>=mothershipHoverFrames && mothership.dropsRemaining>0){
+    mothership.dropTimer--;
+    if(mothership.dropTimer<=0){
+      if(dropSpiderFromMothership()) mothership.dropsRemaining--;
+      mothership.dropTimer=mothershipDropInterval;
+    }
+  }
+
+  if(mothership.age>mothership.life){
+    removeMothership();
+    scheduleNextMothership();
+  }
+}
+
 function clearEnemies(){
   for(let enemy of enemies){
     enemy.active=false;
@@ -1891,6 +2128,8 @@ function clearEnemies(){
   enemies=[];
   enemyWaveDelay=0;
   enemyPatrolDelay=900;
+  removeMothership();
+  scheduleNextMothership();
 }
 
 function updateEnemy(enemy){
@@ -1912,7 +2151,12 @@ function updateEnemy(enemy){
   let desiredAngle=targetAngle;
   let desiredSpeed;
 
-  if(enemy.isDrone){
+  if(enemy.isSpider){
+    if(distance<22){
+      desiredAngle+=enemy.aiStrafe*clamp((22-distance)/18,0,1)*0.42;
+    }
+    desiredSpeed=distance>18 ? 0.28 : 0.12;
+  }else if(enemy.isDrone){
     desiredAngle=targetAngle+enemy.aiStrafe*0.44;
     desiredSpeed=distance>72 ? 0.34 : distance>38 ? 0.18 : -0.06;
   }else if(enemy.spawnVillage && !enemy.isPatrol){
@@ -1943,12 +2187,12 @@ function updateEnemy(enemy){
     desiredSpeed=distance>58 ? 0.38 : distance>30 ? 0.18 : -0.08;
   }
 
-  let turn=clamp(normalizeAngle(desiredAngle-enemy.angle),enemy.isDrone ? -0.075 : -0.045,enemy.isDrone ? 0.075 : 0.045);
+  let turn=clamp(normalizeAngle(desiredAngle-enemy.angle),enemy.isDrone || enemy.isSpider ? -0.075 : -0.045,enemy.isDrone || enemy.isSpider ? 0.075 : 0.045);
   enemy.angle=normalizeAngle(enemy.angle+turn);
 
   desiredSpeed*=settings.speed;
   enemy.speed+=clamp(desiredSpeed-enemy.speed,-0.012*settings.speed,0.012*settings.speed);
-  let maxEnemySpeed=(enemy.isDrone ? 0.48 : enemy.isBoss ? 0.15 : enemy.spawnVillage && !enemy.isPatrol ? 0.18 : 0.42)*settings.speed;
+  let maxEnemySpeed=(enemy.isSpider ? 0.32 : enemy.isDrone ? 0.48 : enemy.isBoss ? 0.15 : enemy.spawnVillage && !enemy.isPatrol ? 0.18 : 0.42)*settings.speed;
   enemy.speed=clamp(enemy.speed,-0.14*settings.speed,maxEnemySpeed);
 
   let prevX=enemy.x;
@@ -1965,7 +2209,13 @@ function updateEnemy(enemy){
     enemy.speed*=-0.25;
     enemy.angle=normalizeAngle(enemy.angle+(Math.random()<0.5 ? -1 : 1)*0.55);
     enemy.aiStrafe*=-1;
+    if(enemy.isSpider && collision.otherCar && enemy.contactCooldown<=0){
+      damageCar(collision.otherCar,4);
+      rattleActor(collision.otherCar,0.6);
+      enemy.contactCooldown=42;
+    }
   }
+  if(enemy.contactCooldown>0) enemy.contactCooldown--;
 
   let surfaceY=drivingSurfaceHeight(enemy.x,enemy.z);
   if(enemy.isDrone){
@@ -2002,10 +2252,20 @@ function updateEnemy(enemy){
   enemy.group.rotation.x=enemy.pitch;
   enemy.group.rotation.z=0;
   updateMechAnimation(enemy);
+  if(enemy.spiderModel && enemy.spiderModel.userData.legs){
+    let t=performance.now()*0.018+enemy.guardPhase;
+    for(let leg of enemy.spiderModel.userData.legs){
+      leg.mesh.rotation.x=leg.baseRotation.x+Math.sin(t+leg.phase)*0.36;
+      leg.mesh.rotation.z=leg.baseRotation.z+Math.cos(t*1.15+leg.phase)*0.22;
+    }
+    if(enemy.spiderModel.userData.core){
+      enemy.spiderModel.userData.core.scale.setScalar(1+Math.sin(t*1.8)*0.1);
+    }
+  }
 
   let fireRange=enemy.isDrone ? 118 : enemy.isBoss ? 112 : 82;
   let fireArc=enemy.isDrone ? 0.82 : enemy.isBoss ? 0.68 : 0.52;
-  if(distance<fireRange && Math.abs(normalizeAngle(targetAngle-enemy.angle))<fireArc){
+  if(!enemy.isSpider && distance<fireRange && Math.abs(normalizeAngle(targetAngle-enemy.angle))<fireArc){
     if(fireCannon(enemy)){
       let baseDelay=enemy.isDrone ? 54+Math.floor(Math.random()*42) : enemy.isBoss ? 44+Math.floor(Math.random()*36) : 78+Math.floor(Math.random()*58);
       enemy.cannonCooldown=scaledDelay(baseDelay,settings.fireDelay);
@@ -2064,6 +2324,7 @@ function updateEnemies(){
 }
 
 function updateVillageTurrets(){
+  if(gameDifficulty==="easy") return;
   for(let chunk of world.chunks.values()){
     if(!chunk.colliders) continue;
     for(let turret of chunk.colliders){
@@ -2812,6 +3073,105 @@ function makeDroneModel(seed=0){
   return drone;
 }
 
+function makeSpiderModel(seed=0){
+  let spider=new THREE.Group();
+  let body=new THREE.Mesh(new THREE.SphereGeometry(0.9,16,10),spiderBodyMat.clone());
+  body.scale.set(1.25,0.48,1.05);
+  body.position.y=0.78;
+  body.castShadow=true;
+  body.receiveShadow=true;
+  spider.add(body);
+
+  let core=new THREE.Mesh(new THREE.SphereGeometry(0.22,10,8),droneCoreMat.clone());
+  core.position.set(0,0.86,0.72);
+  spider.add(core);
+
+  let legs=[];
+  for(let side of [-1,1]){
+    for(let i=0;i<4;i++){
+      let leg=new THREE.Mesh(new THREE.BoxGeometry(1.25,0.12,0.16),spiderLegMat.clone());
+      let z=-0.56+i*0.38;
+      leg.position.set(side*(0.88+i*0.08),0.58,z);
+      leg.rotation.y=side*(0.55-i*0.1);
+      leg.rotation.z=side*(0.24+i*0.06);
+      leg.castShadow=true;
+      leg.receiveShadow=true;
+      spider.add(leg);
+      legs.push({mesh:leg,baseRotation:leg.rotation.clone(),phase:i*0.9+(side>0 ? 0 : Math.PI)});
+    }
+  }
+
+  spider.userData.legs=legs;
+  spider.userData.core=core;
+  return spider;
+}
+
+function makeMothershipModel(){
+  let ship=new THREE.Group();
+  let hull=new THREE.Mesh(new THREE.SphereGeometry(1,32,16),mothershipHullMat);
+  hull.scale.set(28,5.2,13.5);
+  hull.castShadow=true;
+  hull.receiveShadow=true;
+  ship.add(hull);
+
+  let deck=new THREE.Mesh(new THREE.CylinderGeometry(7.2,10.8,3.2,10),mothershipHullMat);
+  deck.position.y=3.15;
+  deck.scale.set(1.35,1,0.82);
+  deck.castShadow=true;
+  deck.receiveShadow=true;
+  ship.add(deck);
+
+  let bridge=new THREE.Mesh(new THREE.BoxGeometry(7.8,2.1,4.4),mothershipHullMat);
+  bridge.position.set(0,5.1,1.6);
+  bridge.castShadow=true;
+  bridge.receiveShadow=true;
+  ship.add(bridge);
+
+  let bay=new THREE.Mesh(new THREE.CylinderGeometry(4.8,6.2,0.56,32),mothershipGlowMat);
+  bay.position.y=-3.9;
+  bay.rotation.x=Math.PI/2;
+  ship.add(bay);
+
+  let spine=new THREE.Mesh(new THREE.BoxGeometry(38,0.7,1.1),mothershipGlowMat);
+  spine.position.set(0,0.55,-0.4);
+  ship.add(spine);
+
+  for(let side of [-1,1]){
+    let wing=new THREE.Mesh(new THREE.BoxGeometry(19,1.0,4.8),mothershipHullMat);
+    wing.position.set(side*18.4,-0.3,0.3);
+    wing.rotation.z=side*0.08;
+    wing.rotation.y=side*0.05;
+    wing.castShadow=true;
+    wing.receiveShadow=true;
+    ship.add(wing);
+
+    let fin=new THREE.Mesh(new THREE.ConeGeometry(2.2,7.4,4),mothershipHullMat);
+    fin.position.set(side*10.5,1.6,-8.9);
+    fin.rotation.x=Math.PI*0.5;
+    fin.rotation.z=side*0.24;
+    fin.castShadow=true;
+    fin.receiveShadow=true;
+    ship.add(fin);
+
+    for(let i=0;i<3;i++){
+      let engine=new THREE.Mesh(new THREE.SphereGeometry(1.35,16,10),mothershipGlowMat);
+      engine.position.set(side*(21+i*3.0),-0.45,-6.2+i*1.4);
+      engine.scale.set(1.45,0.86,1.45);
+      ship.add(engine);
+    }
+
+    for(let i=0;i<4;i++){
+      let light=new THREE.Mesh(new THREE.SphereGeometry(0.42,10,8),mothershipGlowMat);
+      light.position.set(side*(5+i*4.2),-3.2,7.8);
+      light.scale.set(1,0.55,1);
+      ship.add(light);
+    }
+  }
+
+  ship.userData.bay=bay;
+  return ship;
+}
+
 function createEnemyState(index,x,z,type="mech"){
   let group=new THREE.Group();
   group.rotation.order="YXZ";
@@ -2819,25 +3179,30 @@ function createEnemyState(index,x,z,type="mech"){
 
   let isDrone=type==="drone";
   let isBoss=type==="boss";
-  let mech=isDrone ? null : makeEnemyMechModel(index);
+  let isSpider=type==="spider";
+  let mech=(isDrone || isSpider) ? null : makeEnemyMechModel(index);
   let drone=isDrone ? makeDroneModel(index) : null;
+  let spider=isSpider ? makeSpiderModel(index) : null;
   if(mech){
     if(isBoss) mech.scale.multiplyScalar(1.55);
     group.add(mech);
   }
   if(drone) group.add(drone);
+  if(spider) group.add(spider);
 
   return {
     id:`enemy-${index}`,
     isEnemy:true,
     enemyType:type,
     isDrone,
+    isSpider,
     isBoss,
     active:true,
     group,
     shadow:isDrone ? null : createCarShadow(scene),
     mechModel:mech,
     droneModel:drone,
+    spiderModel:spider,
     carModel:null,
     aimCross:null,
     x,
@@ -2875,12 +3240,13 @@ function createEnemyState(index,x,z,type="mech"){
     clusterBombAmmo:0,
     flightTimer:0,
     flightCooldown:90+Math.floor(Math.random()*220),
+    contactCooldown:0,
     hitRattle:0,
     hitRattleSeed:0,
     walkCycle:0,
     lastWalkX:x,
     lastWalkZ:z,
-    health:isBoss ? 260 : isDrone ? 34 : 36,
+    health:isBoss ? 260 : isDrone ? 34 : isSpider ? 24 : 36,
     aiTarget:null,
     aiStrafe:Math.random()<0.5 ? -1 : 1,
     aiThink:0,
@@ -3367,6 +3733,7 @@ function loop(){
   for(let car of activeCars()){
     updateCar(car);
   }
+  updateMothership();
   updateEnemies();
   updateVillageTurrets();
   updateSupplyBoxes();

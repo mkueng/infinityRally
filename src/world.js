@@ -4,12 +4,13 @@ import { groundHeight, rand, roadCenterX, roadDistance } from "./terrain.js?v=no
 import { makeGroundTexture } from "./textures.js?v=alien-planet";
 import { makeSheep } from "./sheep.js";
 
-export function createWorld(scene){
+export function createWorld(scene,options={}){
   let chunkQueue=[];
   let removalQueue=[];
   let neededChunks=new Set();
   let chunks=new Map();
   let lastChunkBuildTime=0;
+  let getDifficulty=typeof options.getDifficulty==="function" ? options.getDifficulty : ()=>"medium";
 
 let landMat=new THREE.MeshStandardMaterial({
   map:makeGroundTexture(),
@@ -590,7 +591,7 @@ function makeChunk(cx,cz){
 
     let bossVillage=largeTown && r01(cx*1741+v*71,cz*927-v*37)>0.42;
     let enemyBudget=5+Math.floor(r01(cx*811+v*31,cz*337-v*13)*7)+(bossVillage ? 5 : largeTown ? 2 : 0);
-    let turretCount=bossVillage ? 3 : largeTown ? 1 : 0;
+    let turretCount=getDifficulty()==="easy" ? 0 : bossVillage ? 3 : largeTown ? 1 : 0;
     let village={x:centerX,z:centerZ,y:centerY,r:villageRadius,buildings:[],turrets:[],enemyBudget,enemyRemaining:enemyBudget,bossVillage,bossSpawned:false};
     villageCenters.push(village);
     let housesInVillage=largeTown
