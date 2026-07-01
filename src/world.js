@@ -9,6 +9,8 @@ export function createWorld(scene,options={}){
   let removalQueue=[];
   let neededChunks=new Set();
   let chunks=new Map();
+  let bossBases=[];
+  let bossBaseColliders=[];
   let lastChunkBuildTime=0;
   let getDifficulty=typeof options.getDifficulty==="function" ? options.getDifficulty : ()=>"medium";
 
@@ -76,6 +78,9 @@ let doorMat=new THREE.MeshStandardMaterial({color:0x241b2b,roughness:0.9,metalne
 let chimneyMat=new THREE.MeshStandardMaterial({color:0x494058,roughness:1,metalness:0.12});
 let houseTrimMat=new THREE.MeshStandardMaterial({color:0xa78fbd,roughness:0.78,metalness:0.08});
 let brickWallMat=new THREE.MeshStandardMaterial({color:0x714060,roughness:0.95,metalness:0.05});
+let bossBaseMat=new THREE.MeshStandardMaterial({color:0x191a24,emissive:0x19091f,emissiveIntensity:0.28,roughness:0.78,metalness:0.58});
+let bossBaseTrimMat=new THREE.MeshStandardMaterial({color:0x7a2f68,emissive:0x4c123d,emissiveIntensity:0.52,roughness:0.5,metalness:0.4});
+let bossBaseGlowMat=new THREE.MeshBasicMaterial({color:0xff4fc8,transparent:true,opacity:0.72});
 
 let trunkGeo=new THREE.CylinderGeometry(.28,1.08,10.5,6);
 let crownGeo=new THREE.IcosahedronGeometry(2.35,1);
@@ -93,6 +98,12 @@ let brickWallGeo=new THREE.BoxGeometry(1,1,1);
 let turretBaseGeo=new THREE.CylinderGeometry(1,1.25,1,8);
 let turretHeadGeo=new THREE.BoxGeometry(1,1,1);
 let turretBarrelGeo=new THREE.CylinderGeometry(0.16,0.2,2.4,10);
+let bossBasePlatformGeo=new THREE.BoxGeometry(1,1,1);
+let bossBaseTowerGeo=new THREE.BoxGeometry(1,1,1);
+let bossBaseSpireGeo=new THREE.BoxGeometry(1,1,1);
+let bossBaseGateGeo=new THREE.BoxGeometry(1,1,1);
+let bossBaseRingGeo=new THREE.BoxGeometry(1,1,1);
+let bossBaseGlowGeo=new THREE.BoxGeometry(1,1,1);
 let turretBaseMat=new THREE.MeshStandardMaterial({color:0x312a3e,roughness:0.82,metalness:0.42});
 let turretHeadMat=new THREE.MeshStandardMaterial({color:0x554163,emissive:0x16091f,emissiveIntensity:0.22,roughness:0.72,metalness:0.48});
 let turretBarrelMat=new THREE.MeshStandardMaterial({color:0x151923,emissive:0x06162d,emissiveIntensity:0.32,roughness:0.56,metalness:0.7});
@@ -133,6 +144,227 @@ function makeTurret(x,y,z,angle){
   return group;
 }
 
+function makeBossBase(x,z,angle=0){
+  let y=groundHeight(x,z);
+  let group=new THREE.Group();
+  group.position.set(x,y,z);
+  group.rotation.y=angle;
+  let turrets=[];
+  let guardPoints=[];
+
+  function addPart(geo,mat,px,py,pz,sx,sy,sz,rx=0,ry=0,rz=0){
+    let mesh=new THREE.Mesh(geo,mat);
+    mesh.position.set(px,py,pz);
+    mesh.scale.set(sx,sy,sz);
+    mesh.rotation.set(rx,ry,rz);
+    mesh.castShadow=true;
+    mesh.receiveShadow=true;
+    group.add(mesh);
+    return mesh;
+  }
+
+  addPart(bossBasePlatformGeo,bossBaseMat,0,2.2,0,76,4.4,50,0,Math.PI*0.25,0);
+  addPart(bossBasePlatformGeo,bossBaseMat,0,4.8,0,66,5.2,66,0,0,0);
+  addPart(bossBasePlatformGeo,bossBaseTrimMat,0,7.6,0,58,3.4,14,0,Math.PI*0.25,0);
+  addPart(bossBasePlatformGeo,bossBaseTrimMat,0,8.8,0,14,3.8,58,0,Math.PI*0.25,0);
+
+  addPart(bossBaseTowerGeo,bossBaseMat,0,22,0,20,31,20,0,Math.PI*0.25,0);
+  addPart(bossBaseTowerGeo,bossBaseTrimMat,0,27,0,24,5,24,0,Math.PI*0.25,0);
+  addPart(bossBaseSpireGeo,bossBaseTrimMat,0,42,0,24,6,24,0,Math.PI*0.25,0);
+  addPart(bossBaseGlowGeo,bossBaseGlowMat.clone(),0,46,0,18,2,18,0,Math.PI*0.25,0);
+  addPart(bossBaseGlowGeo,bossBaseGlowMat.clone(),0,35.5,10.8,10,0.9,0.45,0,0,0);
+  addPart(bossBaseGlowGeo,bossBaseGlowMat.clone(),0,35.5,-10.8,10,0.9,0.45,0,0,0);
+  addPart(bossBaseGlowGeo,bossBaseGlowMat.clone(),10.8,35.5,0,0.45,0.9,10,0,0,0);
+  addPart(bossBaseGlowGeo,bossBaseGlowMat.clone(),-10.8,35.5,0,0.45,0.9,10,0,0,0);
+
+  for(let side of [-1,1]){
+    for(let level of [17,24,31]){
+      addPart(bossBaseGlowGeo,bossBaseGlowMat.clone(),side*10.4,level,0,0.55,1.5,8,0,0,0);
+      addPart(bossBaseGlowGeo,bossBaseGlowMat.clone(),0,level,side*10.4,8,1.5,0.55,0,0,0);
+    }
+    for(let band of [-1,1]){
+      addPart(bossBaseGateGeo,bossBaseTrimMat,side*22,13,band*22,2.2,12,10,0,band*0.55,0);
+    }
+  }
+
+  for(let side of [-1,1]){
+    addPart(bossBaseGateGeo,bossBaseMat,0,9.5,side*34,24,8,5,0,0,0);
+    addPart(bossBaseGlowGeo,bossBaseGlowMat.clone(),0,10.3,side*36.7,18,2.4,0.45,0,0,0);
+    addPart(bossBaseGateGeo,bossBaseTrimMat,side*32,10,0,5,9,24,0,0,0);
+    addPart(bossBaseGlowGeo,bossBaseGlowMat.clone(),side*36.7,10.8,0,0.45,2.4,18,0,0,0);
+    addPart(bossBaseGateGeo,bossBaseMat,side*18,7.5,side*28,9,4,4,0,side*0.35,0);
+    addPart(bossBaseGateGeo,bossBaseMat,-side*18,7.5,side*28,9,4,4,0,-side*0.35,0);
+    for(let notch of [-1,0,1]){
+      addPart(bossBaseGlowGeo,bossBaseGlowMat.clone(),notch*7.5,13.5,side*39.4,3.4,0.65,0.35,0,0,0);
+      addPart(bossBaseGlowGeo,bossBaseGlowMat.clone(),side*39.4,13.5,notch*7.5,0.35,0.65,3.4,0,0,0);
+    }
+  }
+
+  for(let i=0;i<8;i++){
+    let a=(i/8)*Math.PI*2+Math.PI*0.125;
+    let px=Math.cos(a)*36;
+    let pz=Math.sin(a)*36;
+    let bladeYaw=-a+Math.PI*0.5;
+    let height=i%2===0 ? 24 : 18;
+    addPart(bossBaseTowerGeo,bossBaseMat,px,height*0.5+5,pz,6,height,10,0,bladeYaw,0);
+    addPart(bossBaseSpireGeo,bossBaseTrimMat,px,height+16,pz,8,6,12,0,bladeYaw+Math.PI*0.25,0);
+    addPart(bossBaseGlowGeo,bossBaseGlowMat.clone(),px,height+7,pz,0.55,11,4,0,bladeYaw,0);
+    addPart(bossBaseGlowGeo,bossBaseGlowMat.clone(),px,height*0.5+8,pz,0.65,1.4,7,0,bladeYaw,0);
+    addPart(bossBaseGateGeo,bossBaseTrimMat,px*0.82,9.5,pz*0.82,7,3.6,1.2,0,bladeYaw,0);
+    addPart(bossBaseGateGeo,bossBaseMat,px*0.64,15.5,pz*0.64,2.4,15,2.4,0,bladeYaw+Math.PI*0.25,0);
+    if(i%2===0){
+      let turret=makeTurret(0,0,0,bladeYaw);
+      turret.position.set(px*0.92,14.8,pz*0.92);
+      turret.scale.set(1.35,1.35,1.35);
+      group.add(turret);
+      turrets.push({
+        object:turret,
+        cooldown:50+i*13,
+        localX:px*0.92,
+        localY:14.8,
+        localZ:pz*0.92
+      });
+    }
+  }
+
+  for(let i=0;i<12;i++){
+    let a=(i/12)*Math.PI*2;
+    let px=Math.cos(a)*48;
+    let pz=Math.sin(a)*48;
+    addPart(bossBaseSpireGeo,bossBaseTrimMat,px,7.4,pz,5.8,10,2.8,0,-a+Math.PI*0.5,0);
+  }
+
+  for(let i=0;i<16;i++){
+    let a=(i/16)*Math.PI*2;
+    let px=Math.cos(a)*40;
+    let pz=Math.sin(a)*40;
+    let yaw=-a+Math.PI*0.5;
+    addPart(bossBaseGateGeo,bossBaseMat,px,4.4,pz,7.5,2.4,1.4,0,yaw,0);
+    if(i%2===0){
+      addPart(bossBaseGlowGeo,bossBaseGlowMat.clone(),px,6.1,pz,4.5,0.6,0.35,0,yaw,0);
+    }
+  }
+
+  for(let i=0;i<20;i++){
+    let a=(i/20)*Math.PI*2+Math.PI*0.05;
+    let px=Math.cos(a)*29;
+    let pz=Math.sin(a)*29;
+    let yaw=-a+Math.PI*0.5;
+    let panelHeight=i%3===0 ? 1.8 : 1.1;
+    addPart(bossBaseGateGeo,bossBaseTrimMat,px,11.4+(i%4)*1.15,pz,3.2,panelHeight,0.75,0,yaw,0);
+  }
+
+  for(let i=0;i<5;i++){
+    let a=angle+(i/5)*Math.PI*2+Math.PI*0.22;
+    let dist=i===0 ? 62 : 72+(i%2)*10;
+    guardPoints.push({
+      x:x+Math.sin(a)*dist,
+      z:z+Math.cos(a)*dist
+    });
+  }
+
+  scene.add(group);
+
+  return {
+    group,
+    x,
+    y,
+    z,
+    angle,
+    r:46,
+    health:260,
+    maxHealth:260,
+    active:true,
+    turrets,
+    guardPoints,
+    guardsSpawned:false
+  };
+}
+
+function clearBossBases(){
+  for(let base of bossBases){
+    scene.remove(base.group);
+  }
+  bossBases.length=0;
+  bossBaseColliders.length=0;
+}
+
+function placeTestBossBaseNearStart(startX,startZ,startAngle=0){
+  clearBossBases();
+
+  let forwardX=Math.sin(startAngle);
+  let forwardZ=Math.cos(startAngle);
+  let rightX=Math.cos(startAngle);
+  let rightZ=-Math.sin(startAngle);
+  let best=null;
+  let offsets=[
+    {forward:1800,side:650},
+    {forward:2400,side:-780},
+    {forward:3100,side:920},
+    {forward:3800,side:-1050},
+    {forward:4500,side:600}
+  ];
+
+  for(let offset of offsets){
+    for(let sideSign of [1,-1]){
+      let side=offset.side*sideSign;
+      let x=startX+forwardX*offset.forward+rightX*side;
+      let z=startZ+forwardZ*offset.forward+rightZ*side;
+      let y=groundHeight(x,z);
+      if(y<waterLevel+3 || y>38) continue;
+      if(roadDistance(x,z)<70) continue;
+      if(collidesWithObstacles(x,z)) continue;
+      best={x,z};
+      break;
+    }
+    if(best) break;
+  }
+
+  if(!best){
+    best={
+      x:startX+forwardX*2200+rightX*650,
+      z:startZ+forwardZ*2200+rightZ*650
+    };
+  }
+
+  let base=makeBossBase(best.x,best.z,startAngle+Math.PI);
+  bossBases.push(base);
+  bossBaseColliders.push({
+    x:base.x,
+    baseY:base.y,
+    y:base.y+18,
+    z:base.z,
+    r:base.r,
+    height:48,
+    visualRadius:base.r,
+    visualHeight:54,
+    type:"bossBase",
+    base,
+    indestructible:true,
+    object:base.group
+  });
+
+  return base;
+}
+
+function damageBossBase(obstacle,amount=1){
+  let base=obstacle && obstacle.base ? obstacle.base : obstacle;
+  if(!base || !base.active || base.health<=0) return false;
+
+  base.health=Math.max(0,base.health-amount);
+
+  if(base.health<=0){
+    base.active=false;
+    base.group.visible=false;
+    for(let collider of bossBaseColliders){
+      if(collider.base===base) collider.destroyed=true;
+    }
+    return true;
+  }
+
+  return false;
+}
+
 function collidesWithObstacles(x,z){
   let pcx=Math.floor(x/chunkSize);
   let pcz=Math.floor(z/chunkSize);
@@ -155,6 +387,14 @@ function collidesWithObstacles(x,z){
         if(dist*dist+distz*distz<r*r) return true;
       }
     }
+  }
+
+  for(let obstacle of bossBaseColliders){
+    if(obstacle.destroyed) continue;
+    let r=obstacle.r+carRadius;
+    let dist=x-obstacle.x;
+    let distz=z-obstacle.z;
+    if(dist*dist+distz*distz<r*r) return true;
   }
 
   return false;
@@ -184,6 +424,16 @@ function obstacleAt(x,z,padding=0){
           bestDist=distSq;
         }
       }
+    }
+  }
+
+  for(let obstacle of bossBaseColliders){
+    if(obstacle.destroyed) continue;
+    let r=obstacle.r+padding;
+    let distSq=(x-obstacle.x)*(x-obstacle.x)+(z-obstacle.z)*(z-obstacle.z);
+    if(distSq<r*r && distSq<bestDist){
+      best=obstacle;
+      bestDist=distSq;
     }
   }
 
@@ -226,7 +476,10 @@ function obstacleAlongSegment3D(fromX,fromY,fromZ,toX,toY,toZ,padding=0){
         if(obstacle.destroyed || obstacle.type==="treeCluster") continue;
 
         let isRock=obstacle.type==="rock" || obstacle.type==="smallRock";
+        let isBossBase=obstacle.type==="bossBase";
         let obstacleY=isRock && Number.isFinite(obstacle.y)
+          ? obstacle.y
+          : isBossBase && Number.isFinite(obstacle.y)
           ? obstacle.y
           : groundHeight(obstacle.x,obstacle.z)+Math.max(0.6,obstacle.r*0.45);
         let t=((obstacle.x-fromX)*sx+(obstacleY-fromY)*sy+(obstacle.z-fromZ)*sz)/segLenSq;
@@ -235,10 +488,14 @@ function obstacleAlongSegment3D(fromX,fromY,fromZ,toX,toY,toZ,padding=0){
         let closestX=fromX+sx*t;
         let closestY=fromY+sy*t;
         let closestZ=fromZ+sz*t;
-        let radius=(isRock
+        let radius=(isBossBase
+          ? Math.max(4,obstacle.r)
+          : isRock
           ? Math.max(2.0,(obstacle.visualRadius || obstacle.r)*1.15)
           : Math.max(1.2,obstacle.r*0.72))+padding;
-        let verticalRadius=(isRock
+        let verticalRadius=(isBossBase
+          ? Math.max(4,(obstacle.visualHeight || obstacle.height || obstacle.r)*0.52)
+          : isRock
           ? Math.max(1.2,(obstacle.visualHeight || obstacle.height || obstacle.r)*0.72)
           : Math.max(1.0,obstacle.r*0.65))+padding;
         let verticalScale=Math.max(0.001,verticalRadius/radius);
@@ -271,11 +528,37 @@ function obstacleAlongSegment3D(fromX,fromY,fromZ,toX,toY,toZ,padding=0){
     }
   }
 
+  for(let obstacle of bossBaseColliders){
+    if(obstacle.destroyed) continue;
+
+    let obstacleY=Number.isFinite(obstacle.y)
+      ? obstacle.y
+      : groundHeight(obstacle.x,obstacle.z)+Math.max(0.6,obstacle.r*0.45);
+    let t=((obstacle.x-fromX)*sx+(obstacleY-fromY)*sy+(obstacle.z-fromZ)*sz)/segLenSq;
+    t=Math.max(0,Math.min(1,t));
+
+    let closestX=fromX+sx*t;
+    let closestY=fromY+sy*t;
+    let closestZ=fromZ+sz*t;
+    let radius=Math.max(4,obstacle.r)+padding;
+    let verticalRadius=Math.max(4,(obstacle.visualHeight || obstacle.height || obstacle.r)*0.52)+padding;
+    let verticalScale=Math.max(0.001,verticalRadius/radius);
+    let distSq=(closestX-obstacle.x)*(closestX-obstacle.x)
+      + ((closestY-obstacleY)/verticalScale)*((closestY-obstacleY)/verticalScale)
+      + (closestZ-obstacle.z)*(closestZ-obstacle.z);
+
+    if(distSq<radius*radius && t<bestT){
+      best=obstacle;
+      bestT=t;
+    }
+  }
+
   return best;
 }
 
 function destroyObstacle(obstacle){
   if(!obstacle || obstacle.destroyed) return false;
+  if(obstacle.indestructible) return false;
   obstacle.destroyed=true;
 
   if(obstacle.instances){
@@ -1047,16 +1330,21 @@ function resetChunks(){
   chunkQueue=[];
   removalQueue=[];
   lastChunkBuildTime=0;
+  clearBossBases();
 }
 
   return {
     chunks,
+    bossBases,
     collidesWithObstacles,
     obstacleAt,
     obstacleAlongSegment,
     obstacleAlongSegment3D,
     destroyObstacle,
+    damageBossBase,
     isVillageCleared,
+    placeTestBossBaseNearStart,
+    clearBossBases,
     updateChunks,
     updateChunksForCenters,
     updateWind,

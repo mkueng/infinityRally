@@ -380,11 +380,65 @@ export function createMotorAudio(cars){
     noise.stop(time+1.5);
   }
 
+  function playLaserFire(){
+    ensureContext();
+    if(!context || !supported) return;
+    if(context.state==="suspended") context.resume();
+
+    let time=context.currentTime+0.004;
+    let zap=context.createOscillator();
+    let zapGain=context.createGain();
+    let body=context.createOscillator();
+    let bodyGain=context.createGain();
+    let noise=context.createBufferSource();
+    let noiseFilter=context.createBiquadFilter();
+    let noiseGain=context.createGain();
+
+    zap.type="sawtooth";
+    zap.frequency.setValueAtTime(1800,time);
+    zap.frequency.exponentialRampToValueAtTime(420,time+0.11);
+    zapGain.gain.setValueAtTime(0.0001,time);
+    zapGain.gain.exponentialRampToValueAtTime(0.16,time+0.006);
+    zapGain.gain.exponentialRampToValueAtTime(0.0001,time+0.16);
+
+    body.type="triangle";
+    body.frequency.setValueAtTime(118,time);
+    body.frequency.exponentialRampToValueAtTime(58,time+0.18);
+    bodyGain.gain.setValueAtTime(0.0001,time);
+    bodyGain.gain.exponentialRampToValueAtTime(0.14,time+0.008);
+    bodyGain.gain.exponentialRampToValueAtTime(0.0001,time+0.22);
+
+    noise.buffer=noiseBuffer || createNoiseBuffer();
+    noiseFilter.type="bandpass";
+    noiseFilter.frequency.setValueAtTime(2400,time);
+    noiseFilter.frequency.exponentialRampToValueAtTime(780,time+0.16);
+    noiseFilter.Q.setValueAtTime(3.4,time);
+    noiseGain.gain.setValueAtTime(0.0001,time);
+    noiseGain.gain.exponentialRampToValueAtTime(0.12,time+0.004);
+    noiseGain.gain.exponentialRampToValueAtTime(0.0001,time+0.18);
+
+    zap.connect(zapGain);
+    body.connect(bodyGain);
+    noise.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    zapGain.connect(master);
+    bodyGain.connect(master);
+    noiseGain.connect(master);
+
+    zap.start(time);
+    body.start(time);
+    noise.start(time);
+    zap.stop(time+0.18);
+    body.stop(time+0.24);
+    noise.stop(time+0.2);
+  }
+
   return {
     resume,
     update,
     playRocketLaunch,
     playCannonFire,
-    playExplosion
+    playExplosion,
+    playLaserFire
   };
 }
