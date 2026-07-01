@@ -227,6 +227,12 @@ function smoothStep(value){
   return value*value*(3-2*value);
 }
 
+function approach(value,target,amount){
+  if(value<target) return Math.min(target,value+amount);
+  if(value>target) return Math.max(target,value-amount);
+  return target;
+}
+
 function waterDepthAt(x,z){
   return waterLevel-groundHeight(x,z);
 }
@@ -365,6 +371,13 @@ function createCarState(id,lateralOffset,controls,camera,gamepadIndex){
     angle:0,
     velAngle:0,
     speed:0,
+    throttleEase:0,
+    turnInputEase:0,
+    turnVelocity:0,
+    speedDelta:0,
+    movementCompression:0,
+    movementLean:0,
+    movementPitch:0,
     throttleInput:0,
     liftInput:0,
     surfaceDistance:0,
@@ -3355,37 +3368,67 @@ function updateMechAnimation(car){
 
   let moving=car.onGround && car.health>0 && !gameOver && groundDistance>0.002 && speedAbs>0.01 && car.morphProgress<0.35;
   let runAmount=moving ? smoothStep((speedAbs-0.2)/0.34) : 0;
+  let longStrideAmount=moving ? smoothStep((speedAbs-mechGroundMaxSpeed*0.42)/(mechGroundMaxSpeed*0.28)) : 0;
+  let sprintAmount=moving ? smoothStep((speedAbs-mechGroundMaxSpeed*0.62)/(mechGroundMaxSpeed*0.26)) : 0;
   let intensity=moving ? clamp(groundDistance/mechGroundMaxSpeed,0.16,1.1+runAmount*0.35) : 0;
   let direction=car.speed<0 ? -1 : 1;
+  let accelKick=clamp((car.speedDelta || 0)*34,-1,1);
+  let brakingLoad=clamp(-(car.speedDelta || 0)*48,0,1);
+  let turnLoad=clamp((car.turnVelocity || 0)*28,-1,1);
+  let targetCompression=moving ? brakingLoad*0.16+Math.abs(turnLoad)*0.05+longStrideAmount*0.024+sprintAmount*0.018 : 0;
+  let targetLean=moving ? -turnLoad*(0.07+runAmount*0.08) : 0;
+  let targetPitch=moving
+    ? (runAmount*0.08+longStrideAmount*0.025+sprintAmount*0.025)*direction-accelKick*0.04+brakingLoad*0.08
+    : 0;
+
+  car.movementCompression+=(targetCompression-(car.movementCompression || 0))*0.18;
+  car.movementLean+=(targetLean-(car.movementLean || 0))*0.14;
+  car.movementPitch+=(targetPitch-(car.movementPitch || 0))*0.12;
 
   if(moving){
-    let strideLength=mechStrideLength*(1+runAmount*2.4);
-    car.walkCycle+=direction*groundDistance*(Math.PI*2/strideLength)*(1+runAmount*0.16);
+    let strideLength=mechStrideLength*(1+runAmount*1.38+longStrideAmount*1.35+sprintAmount*0.42);
+    let strideDrag=1-brakingLoad*0.18;
+    let cadence=1+runAmount*0.06-longStrideAmount*0.1-sprintAmount*0.04;
+    car.walkCycle+=direction*groundDistance*(Math.PI*2/strideLength)*cadence*strideDrag;
   }else{
     car.walkCycle*=0.88;
   }
 
   let phase=car.walkCycle;
-  let flightPulse=Math.pow(Math.max(0,Math.sin(phase*2)),2)*runAmount;
-  let bob=Math.abs(Math.sin(phase))*0.12*intensity+flightPulse*0.22;
-  let torsoSway=Math.sin(phase)*0.04*intensity*(1+runAmount*0.35);
-  let headCounter=Math.sin(phase)*0.025*intensity*(1+runAmount*0.25);
-  let forwardLean=runAmount*0.16*direction;
+  let flightPulse=Math.pow(Math.max(0,Math.sin(phase*2)),2)*runAmount*(1-longStrideAmount*0.32-sprintAmount*0.24);
+  let bobScale=1-longStrideAmount*0.26-sprintAmount*0.16;
+  let bob=Math.abs(Math.sin(phase))*0.12*intensity*bobScale+flightPulse*0.16;
+  let torsoSway=Math.sin(phase)*0.04*intensity*(1+runAmount*0.35-longStrideAmount*0.12-sprintAmount*0.08);
+  let torsoTwist=Math.sin(phase)*0.055*intensity*(longStrideAmount*0.65+sprintAmount*0.35)*direction;
+  let headCounter=Math.sin(phase)*0.025*intensity*(1+runAmount*0.25-longStrideAmount*0.12-sprintAmount*0.06);
+  let forwardLean=(runAmount*0.08+longStrideAmount*0.035+sprintAmount*0.02)*direction;
+  let compression=car.movementCompression || 0;
+  let heavyLean=car.movementLean || 0;
+  let heavyPitch=car.movementPitch || 0;
 
-  model.position.y=(model.userData.baseY || 0)+bob;
-  model.rotation.z=torsoSway;
-  model.rotation.x=-0.035*intensity-forwardLean;
+  model.position.y=(model.userData.baseY || 0)+bob-compression;
+  model.rotation.z=torsoSway+heavyLean;
+  model.rotation.x=-0.035*intensity+forwardLean+heavyPitch;
 
   if(parts.torso) parts.torso.rotation.z+=torsoSway*0.45;
+  if(parts.torso) parts.torso.rotation.y-=torsoTwist*0.7;
   if(parts.pelvis) {
     parts.pelvis.rotation.z-=torsoSway*0.8;
     parts.pelvis.rotation.x+=forwardLean*0.35;
+    parts.pelvis.rotation.y+=torsoTwist;
+    parts.pelvis.position.y-=compression*0.46;
   }
   if(parts.head) {
-    parts.head.rotation.z-=headCounter;
-    parts.head.rotation.x+=forwardLean*0.42;
+    parts.head.rotation.z-=headCounter+heavyLean*0.32;
+    parts.head.rotation.x+=forwardLean*0.32-heavyPitch*0.35;
+    parts.head.rotation.y+=torsoTwist*0.32;
   }
-  if(parts.reactorPack) parts.reactorPack.rotation.x+=Math.sin(phase*2)*0.025*intensity+forwardLean*0.45;
+  if(parts.torso) {
+    parts.torso.position.y-=compression*0.34;
+    parts.torso.rotation.x+=heavyPitch*0.42;
+  }
+  if(parts.chestPlate) parts.chestPlate.position.y-=compression*0.24;
+  if(parts.reactorPack) parts.reactorPack.rotation.x+=Math.sin(phase*2)*0.025*intensity+forwardLean*0.45-heavyPitch*0.52;
 
   for(let sideName of ["left","right"]){
     let side=sideName==="left" ? -1 : 1;
@@ -3396,52 +3439,62 @@ function updateMechAnimation(car){
     let lifted=Math.max(0,-Math.cos(sidePhase))*intensity;
     let lifted01=smoothStep(lifted/Math.max(0.001,intensity));
     let planted01=smoothStep(planted/Math.max(0.001,intensity));
-    let stride=1+runAmount*1.75;
-    let lift=1+runAmount*1.15;
-    let kneeDrive=runAmount*lifted01;
+    let stride=1+runAmount*1.36+longStrideAmount*0.98+sprintAmount*0.28;
+    let lift=1+runAmount*0.56+longStrideAmount*0.18;
+    let kneeDrive=runAmount*lifted01*(1-longStrideAmount*0.12-sprintAmount*0.06);
     let footPlant=runAmount*planted01;
+    let sideLoad=1+planted01*(0.12+brakingLoad*0.26);
+    let turnBrace=turnLoad*side*planted01;
+    let sprintDrive=(longStrideAmount*0.82+sprintAmount*0.18)*direction;
+    let groundDrive=sprintDrive*planted01;
+    let swingDrive=sprintDrive*lifted01;
 
     if(sideParts.upperLeg){
-      sideParts.upperLeg.rotation.x+=swing*0.88*stride+kneeDrive*0.72;
-      sideParts.upperLeg.position.z+=swing*0.24*stride+kneeDrive*0.28-footPlant*0.12;
+      sideParts.upperLeg.rotation.x+=swing*0.74*stride+kneeDrive*(0.48+sprintAmount*0.12)-turnBrace*0.12-groundDrive*0.16;
+      sideParts.upperLeg.position.z+=swing*0.3*stride+kneeDrive*0.18-footPlant*0.12-groundDrive*0.18;
+      sideParts.upperLeg.position.y-=compression*0.2*sideLoad;
     }
     if(sideParts.shin){
-      sideParts.shin.rotation.x+=(-swing*0.5*stride-lifted*0.34*lift-kneeDrive*0.9);
-      sideParts.shin.position.z+=swing*0.2*stride+kneeDrive*0.46;
+      sideParts.shin.rotation.x+=(-swing*0.42*stride-lifted*0.22*lift-kneeDrive*(0.58+sprintAmount*0.16)+groundDrive*0.12);
+      sideParts.shin.position.z+=swing*0.24*stride+kneeDrive*0.26-groundDrive*0.14;
     }
     if(sideParts.knee){
-      sideParts.knee.position.y+=lifted*0.08+kneeDrive*0.58;
-      sideParts.knee.position.z+=swing*0.1+kneeDrive*0.5;
+      sideParts.knee.position.y+=lifted*0.05+kneeDrive*(0.36+sprintAmount*0.12);
+      sideParts.knee.position.z+=swing*0.12+kneeDrive*0.34+swingDrive*0.14;
     }
     if(sideParts.kneePlate){
-      sideParts.kneePlate.position.y+=lifted*0.08+kneeDrive*0.58;
-      sideParts.kneePlate.position.z+=swing*0.1+kneeDrive*0.5;
+      sideParts.kneePlate.position.y+=lifted*0.05+kneeDrive*(0.36+sprintAmount*0.12);
+      sideParts.kneePlate.position.z+=swing*0.12+kneeDrive*0.34+swingDrive*0.14;
     }
     if(sideParts.foot){
-      sideParts.foot.position.y+=lifted*0.34*lift+kneeDrive*0.98;
-      sideParts.foot.position.z+=swing*0.62*stride-planted*0.22+kneeDrive*0.92-footPlant*0.28;
-      sideParts.foot.rotation.x+=-swing*0.34*stride+lifted*0.16*lift+kneeDrive*0.62-footPlant*0.18;
+      sideParts.foot.position.y+=lifted*0.22*lift+kneeDrive*(0.54+sprintAmount*0.1)-compression*0.34*sideLoad;
+      sideParts.foot.position.z+=swing*0.7*stride-planted*0.26*sideLoad+kneeDrive*0.5-footPlant*0.34-groundDrive*0.38+swingDrive*0.16;
+      sideParts.foot.rotation.x+=-swing*0.28*stride+lifted*0.1*lift+kneeDrive*0.36-footPlant*(0.3+sprintAmount*0.18)-brakingLoad*planted01*0.18-groundDrive*0.12;
+      sideParts.foot.rotation.z+=side*turnBrace*0.1;
     }
     if(sideParts.toePlate){
-      sideParts.toePlate.position.y+=lifted*0.34*lift+kneeDrive*0.98;
-      sideParts.toePlate.position.z+=swing*0.62*stride-planted*0.22+kneeDrive*0.92-footPlant*0.28;
-      sideParts.toePlate.rotation.x+=-swing*0.4*stride+lifted*0.22*lift+kneeDrive*0.72-footPlant*0.24;
+      sideParts.toePlate.position.y+=lifted*0.22*lift+kneeDrive*(0.54+sprintAmount*0.1)-compression*0.34*sideLoad;
+      sideParts.toePlate.position.z+=swing*0.7*stride-planted*0.26*sideLoad+kneeDrive*0.5-footPlant*0.34-groundDrive*0.38+swingDrive*0.16;
+      sideParts.toePlate.rotation.x+=-swing*0.34*stride+lifted*0.14*lift+kneeDrive*0.42-footPlant*(0.38+sprintAmount*0.22)-brakingLoad*planted01*0.22-groundDrive*0.14;
+      sideParts.toePlate.rotation.z+=side*turnBrace*0.12;
     }
     if(sideParts.upperArm){
-      sideParts.upperArm.rotation.x+=-swing*(0.24+runAmount*0.7);
-      sideParts.upperArm.rotation.z+=side*0.04*intensity;
+      sideParts.upperArm.rotation.x+=-swing*(0.24+runAmount*0.58+sprintAmount*0.46)+heavyPitch*0.2;
+      sideParts.upperArm.rotation.y+=side*(0.04+0.16*sprintAmount)*planted01;
+      sideParts.upperArm.rotation.z+=side*0.04*intensity-heavyLean*0.32;
     }
     if(sideParts.forearm){
-      sideParts.forearm.rotation.x+=-swing*(0.16+runAmount*0.42);
+      sideParts.forearm.rotation.x+=-swing*(0.16+runAmount*0.36+sprintAmount*0.28)-lifted01*sprintAmount*0.16;
     }
     if(sideParts.hand){
-      sideParts.hand.position.z+=-swing*(0.06+runAmount*0.22);
+      sideParts.hand.position.z+=-swing*(0.06+runAmount*0.18+sprintAmount*0.22);
     }
     if(sideParts.cannon){
       sideParts.cannon.rotation.x+=-swing*(0.06+runAmount*0.14);
     }
     if(sideParts.shoulder){
       sideParts.shoulder.rotation.z+=side*0.025*intensity;
+      sideParts.shoulder.rotation.y-=side*sprintAmount*planted01*0.08;
     }
   }
 }
@@ -3450,6 +3503,7 @@ function updateCar(car){
   let prevX=car.x;
   let prevZ=car.z;
   let prevY=car.y;
+  let previousSpeed=car.speed || 0;
   let {forward,turn,lift}=controlsFor(car);
   updateMorphInput(car);
   updateAimCross(car);
@@ -3462,50 +3516,94 @@ function updateCar(car){
   let jetMovement=car.jetMode || car.jetProgress>0.65;
   let airborneMovement=car.airborne || !car.onGround;
   let carDisabled=car.health<=0;
+  let weightedMechMovement=!jetMovement && !airborneMovement && car.morphProgress<0.4;
 
   if(gameOver || carDisabled){
     car.speed=0;
     car.slipAmount=0;
     car.vy=0;
+    car.throttleEase=0;
+    car.turnInputEase=0;
+    car.turnVelocity=0;
   }else{
     let speedAbs=Math.abs(car.speed);
     let speedRatio=clamp(speedAbs/mechGroundMaxSpeed,0,1);
-    let throttle=forward>0;
-    let brakeOrReverse=forward<0;
-    let throttlePower=Math.abs(forward);
+    let forwardMaxSpeed=jetMovement ? jetMaxSpeed : airborneMovement ? mechAirMaxSpeed*morphSpeedMultiplier : localMaxSpeed*morphSpeedMultiplier;
 
-    if(throttle){
-      let airThrust=airborneMovement ? 1.85 : 1;
-      car.speed+=0.0052*airThrust*throttlePower*(1-speedRatio*0.35);
-    }else if(brakeOrReverse){
-      car.speed+=(car.speed>0.03 ? -0.02 : -0.0045)*throttlePower;
+    if(weightedMechMovement){
+      let throttleResponse=forward===0 ? 0.08 : 0.055;
+      car.throttleEase+=(forward-car.throttleEase)*throttleResponse;
+      if(Math.abs(forward)<0.001 && Math.abs(car.throttleEase)<0.015) car.throttleEase=0;
+
+      let targetSpeed=car.throttleEase>=0
+        ? car.throttleEase*localMaxSpeed
+        : car.throttleEase*localMaxSpeed*0.42;
+      let changingDirection=car.speed*targetSpeed<0;
+      let accelLimit=targetSpeed===0 ? 0.0034 : targetSpeed>car.speed ? 0.0042 : 0.0078;
+      if(changingDirection) accelLimit=0.012;
+      accelLimit*=1-speedRatio*0.18;
+      car.speed=approach(car.speed,targetSpeed,Math.max(0.0022,accelLimit));
+      if(forward===0){
+        car.speed*=car.onGround ? 0.985 : 0.992;
+        if(Math.abs(car.speed)<0.006) car.speed=0;
+      }
     }else{
-      car.speed*=car.onGround ? 0.965 : 0.985;
-      if(Math.abs(car.speed)<0.008) car.speed=0;
+      car.throttleEase=forward;
+      let throttle=forward>0;
+      let brakeOrReverse=forward<0;
+      let throttlePower=Math.abs(forward);
+
+      if(throttle){
+        let airThrust=airborneMovement ? 1.85 : 1;
+        car.speed+=0.0052*airThrust*throttlePower*(1-speedRatio*0.35);
+      }else if(brakeOrReverse){
+        car.speed+=(car.speed>0.03 ? -0.02 : -0.0045)*throttlePower;
+      }else{
+        car.speed*=car.onGround ? 0.965 : 0.985;
+        if(Math.abs(car.speed)<0.008) car.speed=0;
+      }
     }
 
-    let forwardMaxSpeed=jetMovement ? jetMaxSpeed : airborneMovement ? mechAirMaxSpeed*morphSpeedMultiplier : localMaxSpeed*morphSpeedMultiplier;
     car.speed=clamp(car.speed,-localMaxSpeed*0.42,forwardMaxSpeed);
 
+    speedAbs=Math.abs(car.speed);
     let movingSteer=clamp(speedAbs/0.34,0,1);
-    let highSpeedCalm=1-clamp((speedAbs-0.32)/0.32,0,0.18);
-    let robotTurnBoost=1+0.42*(1-smoothStep(car.morphProgress/0.65));
-    let steeringResponse=(0.52+movingSteer*0.54)*highSpeedCalm*robotTurnBoost;
     let reverseSteer=car.speed< -0.04 ? -1 : 1;
-    car.angle+=turn*reverseSteer*0.031*steeringResponse;
+    if(weightedMechMovement){
+      let highSpeedCalm=1-clamp((speedAbs-0.32)/0.32,0,0.2);
+      let turnResponse=turn===0 ? 0.13 : 0.16;
+      car.turnInputEase+=(turn-car.turnInputEase)*turnResponse;
+      let pivotSteer=0.22*(1-movingSteer);
+      let strideSteer=0.52+movingSteer*0.58+pivotSteer;
+      let targetTurnVelocity=car.turnInputEase*reverseSteer*0.027*strideSteer*highSpeedCalm;
+      car.turnVelocity+=(targetTurnVelocity-car.turnVelocity)*0.12;
+      car.turnVelocity*=turn===0 ? 0.86 : 0.985;
+      car.turnVelocity=clamp(car.turnVelocity,-0.034,0.034);
+      car.angle=normalizeAngle(car.angle+car.turnVelocity);
+      car.velAngle+=normalizeAngle(car.angle-car.velAngle)*(0.16+0.1*(1-movingSteer));
+    }else{
+      car.turnInputEase=turn;
+      car.turnVelocity=0;
+      let highSpeedCalm=1-clamp((speedAbs-0.32)/0.32,0,0.18);
+      let robotTurnBoost=1+0.42*(1-smoothStep(car.morphProgress/0.65));
+      let steeringResponse=(0.52+movingSteer*0.54)*highSpeedCalm*robotTurnBoost;
+      car.angle+=turn*reverseSteer*0.031*steeringResponse;
+      car.velAngle=car.angle;
+    }
 
-    car.velAngle=car.angle;
     car.slipAmount=0;
   }
 
   if(!gameOver && !carDisabled){
-    car.x+=Math.sin(car.angle)*car.speed;
-    car.z+=Math.cos(car.angle)*car.speed;
+    let moveAngle=weightedMechMovement ? car.velAngle : car.angle;
+    car.x+=Math.sin(moveAngle)*car.speed;
+    car.z+=Math.cos(moveAngle)*car.speed;
     if(mountainClimbBlocked(car,prevX,prevZ,car.x,car.z)){
       car.x=prevX;
       car.z=prevZ;
       car.speed=Math.min(0,car.speed*0.18);
       car.vy=Math.min(car.vy,0);
+      car.throttleEase=Math.min(0,car.throttleEase || 0);
     }
   }
 
@@ -3603,6 +3701,7 @@ function updateCar(car){
   let airborne=car.y>surfaceY+0.35;
   car.airborne=airborne;
   updateAirTricks(car,airborne);
+  car.speedDelta=car.speed-previousSpeed;
 
   let pitchSampleDist=2.2;
   let frontX=car.x+Math.sin(car.angle)*pitchSampleDist;
@@ -3906,6 +4005,13 @@ function placeCarOnRoad(car,z){
   car.angle=point.angle;
   car.velAngle=point.angle;
   car.speed=0;
+  car.throttleEase=0;
+  car.turnInputEase=0;
+  car.turnVelocity=0;
+  car.speedDelta=0;
+  car.movementCompression=0;
+  car.movementLean=0;
+  car.movementPitch=0;
   car.throttleInput=0;
   car.liftInput=0;
   car.surfaceDistance=roadDistance(car.x,car.z);
