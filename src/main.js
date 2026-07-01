@@ -13,7 +13,12 @@ import { makeSkyTexture } from "./textures.js?v=alien-planet";
 let scene=new THREE.Scene();
 let playerCamera=new THREE.PerspectiveCamera(45,innerWidth/innerHeight,.1,1e6);
 let secondCamera=new THREE.PerspectiveCamera(45,innerWidth/innerHeight,.1,1e6);
-let renderer=new THREE.WebGLRenderer({antialias:true});
+let renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:"high-performance"});
+function updateRendererPixelRatio(){
+  let maxRatio=gameMode==="double" ? 1 : 1.5;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1,maxRatio));
+}
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1,1.5));
 renderer.setSize(innerWidth,innerHeight);
 renderer.setScissorTest(true);
 document.body.appendChild(renderer.domElement);
@@ -473,6 +478,7 @@ let dust=createDust(scene);
 let wheelTracks=createWheelTracks(scene);
 let motorAudio=createMotorAudio(cars);
 let hud=createHud({
+  getPerformanceMode:()=>gameMode==="double" ? "split" : "full",
   getCarStates:()=>displayCars().map(car=>({
     id:car.id,
     label:car.id==="car1" ? "P1" : "P2",
@@ -4397,6 +4403,7 @@ function loop(){
 }
 
 window.addEventListener("resize",()=>{
+  updateRendererPixelRatio();
   updateCameraProjection();
   renderer.setSize(innerWidth,innerHeight);
 });
@@ -4518,6 +4525,7 @@ function startGame(mode,difficulty="medium"){
   setCarActive(secondCar,mode==="double");
   playerCar.cameraYaw=playerCar.angle;
   secondCar.cameraYaw=secondCar.angle;
+  updateRendererPixelRatio();
   updateCameraProjection();
   updateCameras();
 

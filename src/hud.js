@@ -1,10 +1,11 @@
 import { chunkSize } from "./constants.js";
 import { carSurfaceHeight } from "./terrain.js?v=no-ramps";
 
-export function createHud({getCarStates,getChunks,getEnemyStates=()=>[]}){
+export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getPerformanceMode=()=>"full"}){
   let panels=[];
   let gameOverOverlay;
   let mapUpdateFrame=0;
+  let compassUpdateFrame=0;
 
   function panelOffset(panel){
     if(panel.side==="full") return "0%";
@@ -288,7 +289,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[]}){
     let radius=chunkSize*2.3;
 
     mapCtx.clearRect(0,0,size,size);
-    let cells=48;
+    let cells=getPerformanceMode()==="split" ? 32 : 48;
     let cellSize=size/cells;
     for(let gy=0;gy<cells;gy++){
       for(let gx=0;gx<cells;gx++){
@@ -543,7 +544,8 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[]}){
   }
 
   function updateMapHud(force=false){
-    if(!force && mapUpdateFrame++%6!==0) return;
+    let interval=getPerformanceMode()==="split" ? 12 : 6;
+    if(!force && mapUpdateFrame++%interval!==0) return;
     let states=getCarStates();
     let enemies=getEnemyStates();
     for(let i=0;i<panels.length;i++){
@@ -552,6 +554,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[]}){
   }
 
   function updateCompassHud(){
+    if(getPerformanceMode()==="split" && compassUpdateFrame++%2!==0) return;
     let states=getCarStates();
     for(let i=0;i<panels.length;i++){
       drawCompassHud(panels[i],states[i]);

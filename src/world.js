@@ -114,6 +114,13 @@ function chunkKey(cx,cz){
 
 let hiddenInstanceMatrix=new THREE.Matrix4().makeScale(0,0,0);
 
+function freezeStaticObject(object){
+  object.updateMatrix();
+  object.matrixAutoUpdate=false;
+  object.matrixWorldNeedsUpdate=true;
+  return object;
+}
+
 function hideInstance(mesh,index){
   if(!mesh || index==null || index<0) return;
   mesh.setMatrixAt(index,hiddenInstanceMatrix);
@@ -640,6 +647,7 @@ function makeChunk(cx,cz){
 
   let land=new THREE.Mesh(geo,landMat);
   land.position.set(cx*chunkSize,0,cz*chunkSize);
+  freezeStaticObject(land);
   scene.add(land);
 
   let road=new THREE.Object3D();
@@ -651,6 +659,7 @@ function makeChunk(cx,cz){
   water.rotation.x=-Math.PI/2;
   water.position.set(cx*chunkSize,waterLevel,cz*chunkSize);
   water.renderOrder=2;
+  freezeStaticObject(water);
   scene.add(water);
 
   let clusterCount=2;
@@ -773,6 +782,9 @@ function makeChunk(cx,cz){
   trunks.instanceMatrix.needsUpdate=true;
   crowns.instanceMatrix.needsUpdate=true;
   pods.instanceMatrix.needsUpdate=true;
+  freezeStaticObject(trunks);
+  freezeStaticObject(crowns);
+  freezeStaticObject(pods);
   scene.add(trunks,crowns,pods);
 
   let grassClusterCount=20;
@@ -819,6 +831,7 @@ function makeChunk(cx,cz){
 
   grasses.count=grassUsed;
   grasses.instanceMatrix.needsUpdate=true;
+  freezeStaticObject(grasses);
   scene.add(grasses);
 
   let rockCount=30;
@@ -866,6 +879,7 @@ function makeChunk(cx,cz){
 
   rocks.count=rockUsed;
   rocks.instanceMatrix.needsUpdate=true;
+  freezeStaticObject(rocks);
   scene.add(rocks);
 
   let maxBuildings=120;
@@ -1127,6 +1141,14 @@ function makeChunk(cx,cz){
   buildingTrims.instanceMatrix.needsUpdate=true;
   buildingPorches.instanceMatrix.needsUpdate=true;
   villageWalls.instanceMatrix.needsUpdate=true;
+  freezeStaticObject(buildingBodies);
+  freezeStaticObject(buildingRoofs);
+  freezeStaticObject(buildingWindows);
+  freezeStaticObject(buildingDoors);
+  freezeStaticObject(buildingChimneys);
+  freezeStaticObject(buildingTrims);
+  freezeStaticObject(buildingPorches);
+  freezeStaticObject(villageWalls);
   scene.add(buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls);
 
   let herdChance=0.28;
