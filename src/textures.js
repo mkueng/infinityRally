@@ -1,16 +1,25 @@
 import { THREE } from "./three.js";
 
-export function makeSkyTexture(){
+function pick(list,index,fallback){
+  return list && list[index] ? list[index] : fallback;
+}
+
+function randomChannel(base,spread){
+  return Math.max(0,Math.min(255,base+Math.random()*spread));
+}
+
+export function makeSkyTexture(environment={}){
+  let sky=environment.sky || ["#12072b","#33145f","#9c416f","#f08c71","#ffd3a5"];
   let canvas=document.createElement("canvas");
   canvas.width=1024;
   canvas.height=512;
   let ctx=canvas.getContext("2d");
   let gradient=ctx.createLinearGradient(0,0,0,512);
-  gradient.addColorStop(0,"#12072b");
-  gradient.addColorStop(0.34,"#33145f");
-  gradient.addColorStop(0.68,"#9c416f");
-  gradient.addColorStop(0.88,"#f08c71");
-  gradient.addColorStop(1,"#ffd3a5");
+  gradient.addColorStop(0,pick(sky,0,"#12072b"));
+  gradient.addColorStop(0.34,pick(sky,1,"#33145f"));
+  gradient.addColorStop(0.68,pick(sky,2,"#9c416f"));
+  gradient.addColorStop(0.88,pick(sky,3,"#f08c71"));
+  gradient.addColorStop(1,pick(sky,4,"#ffd3a5"));
   ctx.fillStyle=gradient;
   ctx.fillRect(0,0,1024,512);
 
@@ -102,21 +111,27 @@ export function makeCloudTexture(){
   return tex;
 }
 
-export function makeGroundTexture(){
+export function makeGroundTexture(environment={}){
+  let ground=environment.groundTexture || {
+    base:"#6f2d46",
+    dark:[55,20,70],
+    bright:[150,70,55],
+    streak:"104,255,213"
+  };
   let canvas=document.createElement("canvas");
   canvas.width=1024;
   canvas.height=1024;
 
   let ctx=canvas.getContext("2d");
 
-  ctx.fillStyle="#6f2d46";
+  ctx.fillStyle=ground.base || "#6f2d46";
   ctx.fillRect(0,0,1024,1024);
 
   for(let i=0;i<800;i++){
     let size=Math.random()*60+30;
-    let r=55+Math.random()*45;
-    let g=20+Math.random()*18;
-    let b=70+Math.random()*55;
+    let r=randomChannel((ground.dark || [55,20,70])[0],45);
+    let g=randomChannel((ground.dark || [55,20,70])[1],24);
+    let b=randomChannel((ground.dark || [55,20,70])[2],55);
 
     ctx.fillStyle=`rgba(${r},${g},${b},0.12)`;
     ctx.fillRect(
@@ -129,9 +144,9 @@ export function makeGroundTexture(){
 
   for(let i=0;i<600;i++){
     let size=Math.random()*50+25;
-    let r=150+Math.random()*65;
-    let g=70+Math.random()*45;
-    let b=55+Math.random()*40;
+    let r=randomChannel((ground.bright || [150,70,55])[0],65);
+    let g=randomChannel((ground.bright || [150,70,55])[1],45);
+    let b=randomChannel((ground.bright || [150,70,55])[2],40);
 
     ctx.fillStyle=`rgba(${r},${g},${b},0.08)`;
     ctx.fillRect(
@@ -146,7 +161,7 @@ export function makeGroundTexture(){
     let x=Math.random()*1024;
     let y=Math.random()*1024;
     let length=45+Math.random()*160;
-    ctx.strokeStyle=`rgba(104,255,213,${0.05+Math.random()*0.08})`;
+    ctx.strokeStyle=`rgba(${ground.streak || "104,255,213"},${0.05+Math.random()*0.08})`;
     ctx.lineWidth=1+Math.random()*2.5;
     ctx.beginPath();
     ctx.moveTo(x,y);

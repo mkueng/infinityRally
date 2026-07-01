@@ -1,9 +1,22 @@
 import { offroadMaxSpeed, roadMaxSpeed } from "./constants.js";
 
 let worldSeed=0;
+const defaultTerrainProfile={
+  heightScale:1,
+  hillScale:1,
+  mountainScale:1,
+  baseHeight:0,
+  roadWave1:220,
+  roadWave2:80,
+  roadWave3:25,
+  roadFrequencyScale:1,
+  roadPhase:0
+};
+let terrainProfile={...defaultTerrainProfile};
 
-export function setWorldSeed(seed){
+export function setWorldSeed(seed,profile={}){
   worldSeed=Number.isFinite(seed) ? seed : 0;
+  terrainProfile={...defaultTerrainProfile,...profile};
 }
 
 export function rand(x,z){
@@ -50,10 +63,11 @@ export function height(x,z){
   let mountainMask=Math.max(0,continent-.45)*2.2;
   mountainMask=Math.min(1,mountainMask);
 
-  return continent*14
-    + hills*5
-    + mountains*40*mountainMask
-    - 14;
+  return continent*14*terrainProfile.heightScale
+    + hills*5*terrainProfile.hillScale
+    + mountains*40*mountainMask*terrainProfile.mountainScale
+    - 14
+    + terrainProfile.baseHeight;
 }
 
 export function groundHeight(x,z){
@@ -61,9 +75,11 @@ export function groundHeight(x,z){
 }
 
 export function roadCenterX(z){
-  return Math.sin(z*.002)*220
-    + Math.sin(z*.006)*80
-    + Math.sin(z*.013)*25;
+  let phase=terrainProfile.roadPhase+worldSeed*0.0007;
+  let frequencyScale=terrainProfile.roadFrequencyScale;
+  return Math.sin(z*.002*frequencyScale+phase)*terrainProfile.roadWave1
+    + Math.sin(z*.006*frequencyScale+phase*0.73)*terrainProfile.roadWave2
+    + Math.sin(z*.013*frequencyScale+phase*1.31)*terrainProfile.roadWave3;
 }
 
 export function roadYawAt(z){

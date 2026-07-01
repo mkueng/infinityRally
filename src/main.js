@@ -7,8 +7,87 @@ import { createBirds, createCarShadow, createClouds, createDust, createWheelTrac
 import { createWorld } from "./world.js?v=alien-planet";
 import { createMotorAudio } from "./audio.js?v=alien-planet-world";
 import { loadCarModel, makeJetModel, makeMechModel } from "./models.js?v=jet-morph";
-import { updateSheep } from "./sheep.js";
 import { makeSkyTexture } from "./textures.js?v=alien-planet";
+
+const worldEnvironments=[
+  {
+    name:"alien dusk",
+    terrain:{heightScale:1,hillScale:1,mountainScale:1,baseHeight:0,roadWave1:220,roadWave2:80,roadWave3:25,roadFrequencyScale:1},
+    sky:["#12072b","#33145f","#9c416f","#f08c71","#ffd3a5"],
+    fog:0x7b4771,
+    colors:{
+      underwater:0x8f5a6c,shore:0xd6b25a,low:0x8b3852,mid:0x5a3b70,high:0x3f3456,
+      water:0x20ffd4,waterEmissive:0x036f6d,bark:0x24133a,barkEmissive:0x12061f,
+      leaf:0xb66cff,leafEmissive:0x5a22c9,pod:0xff6bd6,podEmissive:0xff2ca8,
+      grass:0x9df58d,grassEmissive:0x173d18,rock:0x3f334b,wall:0x5a526d,roof:0x322b45,trim:0xa78fbd,brick:0x714060
+    },
+    groundTexture:{base:"#6f2d46",dark:[55,20,70],bright:[150,70,55],streak:"104,255,213"},
+    vegetation:{treeClusters:2,treesPerCluster:8,treeClusterRadius:25,crownsPerTree:7,podsPerTree:4,trunkHeightBase:1,trunkHeightVariance:0.34,trunkWidthBase:0.72,trunkWidthVariance:0.34,leanAmount:0.18,crownBaseScale:1.25,crownScaleStep:0.08,crownSpreadBase:1.1,crownSpreadVariance:2.4,crownLiftBase:9.1,crownLiftStep:0.28,crownWidthScale:1,crownFlatness:1,crownDepthScale:1,podScaleBase:0.42,podScaleVariance:0.34,podLiftBase:7.1,podLiftVariance:1.6,podElongation:1.35,grassClusters:20,grassPerCluster:400,grassClusterRadius:10}
+  },
+  {
+    name:"crystal frost",
+    terrain:{heightScale:0.9,hillScale:1.15,mountainScale:1.35,baseHeight:-1,roadWave1:170,roadWave2:115,roadWave3:34,roadFrequencyScale:0.88},
+    sky:["#06182b","#123b5a","#5a8db2","#d2b4c8","#fff1dd"],
+    fog:0x7fa3b9,
+    colors:{
+      underwater:0x315970,shore:0xc8d9cf,low:0x5f8b94,mid:0x6b7daa,high:0xc7d8db,
+      water:0x7ff8ff,waterEmissive:0x0f6d80,bark:0x243340,barkEmissive:0x081318,
+      leaf:0x9fd8ff,leafEmissive:0x195a70,pod:0xe8fbff,podEmissive:0x64d7ff,
+      grass:0xb8ffdf,grassEmissive:0x1f5c4c,rock:0x5f6f84,wall:0x697d8a,roof:0x2f4559,trim:0xc2d6dc,brick:0x506879
+    },
+    groundTexture:{base:"#496b7d",dark:[38,58,76],bright:[132,170,180],streak:"210,255,255"},
+    vegetation:{treeClusters:2,treesPerCluster:7,treeClusterRadius:24,crownsPerTree:5,podsPerTree:3,trunkHeightBase:1.28,trunkHeightVariance:0.45,trunkWidthBase:0.52,trunkWidthVariance:0.22,leanAmount:0.09,crownBaseScale:1.05,crownScaleStep:0.04,crownSpreadBase:0.65,crownSpreadVariance:1.2,crownLiftBase:10.6,crownLiftStep:0.92,crownWidthScale:0.74,crownFlatness:1.65,crownDepthScale:0.74,podScaleBase:0.28,podScaleVariance:0.22,podLiftBase:9.4,podLiftVariance:2.4,podElongation:2.15,grassClusters:16,grassPerCluster:320,grassClusterRadius:11}
+  },
+  {
+    name:"ember badlands",
+    terrain:{heightScale:1.08,hillScale:0.95,mountainScale:1.5,baseHeight:1.5,roadWave1:260,roadWave2:70,roadWave3:42,roadFrequencyScale:1.12},
+    sky:["#1d0612","#55151b","#9c3824","#f08b3e","#ffe0a8"],
+    fog:0x9b5140,
+    colors:{
+      underwater:0x5d2530,shore:0xffb45f,low:0xa85233,mid:0x7a3a3a,high:0x4d3440,
+      water:0xff8c45,waterEmissive:0x8a2d08,bark:0x321b18,barkEmissive:0x170604,
+      leaf:0xd78f38,leafEmissive:0x6f2d08,pod:0xffdf6a,podEmissive:0xb85a00,
+      grass:0xdfb65a,grassEmissive:0x5f3608,rock:0x5b3a35,wall:0x72544b,roof:0x3c2529,trim:0xd29a65,brick:0x8f4c38
+    },
+    groundTexture:{base:"#733823",dark:[72,31,25],bright:[172,83,44],streak:"255,185,86"},
+    vegetation:{treeClusters:1,treesPerCluster:7,treeClusterRadius:28,crownsPerTree:4,podsPerTree:6,trunkHeightBase:0.82,trunkHeightVariance:0.22,trunkWidthBase:1.05,trunkWidthVariance:0.42,leanAmount:0.34,crownBaseScale:0.96,crownScaleStep:0.12,crownSpreadBase:1.8,crownSpreadVariance:3.8,crownLiftBase:6.8,crownLiftStep:0.08,crownWidthScale:1.55,crownFlatness:0.52,crownDepthScale:1.35,podScaleBase:0.32,podScaleVariance:0.42,podLiftBase:5.8,podLiftVariance:1.2,podElongation:1.05,grassClusters:12,grassPerCluster:260,grassClusterRadius:12}
+  },
+  {
+    name:"dschungel canopy",
+    terrain:{heightScale:0.78,hillScale:1.55,mountainScale:0.62,baseHeight:-2.5,roadWave1:130,roadWave2:145,roadWave3:48,roadFrequencyScale:1.28},
+    sky:["#05190f","#0d3b22","#1f7144","#79a867","#ffe4a3"],
+    fog:0x2f744d,
+    colors:{
+      underwater:0x123f39,shore:0x8fac55,low:0x1f6f3d,mid:0x2d8a4b,high:0x537846,
+      water:0x2effb8,waterEmissive:0x087a51,bark:0x1d2814,barkEmissive:0x071006,
+      leaf:0x38c751,leafEmissive:0x0d5c20,pod:0xff5bbb,podEmissive:0x9c1268,
+      grass:0x75ff6a,grassEmissive:0x1b6d18,rock:0x2f4d3c,wall:0x4e6747,roof:0x253921,trim:0x9cc779,brick:0x4f7241
+    },
+    groundTexture:{base:"#275f35",dark:[24,70,36],bright:[86,150,62],streak:"124,255,120"},
+    vegetation:{treeClusters:4,treesPerCluster:10,treeClusterRadius:34,crownsPerTree:9,podsPerTree:5,trunkHeightBase:1.55,trunkHeightVariance:0.58,trunkWidthBase:0.64,trunkWidthVariance:0.28,leanAmount:0.24,crownBaseScale:1.45,crownScaleStep:0.045,crownSpreadBase:2.0,crownSpreadVariance:3.2,crownLiftBase:11.2,crownLiftStep:0.42,crownWidthScale:1.35,crownFlatness:0.78,crownDepthScale:1.35,podScaleBase:0.26,podScaleVariance:0.2,podLiftBase:8.8,podLiftVariance:3.2,podElongation:1.8,grassClusters:28,grassPerCluster:360,grassClusterRadius:15}
+  },
+  {
+    name:"dschungel wetlands",
+    terrain:{heightScale:0.62,hillScale:1.25,mountainScale:0.35,baseHeight:-4.2,roadWave1:155,roadWave2:128,roadWave3:36,roadFrequencyScale:1.05},
+    sky:["#071712","#123d36","#2c6f5f","#82a95e","#f3d98e"],
+    fog:0x315f50,
+    colors:{
+      underwater:0x0f3834,shore:0x6f8a42,low:0x24583a,mid:0x34704a,high:0x476b43,
+      water:0x35e6aa,waterEmissive:0x0a6048,bark:0x172412,barkEmissive:0x071006,
+      leaf:0x2fae4f,leafEmissive:0x0a4d1d,pod:0xf0d75f,podEmissive:0x736600,
+      grass:0x8be65d,grassEmissive:0x255d13,rock:0x33493c,wall:0x4d6352,roof:0x21382a,trim:0x8ebf75,brick:0x486a4b
+    },
+    groundTexture:{base:"#24543c",dark:[20,62,45],bright:[80,132,70],streak:"94,230,154"},
+    vegetation:{treeClusters:5,treesPerCluster:8,treeClusterRadius:38,crownsPerTree:8,podsPerTree:7,trunkHeightBase:1.2,trunkHeightVariance:0.38,trunkWidthBase:0.9,trunkWidthVariance:0.35,leanAmount:0.42,crownBaseScale:1.28,crownScaleStep:0.06,crownSpreadBase:2.7,crownSpreadVariance:2.9,crownLiftBase:8.4,crownLiftStep:0.18,crownWidthScale:1.75,crownFlatness:0.48,crownDepthScale:1.55,podScaleBase:0.22,podScaleVariance:0.22,podLiftBase:6.2,podLiftVariance:2.1,podElongation:1.2,grassClusters:30,grassPerCluster:340,grassClusterRadius:18}
+  }
+];
+let currentEnvironment=worldEnvironments[Math.floor(Math.random()*worldEnvironments.length)];
+
+function refreshSceneEnvironment(){
+  if(scene.background && scene.background.dispose) scene.background.dispose();
+  scene.background=makeSkyTexture(currentEnvironment);
+  scene.fog=new THREE.FogExp2(currentEnvironment.fog || 0x7b4771,0.00042);
+}
 
 let scene=new THREE.Scene();
 let playerCamera=new THREE.PerspectiveCamera(45,innerWidth/innerHeight,.1,1e6);
@@ -22,8 +101,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1,1.5));
 renderer.setSize(innerWidth,innerHeight);
 renderer.setScissorTest(true);
 document.body.appendChild(renderer.domElement);
-scene.background=makeSkyTexture();
-scene.fog=new THREE.FogExp2(0x7b4771,0.00042);
+refreshSceneEnvironment();
 
 scene.add(new THREE.HemisphereLight(0xffb8d4,0x21484d,1.35));
 let sun=new THREE.DirectionalLight(0xffd29b,2.05);
@@ -471,7 +549,7 @@ cars=[playerCar,secondCar];
 secondCar.group.visible=false;
 secondCar.shadow.setVisible(false);
 
-let world=createWorld(scene,{getDifficulty:()=>gameDifficulty});
+let world=createWorld(scene,{getDifficulty:()=>gameDifficulty,getEnvironment:()=>currentEnvironment});
 let clouds=createClouds(scene,()=>({carX:playerCar.x,carZ:playerCar.z}));
 let birds=createBirds(scene,()=>({carX:playerCar.x,carZ:playerCar.z}));
 let dust=createDust(scene);
@@ -4394,7 +4472,6 @@ function loop(){
 
   clouds.update();
   birds.update();
-  updateSheep(world.chunks);
   hud.updateSpeedHud();
   hud.updateMapHud();
   hud.updateCompassHud();
@@ -4634,7 +4711,7 @@ function placeCarOnRoad(car,z){
   updateMorphVisual(car);
 }
 
-setWorldSeed(Math.random()*100000);
+setWorldSeed(Math.random()*100000,currentEnvironment.terrain || {});
 let initialStartZ=findSafeStartZ([playerCar.lateralOffset,0,secondCar.lateralOffset]);
 placeCarOnRoad(playerCar,initialStartZ);
 placeCarOnRoad(secondCar,initialStartZ);

@@ -2,7 +2,6 @@ import { THREE } from "./three.js";
 import { carRadius, chunkSize, segments, viewDistance } from "./constants.js";
 import { groundHeight, rand, roadCenterX, roadDistance } from "./terrain.js?v=no-ramps";
 import { makeGroundTexture } from "./textures.js?v=alien-planet";
-import { makeSheep } from "./sheep.js";
 
 export function createWorld(scene,options={}){
   let chunkQueue=[];
@@ -13,9 +12,63 @@ export function createWorld(scene,options={}){
   let bossBaseColliders=[];
   let lastChunkBuildTime=0;
   let getDifficulty=typeof options.getDifficulty==="function" ? options.getDifficulty : ()=>"medium";
+  let defaultEnvironment={
+    colors:{
+      underwater:0x8f5a6c,
+      shore:0xd6b25a,
+      low:0x8b3852,
+      mid:0x5a3b70,
+      high:0x3f3456,
+      water:0x20ffd4,
+      waterEmissive:0x036f6d,
+      bark:0x24133a,
+      barkEmissive:0x12061f,
+      leaf:0xb66cff,
+      leafEmissive:0x5a22c9,
+      pod:0xff6bd6,
+      podEmissive:0xff2ca8,
+      grass:0x9df58d,
+      grassEmissive:0x173d18,
+      rock:0x3f334b,
+      wall:0x5a526d,
+      roof:0x322b45,
+      trim:0xa78fbd,
+      brick:0x714060
+    },
+    vegetation:{
+      treeClusters:2,
+      treesPerCluster:8,
+      treeClusterRadius:25,
+      crownsPerTree:7,
+      podsPerTree:4,
+      trunkHeightBase:1,
+      trunkHeightVariance:0.34,
+      trunkWidthBase:0.72,
+      trunkWidthVariance:0.34,
+      leanAmount:0.18,
+      crownBaseScale:1.25,
+      crownScaleStep:0.08,
+      crownSpreadBase:1.1,
+      crownSpreadVariance:2.4,
+      crownLiftBase:9.1,
+      crownLiftStep:0.28,
+      crownWidthScale:1,
+      crownFlatness:1,
+      crownDepthScale:1,
+      podScaleBase:0.42,
+      podScaleVariance:0.34,
+      podLiftBase:7.1,
+      podLiftVariance:1.6,
+      podElongation:1.35,
+      grassClusters:20,
+      grassPerCluster:400,
+      grassClusterRadius:10
+    }
+  };
+  let currentEnvironment={...defaultEnvironment,...(options.getEnvironment ? options.getEnvironment() : {})};
 
 let landMat=new THREE.MeshStandardMaterial({
-  map:makeGroundTexture(),
+  map:makeGroundTexture(currentEnvironment),
   vertexColors:true,
   roughness:0.92,
   metalness:0.04
@@ -107,6 +160,45 @@ let bossBaseGlowGeo=new THREE.BoxGeometry(1,1,1);
 let turretBaseMat=new THREE.MeshStandardMaterial({color:0x312a3e,roughness:0.82,metalness:0.42});
 let turretHeadMat=new THREE.MeshStandardMaterial({color:0x554163,emissive:0x16091f,emissiveIntensity:0.22,roughness:0.72,metalness:0.48});
 let turretBarrelMat=new THREE.MeshStandardMaterial({color:0x151923,emissive:0x06162d,emissiveIntensity:0.32,roughness:0.56,metalness:0.7});
+
+function environmentColors(){
+  return {...defaultEnvironment.colors,...(currentEnvironment.colors || {})};
+}
+
+function environmentVegetation(){
+  return {...defaultEnvironment.vegetation,...(currentEnvironment.vegetation || {})};
+}
+
+function setMaterialColor(material,color,emissive=null){
+  if(material.color && color!=null) material.color.set(color);
+  if(material.emissive && emissive!=null) material.emissive.set(emissive);
+}
+
+function applyEnvironment(environment={}){
+  currentEnvironment={
+    ...defaultEnvironment,
+    ...environment,
+    colors:{...defaultEnvironment.colors,...(environment.colors || {})},
+    vegetation:{...defaultEnvironment.vegetation,...(environment.vegetation || {})}
+  };
+  let colors=environmentColors();
+  if(landMat.map) landMat.map.dispose();
+  landMat.map=makeGroundTexture(currentEnvironment);
+  landMat.needsUpdate=true;
+  setMaterialColor(waterMat,colors.water,colors.waterEmissive);
+  setMaterialColor(barkMat,colors.bark,colors.barkEmissive);
+  setMaterialColor(leafMat,colors.leaf,colors.leafEmissive);
+  setMaterialColor(podMat,colors.pod,colors.podEmissive);
+  setMaterialColor(grassMat,colors.grass,colors.grassEmissive);
+  setMaterialColor(rockMat,colors.rock);
+  setMaterialColor(buildingWallMat,colors.wall);
+  setMaterialColor(buildingRoofMat,colors.roof);
+  setMaterialColor(chimneyMat,colors.roof);
+  setMaterialColor(houseTrimMat,colors.trim);
+  setMaterialColor(brickWallMat,colors.brick);
+}
+
+applyEnvironment(currentEnvironment);
 
 function chunkKey(cx,cz){
   return cx+","+cz;
@@ -608,9 +700,10 @@ function terrainPatchOk(x,z,radius,maxHeight=24,maxRange=7){
 }
 
 function makeChunk(cx,cz){
+  let envColors=environmentColors();
+  let vegetation=environmentVegetation();
   let colors=[];
   let colliders=[];
-  let sheep=[];
   let geo=new THREE.PlaneGeometry(chunkSize,chunkSize,segments,segments);
   geo.rotateX(-Math.PI/2);
 
@@ -629,15 +722,15 @@ function makeChunk(cx,cz){
 
     let color=new THREE.Color();
 
-    if(h<waterLevel) color.set(0x8f5a6c);
-    else if(h<waterLevel+2.7) color.set(0xd6b25a);
+    if(h<waterLevel) color.set(envColors.underwater);
+    else if(h<waterLevel+2.7) color.set(envColors.shore);
     else if(h<waterLevel+5.4){
       let t=(h-(waterLevel+2.7))/2.7;
-      color.set(0xd6b25a).lerp(new THREE.Color(0x8b3852),t);
+      color.set(envColors.shore).lerp(new THREE.Color(envColors.low),t);
     }
-    else if(h<15) color.set(0x8b3852);
-    else if(h<30) color.set(0x5a3b70);
-    else color.set(0x3f3456);
+    else if(h<15) color.set(envColors.low);
+    else if(h<30) color.set(envColors.mid);
+    else color.set(envColors.high);
 
     colors.push(color.r,color.g,color.b);
   }
@@ -662,14 +755,16 @@ function makeChunk(cx,cz){
   freezeStaticObject(water);
   scene.add(water);
 
-  let clusterCount=2;
-  let treesPerCluster=8;
-  let clusterRadius=25;
+  let clusterCount=vegetation.treeClusters;
+  let treesPerCluster=vegetation.treesPerCluster;
+  let clusterRadius=vegetation.treeClusterRadius;
+  let crownsPerTree=Math.max(1,Math.floor(vegetation.crownsPerTree));
+  let podsPerTree=Math.max(0,Math.floor(vegetation.podsPerTree));
   let maxTrees=clusterCount*treesPerCluster;
 
   let trunks=new THREE.InstancedMesh(trunkGeo,barkMat,maxTrees);
-  let crowns=new THREE.InstancedMesh(crownGeo,leafMat,maxTrees*7);
-  let pods=new THREE.InstancedMesh(podGeo,podMat,maxTrees*4);
+  let crowns=new THREE.InstancedMesh(crownGeo,leafMat,maxTrees*crownsPerTree);
+  let pods=new THREE.InstancedMesh(podGeo,podMat,maxTrees*podsPerTree);
 
   let dummy=new THREE.Object3D();
   let treeUsed=0;
@@ -705,10 +800,10 @@ function makeChunk(cx,cz){
 
       let scale=.55+rand(i+cx+c,cz-i)*.9;
       let rot=rand(i,cx+cz+c)*Math.PI*2;
-      let leanX=(rand(cx*13+i,cz*19+c)-0.5)*0.18;
-      let leanZ=(rand(cx*23-i,cz*29-c)-0.5)*0.18;
-      let trunkHeightScale=1+rand(cx*31+i,cz*41-c)*0.34;
-      let trunkWidthScale=0.72+rand(cx*43-i,cz*47+c)*0.34;
+      let leanX=(rand(cx*13+i,cz*19+c)-0.5)*vegetation.leanAmount;
+      let leanZ=(rand(cx*23-i,cz*29-c)-0.5)*vegetation.leanAmount;
+      let trunkHeightScale=vegetation.trunkHeightBase+rand(cx*31+i,cz*41-c)*vegetation.trunkHeightVariance;
+      let trunkWidthScale=vegetation.trunkWidthBase+rand(cx*43-i,cz*47+c)*vegetation.trunkWidthVariance;
 
       dummy.position.set(wx,wy+5.25*scale*trunkHeightScale,wz);
       dummy.rotation.set(leanX,rot,leanZ);
@@ -718,11 +813,11 @@ function makeChunk(cx,cz){
       treeCollider.instances.push({mesh:trunks,index:treeUsed});
 
       let crownStart=crownUsed;
-      for(let j=0;j<7;j++){
-        let crownScale=scale*(1.25-j*.08);
+      for(let j=0;j<crownsPerTree;j++){
+        let crownScale=scale*(vegetation.crownBaseScale-j*vegetation.crownScaleStep);
         let angle=rot+j*2.38+rand(i+j*11,c*17)*0.9;
-        let radius=j===0 ? 0 : (1.1+rand(i*7+j,cx-cz)*2.4)*scale;
-        let lift=(9.1+Math.sin(j*1.7)*0.8+j*0.28)*scale*trunkHeightScale;
+        let radius=j===0 ? 0 : (vegetation.crownSpreadBase+rand(i*7+j,cx-cz)*vegetation.crownSpreadVariance)*scale;
+        let lift=(vegetation.crownLiftBase+Math.sin(j*1.7)*0.8+j*vegetation.crownLiftStep)*scale*trunkHeightScale;
 
         dummy.position.set(
           wx+Math.cos(angle)*radius,
@@ -735,9 +830,9 @@ function makeChunk(cx,cz){
           rand(cz,j-c)*Math.PI
         );
         dummy.scale.set(
-          crownScale*(0.95+rand(j+cx,i)*0.45),
-          crownScale*(0.48+rand(j+cz,i+c)*0.34),
-          crownScale*(0.9+rand(j-cx,i-c)*0.5)
+          crownScale*(0.95+rand(j+cx,i)*0.45)*vegetation.crownWidthScale,
+          crownScale*(0.48+rand(j+cz,i+c)*0.34)*vegetation.crownFlatness,
+          crownScale*(0.9+rand(j-cx,i-c)*0.5)*vegetation.crownDepthScale
         );
         dummy.updateMatrix();
 
@@ -750,18 +845,18 @@ function makeChunk(cx,cz){
       }
 
       let podStart=podUsed;
-      for(let j=0;j<4;j++){
-        let podScale=scale*(0.42+rand(i*19+j,cx+cz)*0.34);
+      for(let j=0;j<podsPerTree;j++){
+        let podScale=scale*(vegetation.podScaleBase+rand(i*19+j,cx+cz)*vegetation.podScaleVariance);
         let angle=rot+j*Math.PI*0.5+rand(c*29+j,i)*0.65;
         let radius=(1.4+rand(i*31-j,cz)*1.8)*scale;
 
         dummy.position.set(
           wx+Math.cos(angle)*radius,
-          wy+(7.1+rand(j+cx,c-i)*1.6)*scale*trunkHeightScale,
+          wy+(vegetation.podLiftBase+rand(j+cx,c-i)*vegetation.podLiftVariance)*scale*trunkHeightScale,
           wz+Math.sin(angle)*radius
         );
         dummy.rotation.set(0,angle,0);
-        dummy.scale.set(podScale,podScale*1.35,podScale);
+        dummy.scale.set(podScale,podScale*vegetation.podElongation,podScale);
         dummy.updateMatrix();
 
         pods.setMatrixAt(podUsed,dummy.matrix);
@@ -787,9 +882,9 @@ function makeChunk(cx,cz){
   freezeStaticObject(pods);
   scene.add(trunks,crowns,pods);
 
-  let grassClusterCount=20;
-  let grassPerCluster=400;
-  let grassClusterRadius=10;
+  let grassClusterCount=vegetation.grassClusters;
+  let grassPerCluster=vegetation.grassPerCluster;
+  let grassClusterRadius=vegetation.grassClusterRadius;
   let maxGrasses=grassClusterCount*grassPerCluster;
 
   let grasses=new THREE.InstancedMesh(grassGeo,grassMat,maxGrasses);
@@ -1151,62 +1246,7 @@ function makeChunk(cx,cz){
   freezeStaticObject(villageWalls);
   scene.add(buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls);
 
-  let herdChance=0.28;
-  if((rand(cx*421,cz*733)*0.5+0.5)<herdChance){
-    let herdRand=(a,b)=>rand(a,b)*0.5+0.5;
-    let centerZ=cz*chunkSize+(herdRand(cx*617,cz*1543)-.5)*chunkSize*0.78;
-    let side=herdRand(cx*271,cz*643)<0.5 ? -1 : 1;
-    let offset=44+herdRand(cx*1201,cz*811)*76;
-    let centerX=roadCenterX(centerZ)+side*offset;
-    let centerY=groundHeight(centerX,centerZ);
-    if(centerY<-12 || centerY>28){
-      centerX=roadCenterX(centerZ)-side*offset;
-      centerY=groundHeight(centerX,centerZ);
-    }
-    let herdSize=3+Math.floor(herdRand(cx*991,cz*379)*3);
-    let herdHeading=herdRand(cx*233,cz*887)*Math.PI*2;
-
-    if(centerY<-12 || centerY>28 || roadDistance(centerX,centerZ)<52){
-      herdSize=0;
-    }
-
-    for(let i=0;i<herdSize;i++){
-      let angle=herdRand(cx*1709+i*31,cz*1301-i*17)*Math.PI*2;
-      let radius=Math.sqrt(herdRand(cx*1877-i*11,cz*2221+i*13))*20;
-      let wx=centerX+Math.cos(angle)*radius;
-      let wz=centerZ+Math.sin(angle)*radius;
-      let wy=groundHeight(wx,wz);
-
-      if(wy<-12 || wy>28) continue;
-      if(roadDistance(wx,wz)<42) continue;
-      let blocked=false;
-      for(let obstacle of colliders){
-        let dx=wx-obstacle.x;
-        let dz=wz-obstacle.z;
-        let gap=obstacle.r+3.5;
-        if(dx*dx+dz*dz<gap*gap){
-          blocked=true;
-          break;
-        }
-      }
-      if(blocked) continue;
-
-      let collider={x:wx,z:wz,r:1.85,type:"sheep"};
-      let animal=makeSheep(wx,wz,cx*10000+cz*97+i*31,collider);
-      collider.r=Math.max(1.85,animal.userData.size*2.2);
-      animal.userData.centerX=centerX;
-      animal.userData.centerZ=centerZ;
-      animal.userData.angle=herdHeading+(herdRand(cx*307+i*7,cz*509-i*5)-0.5)*0.5;
-      animal.userData.targetAngle=animal.userData.angle;
-      animal.userData.roamRadius=34+herdSize*4;
-      animal.rotation.y=animal.userData.angle-Math.PI/2;
-      sheep.push(animal);
-      colliders.push(collider);
-      scene.add(animal);
-    }
-  }
-
-  return {land,road,water,trunks,crowns,pods,grasses,rocks,buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,villageCenters,sheep,colliders};
+  return {land,road,water,trunks,crowns,pods,grasses,rocks,buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,villageCenters,colliders};
 }
 
 function updateChunksForCenters(centers){
@@ -1292,7 +1332,6 @@ function disposeChunk(chunk){
     chunk.buildingTrims,
     chunk.buildingPorches,
     chunk.villageWalls,
-    ...chunk.sheep,
     ...turretObjects
   );
 
@@ -1371,6 +1410,7 @@ function resetChunks(){
     updateChunksForCenters,
     updateWind,
     processChunkQueue,
+    setEnvironment:applyEnvironment,
     resetChunks
   };
 }
