@@ -206,39 +206,66 @@ function obstacleAlongSegment(fromX,fromZ,toX,toZ,padding=0){
 }
 
 function obstacleAlongSegment3D(fromX,fromY,fromZ,toX,toY,toZ,padding=0){
-  let pcx=Math.floor(toX/chunkSize);
-  let pcz=Math.floor(toZ/chunkSize);
+  let fromCx=Math.floor(fromX/chunkSize);
+  let fromCz=Math.floor(fromZ/chunkSize);
+  let toCx=Math.floor(toX/chunkSize);
+  let toCz=Math.floor(toZ/chunkSize);
   let sx=toX-fromX;
   let sy=toY-fromY;
   let sz=toZ-fromZ;
   let segLenSq=Math.max(0.0001,sx*sx+sy*sy+sz*sz);
   let best=null;
-  let bestDist=Infinity;
+  let bestT=Infinity;
 
-  for(let dx=-1;dx<=1;dx++){
-    for(let dz=-1;dz<=1;dz++){
-      let chunk=chunks.get(chunkKey(pcx+dx,pcz+dz));
+  for(let cx=Math.min(fromCx,toCx)-1;cx<=Math.max(fromCx,toCx)+1;cx++){
+    for(let cz=Math.min(fromCz,toCz)-1;cz<=Math.max(fromCz,toCz)+1;cz++){
+      let chunk=chunks.get(chunkKey(cx,cz));
       if(!chunk || !chunk.colliders) continue;
 
       for(let obstacle of chunk.colliders){
         if(obstacle.destroyed || obstacle.type==="treeCluster") continue;
 
-        let obstacleY=groundHeight(obstacle.x,obstacle.z)+Math.max(0.6,obstacle.r*0.45);
+        let isRock=obstacle.type==="rock" || obstacle.type==="smallRock";
+        let obstacleY=isRock && Number.isFinite(obstacle.y)
+          ? obstacle.y
+          : groundHeight(obstacle.x,obstacle.z)+Math.max(0.6,obstacle.r*0.45);
         let t=((obstacle.x-fromX)*sx+(obstacleY-fromY)*sy+(obstacle.z-fromZ)*sz)/segLenSq;
         t=Math.max(0,Math.min(1,t));
 
-        let cx=fromX+sx*t;
-        let cy=fromY+sy*t;
-        let cz=fromZ+sz*t;
-        let radius=Math.max(1.2,obstacle.r*0.72)+padding;
-        let verticalRadius=Math.max(1.0,obstacle.r*0.65)+padding;
-        let distSq=(cx-obstacle.x)*(cx-obstacle.x)
-          + ((cy-obstacleY)/Math.max(0.001,verticalRadius/radius))*((cy-obstacleY)/Math.max(0.001,verticalRadius/radius))
-          + (cz-obstacle.z)*(cz-obstacle.z);
+        let closestX=fromX+sx*t;
+        let closestY=fromY+sy*t;
+        let closestZ=fromZ+sz*t;
+        let radius=(isRock
+          ? Math.max(2.0,(obstacle.visualRadius || obstacle.r)*1.15)
+          : Math.max(1.2,obstacle.r*0.72))+padding;
+        let verticalRadius=(isRock
+          ? Math.max(1.2,(obstacle.visualHeight || obstacle.height || obstacle.r)*0.72)
+          : Math.max(1.0,obstacle.r*0.65))+padding;
+        let verticalScale=Math.max(0.001,verticalRadius/radius);
+        let distSq=(closestX-obstacle.x)*(closestX-obstacle.x)
+          + ((closestY-obstacleY)/verticalScale)*((closestY-obstacleY)/verticalScale)
+          + (closestZ-obstacle.z)*(closestZ-obstacle.z);
 
-        if(distSq<radius*radius && distSq<bestDist){
+        if(isRock && distSq>=radius*radius){
+          let horizontalSegLenSq=Math.max(0.0001,sx*sx+sz*sz);
+          let rockT=((obstacle.x-fromX)*sx+(obstacle.z-fromZ)*sz)/horizontalSegLenSq;
+          rockT=Math.max(0,Math.min(1,rockT));
+          let rockX=fromX+sx*rockT;
+          let rockY=fromY+sy*rockT;
+          let rockZ=fromZ+sz*rockT;
+          let horizontalDistSq=(rockX-obstacle.x)*(rockX-obstacle.x)+(rockZ-obstacle.z)*(rockZ-obstacle.z);
+          let visualTop=(Number.isFinite(obstacle.baseY) ? obstacle.baseY : groundHeight(obstacle.x,obstacle.z))+(obstacle.visualHeight || obstacle.height || obstacle.r);
+          let visualBottom=(Number.isFinite(obstacle.baseY) ? obstacle.baseY : groundHeight(obstacle.x,obstacle.z))-0.35;
+          let verticalPad=padding+0.85;
+          if(horizontalDistSq<radius*radius && rockY>=visualBottom-verticalPad && rockY<=visualTop+verticalPad){
+            distSq=radius*radius*0.5;
+            t=rockT;
+          }
+        }
+
+        if(distSq<radius*radius && t<bestT){
           best=obstacle;
-          bestDist=distSq;
+          bestT=t;
         }
       }
     }
@@ -529,8 +556,13 @@ function makeChunk(cx,cz){
 
     colliders.push({
       x:wx,
+      baseY:wy,
+      y:wy+scale*0.48,
       z:wz,
       r:2.1+scale*0.55,
+      height:Math.max(1.0,scale*1.1),
+      visualRadius:Math.max(scale,scale*0.8),
+      visualHeight:Math.max(1.0,scale*1.6),
       type:scale<1.65 ? "smallRock" : "rock",
       instances:[{mesh:rocks,index:rockUsed}]
     });

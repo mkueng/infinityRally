@@ -15,4 +15,4 @@ export const mothershipHoverFrames=1800;
 export const mothershipDropInterval=95;
 export const mothershipDropCount=5;
 export const mothershipDropLineSpacing=34;
-export const mothershipRocketHits=7;
+export const mothershipRocketHits=8;

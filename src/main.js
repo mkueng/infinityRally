@@ -1116,7 +1116,9 @@ function mouseAimWorldPointFromRay(car){
       0.35
     );
     if(obstacle){
-      let obstacleY=groundHeight(obstacle.x,obstacle.z)+Math.max(0.6,obstacle.r*0.45);
+      let obstacleY=Number.isFinite(obstacle.y)
+        ? obstacle.y
+        : groundHeight(obstacle.x,obstacle.z)+Math.max(0.6,obstacle.r*0.45);
       let obstacleT=(obstacle.x-origin.x)*direction.x+(obstacleY-origin.y)*direction.y+(obstacle.z-origin.z)*direction.z;
       obstacleT=clamp(obstacleT,minDistance,t);
       if(obstacleT<best.t){
@@ -1701,7 +1703,7 @@ function updateRockets(){
 
     let surfaceY=drivingSurfaceHeight(rocket.x,rocket.z);
     let hitActor=null;
-    let hitMothership=false;
+    let mothershipHit=null;
     if(rocket.age>4){
       for(let actor of combatActors()){
         if(actor===rocket.owner) continue;
@@ -1713,29 +1715,25 @@ function updateRockets(){
           break;
         }
       }
-      if(!rocket.owner.isEnemy && mothership && mothership.health>0){
-        let shipY=mothership.group ? mothership.group.position.y : mothership.y;
-        let dx=rocket.x-mothership.x;
-        let dy=(rocket.y-shipY)/0.45;
-        let dz=rocket.z-mothership.z;
-        if((dx*dx)/(34*34)+(dy*dy)/(12*12)+(dz*dz)/(18*18)<1){
-          hitMothership=true;
-        }
+      if(!rocket.owner.isEnemy){
+        mothershipHit=mothershipHitAlongSegment(prevX,prevY,prevZ,rocket.x,rocket.y,rocket.z,1.6);
       }
     }
 
     let hitObstacle=world.obstacleAlongSegment3D(prevX,prevY,prevZ,rocket.x,rocket.y,rocket.z,1.25);
-    let hit=rocket.y<=surfaceY+0.35 || hitObstacle || hitActor || hitMothership;
+    let hit=rocket.y<=surfaceY+0.35 || hitObstacle || hitActor || mothershipHit;
 
     if(hit || rocket.age>rocket.life){
       if(hit){
-        let explosionX=hitObstacle ? hitObstacle.x : rocket.x;
-        let explosionZ=hitObstacle ? hitObstacle.z : rocket.z;
+        let explosionX=mothershipHit ? mothershipHit.x : hitObstacle ? hitObstacle.x : rocket.x;
+        let explosionZ=mothershipHit ? mothershipHit.z : hitObstacle ? hitObstacle.z : rocket.z;
         let explosionY=hitObstacle
           ? Math.max(groundHeight(hitObstacle.x,hitObstacle.z)+Math.max(0.8,hitObstacle.r*0.45),surfaceY+0.5)
+          : mothershipHit
+          ? mothershipHit.y
           : Math.max(rocket.y,surfaceY+0.5);
         spawnRocketExplosion(explosionX,explosionY,explosionZ);
-        if(hitMothership) damageMothership(explosionX,explosionY,explosionZ);
+        if(mothershipHit) damageMothership(explosionX,explosionY,explosionZ,1);
         if(hitObstacle){
           if(hitObstacle.type==="rock" || hitObstacle.type==="smallRock" || hitObstacle.type==="building" || hitObstacle.type==="wall" || hitObstacle.type==="turret"){
             spawnRockDebris(hitObstacle.x,explosionY,hitObstacle.z,hitObstacle);
@@ -1785,6 +1783,7 @@ function updateCannonBolts(){
 
     let surfaceY=drivingSurfaceHeight(bolt.x,bolt.z);
     let hitActor=null;
+    let mothershipHit=null;
     if(bolt.age>2){
       for(let actor of combatActors()){
         if(actor===bolt.owner) continue;
@@ -1796,19 +1795,25 @@ function updateCannonBolts(){
           break;
         }
       }
+      if(!bolt.owner.isEnemy){
+        mothershipHit=mothershipHitAlongSegment(prevX,prevY,prevZ,bolt.x,bolt.y,bolt.z,0.95);
+      }
     }
 
     let hitObstacle=world.obstacleAlongSegment3D(prevX,prevY,prevZ,bolt.x,bolt.y,bolt.z,0.9);
-    let hit=bolt.y<=surfaceY+0.22 || hitObstacle || hitActor;
+    let hit=bolt.y<=surfaceY+0.22 || hitObstacle || hitActor || mothershipHit;
 
     if(hit || bolt.age>bolt.life){
       if(hit){
-        let explosionX=hitObstacle ? hitObstacle.x : bolt.x;
-        let explosionZ=hitObstacle ? hitObstacle.z : bolt.z;
+        let explosionX=mothershipHit ? mothershipHit.x : hitObstacle ? hitObstacle.x : bolt.x;
+        let explosionZ=mothershipHit ? mothershipHit.z : hitObstacle ? hitObstacle.z : bolt.z;
         let explosionY=hitObstacle
           ? Math.max(groundHeight(hitObstacle.x,hitObstacle.z)+Math.max(0.55,hitObstacle.r*0.35),surfaceY+0.4)
+          : mothershipHit
+          ? mothershipHit.y
           : Math.max(bolt.y,surfaceY+0.45);
         spawnRocketExplosion(explosionX,explosionY,explosionZ);
+        if(mothershipHit) damageMothership(explosionX,explosionY,explosionZ,0.4);
         if(hitObstacle){
           if(hitObstacle.type==="rock" || hitObstacle.type==="smallRock" || hitObstacle.type==="building" || hitObstacle.type==="wall" || hitObstacle.type==="turret"){
             spawnRockDebris(hitObstacle.x,explosionY,hitObstacle.z,hitObstacle);
@@ -2077,10 +2082,45 @@ function removeMothership(){
   mothership=null;
 }
 
-function damageMothership(x,y,z){
+function mothershipHitAlongSegment(fromX,fromY,fromZ,toX,toY,toZ,padding=0){
+  if(!mothership || mothership.health<=0) return null;
+
+  let shipY=mothership.group ? mothership.group.position.y : mothership.y;
+  let rx=34+padding;
+  let ry=12+padding*0.55;
+  let rz=18+padding;
+  let ax=(fromX-mothership.x)/rx;
+  let ay=(fromY-shipY)/ry;
+  let az=(fromZ-mothership.z)/rz;
+  let bx=(toX-fromX)/rx;
+  let by=(toY-fromY)/ry;
+  let bz=(toZ-fromZ)/rz;
+  let a=bx*bx+by*by+bz*bz;
+  let b=2*(ax*bx+ay*by+az*bz);
+  let c=ax*ax+ay*ay+az*az-1;
+
+  if(c<=0) return {x:fromX,y:fromY,z:fromZ};
+  if(a<0.000001) return null;
+
+  let disc=b*b-4*a*c;
+  if(disc<0) return null;
+
+  let root=Math.sqrt(disc);
+  let t=(-b-root)/(2*a);
+  if(t<0 || t>1) t=(-b+root)/(2*a);
+  if(t<0 || t>1) return null;
+
+  return {
+    x:fromX+(toX-fromX)*t,
+    y:fromY+(toY-fromY)*t,
+    z:fromZ+(toZ-fromZ)*t
+  };
+}
+
+function damageMothership(x,y,z,amount=1){
   if(!mothership || mothership.health<=0) return;
-  mothership.health--;
-  mothership.hitFlash=10;
+  mothership.health-=amount;
+  mothership.hitFlash=Math.max(mothership.hitFlash,10);
 
   for(let i=0;i<8;i++){
     dust.spawnThrusterParticle(
@@ -2318,8 +2358,27 @@ function updateEnemy(enemy){
     }
     desiredSpeed=distance>18 ? 0.28 : 0.12;
   }else if(enemy.isDrone){
-    desiredAngle=targetAngle+enemy.aiStrafe*0.44;
-    desiredSpeed=distance>72 ? 0.34 : distance>38 ? 0.18 : -0.06;
+    let minAimableDistance=48;
+    let preferredDistance=74;
+    let farDistance=104;
+    if(distance<minAimableDistance){
+      let escapeStrength=clamp((minAimableDistance-distance)/minAimableDistance,0,1);
+      desiredAngle=targetAngle+Math.PI+enemy.aiStrafe*(0.34+escapeStrength*0.7);
+      desiredSpeed=0.24+escapeStrength*0.22;
+    }else if(distance<preferredDistance){
+      let ringT=clamp((preferredDistance-distance)/(preferredDistance-minAimableDistance),0,1);
+      desiredAngle=targetAngle+enemy.aiStrafe*(0.68+ringT*0.42);
+      desiredSpeed=0.12+ringT*0.08;
+    }else if(distance>farDistance){
+      desiredAngle=targetAngle+enemy.aiStrafe*0.22;
+      desiredSpeed=0.34;
+    }else{
+      desiredAngle=targetAngle+enemy.aiStrafe*(0.82+Math.sin(performance.now()*0.0016+enemy.guardPhase)*0.14);
+      desiredSpeed=0.12;
+    }
+    if(distance>=minAimableDistance && distance<=farDistance && enemy.cannonCooldown<18){
+      desiredAngle=targetAngle+enemy.aiStrafe*0.18;
+    }
   }else if(enemy.spawnVillage && !enemy.isPatrol){
     let homeX=Number.isFinite(enemy.guardX) ? enemy.guardX : enemy.spawnVillage.x;
     let homeZ=Number.isFinite(enemy.guardZ) ? enemy.guardZ : enemy.spawnVillage.z;
