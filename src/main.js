@@ -166,10 +166,12 @@ let clusterBombGlowMat=new THREE.MeshBasicMaterial({
 });
 let mouseAimRaycaster=new THREE.Raycaster();
 let mouseAimPointer=new THREE.Vector2();
-let mouseAimPlane=new THREE.Plane();
-let mouseAimPlanePoint=new THREE.Vector3();
-let mouseAimPlaneNormal=new THREE.Vector3();
 let mouseAimHitPoint=new THREE.Vector3();
+let mouseAimRayPoint=new THREE.Vector3();
+let mouseAimRayStart=new THREE.Vector3();
+let mouseAimRayEnd=new THREE.Vector3();
+let mouseAimMaxDistance=430;
+let mouseAimFallbackDistance=170;
 let explosionBursts=[];
 let explosionFlashGeo=new THREE.SphereGeometry(1,18,12);
 let explosionRingGeo=new THREE.TorusGeometry(1,0.045,8,64);
@@ -407,6 +409,11 @@ function createCarState(id,lateralOffset,controls,camera,gamepadIndex){
     aimCross:null,
     aimOffsetX:0,
     aimOffsetY:0,
+    aimDistance:32,
+    hasMouseAimPoint:false,
+    mouseAimWorldX:0,
+    mouseAimWorldY:0,
+    mouseAimWorldZ:0,
     lastAimMouseVersion:-1,
     lastRocketButton:false,
     rocketCooldown:0,
@@ -1029,12 +1036,139 @@ function clearSupplyBoxes(){
   supplySpawnKeys.clear();
 }
 
+function raySphereDistance(origin,direction,x,y,z,radius,minDistance=0){
+  let ox=origin.x-x;
+  let oy=origin.y-y;
+  let oz=origin.z-z;
+  let b=ox*direction.x+oy*direction.y+oz*direction.z;
+  let c=ox*ox+oy*oy+oz*oz-radius*radius;
+  let disc=b*b-c;
+  if(disc<0) return null;
+
+  let root=Math.sqrt(disc);
+  let near=-b-root;
+  if(near>=minDistance) return near;
+  let far=-b+root;
+  return far>=minDistance ? far : null;
+}
+
+function actorAimRadius(actor){
+  if(actor.isBoss) return 9.5;
+  if(actor.isSpider) return 4.8;
+  if(actor.isDrone) return 4.2;
+  return actor.isEnemy ? 4.5 : 3.2;
+}
+
+function setBestAimPointFromRay(best,origin,direction,t){
+  mouseAimRayPoint.copy(direction).multiplyScalar(t).add(origin);
+  best.t=t;
+  best.x=mouseAimRayPoint.x;
+  best.y=mouseAimRayPoint.y;
+  best.z=mouseAimRayPoint.z;
+}
+
+function mouseAimWorldPointFromRay(car){
+  let origin=mouseAimRaycaster.ray.origin;
+  let direction=mouseAimRaycaster.ray.direction;
+  let best={t:Infinity,x:0,y:0,z:0};
+  let minDistance=5;
+
+  for(let actor of combatActors()){
+    if(actor===car) continue;
+    if(actor.isEnemy && (!actor.active || actor.health<=0)) continue;
+    let radius=actorAimRadius(actor);
+    let t=raySphereDistance(origin,direction,actor.x,actor.y+2.0,actor.z,radius,minDistance);
+    if(t!==null && t<best.t && t<mouseAimMaxDistance){
+      setBestAimPointFromRay(best,origin,direction,t);
+    }
+  }
+
+  if(mothership && mothership.health>0){
+    let shipY=mothership.group ? mothership.group.position.y : mothership.y;
+    let t=raySphereDistance(origin,direction,mothership.x,shipY,mothership.z,24,minDistance);
+    if(t!==null && t<best.t && t<mouseAimMaxDistance){
+      setBestAimPointFromRay(best,origin,direction,t);
+    }
+  }
+
+  for(let box of supplyBoxes){
+    let t=raySphereDistance(origin,direction,box.position.x,box.position.y,box.position.z,1.6,minDistance);
+    if(t!==null && t<best.t && t<mouseAimMaxDistance){
+      setBestAimPointFromRay(best,origin,direction,t);
+    }
+  }
+
+  let previousT=minDistance;
+  mouseAimRayStart.copy(direction).multiplyScalar(previousT).add(origin);
+  let previousSurface=drivingSurfaceHeight(mouseAimRayStart.x,mouseAimRayStart.z)+0.15;
+  let step=6;
+
+  for(let t=minDistance+step;t<=mouseAimMaxDistance;t+=step){
+    mouseAimRayEnd.copy(direction).multiplyScalar(t).add(origin);
+
+    let obstacle=world.obstacleAlongSegment3D(
+      mouseAimRayStart.x,
+      mouseAimRayStart.y,
+      mouseAimRayStart.z,
+      mouseAimRayEnd.x,
+      mouseAimRayEnd.y,
+      mouseAimRayEnd.z,
+      0.35
+    );
+    if(obstacle){
+      let obstacleY=groundHeight(obstacle.x,obstacle.z)+Math.max(0.6,obstacle.r*0.45);
+      let obstacleT=(obstacle.x-origin.x)*direction.x+(obstacleY-origin.y)*direction.y+(obstacle.z-origin.z)*direction.z;
+      obstacleT=clamp(obstacleT,minDistance,t);
+      if(obstacleT<best.t){
+        setBestAimPointFromRay(best,origin,direction,obstacleT);
+      }
+    }
+
+    let surface=drivingSurfaceHeight(mouseAimRayEnd.x,mouseAimRayEnd.z)+0.15;
+    if(mouseAimRayEnd.y<=surface && mouseAimRayStart.y>previousSurface){
+      let low=previousT;
+      let high=t;
+      for(let i=0;i<7;i++){
+        let mid=(low+high)*0.5;
+        mouseAimRayPoint.copy(direction).multiplyScalar(mid).add(origin);
+        if(mouseAimRayPoint.y<=drivingSurfaceHeight(mouseAimRayPoint.x,mouseAimRayPoint.z)+0.15) high=mid;
+        else low=mid;
+      }
+      if(high<best.t){
+        setBestAimPointFromRay(best,origin,direction,high);
+      }
+      break;
+    }
+
+    if(best.t<t) break;
+    previousT=t;
+    mouseAimRayStart.copy(mouseAimRayEnd);
+    previousSurface=surface;
+  }
+
+  if(Number.isFinite(best.t)){
+    mouseAimHitPoint.set(best.x,best.y,best.z);
+  }else{
+    mouseAimHitPoint.copy(direction).multiplyScalar(mouseAimFallbackDistance).add(origin);
+  }
+
+  return mouseAimHitPoint;
+}
+
 function aimTargetForCar(car){
   if(car.isEnemy && car.aiTarget){
     return new THREE.Vector3(
       car.aiTarget.x,
       car.aiTarget.y+2.15,
       car.aiTarget.z
+    );
+  }
+
+  if(car.hasMouseAimPoint){
+    return new THREE.Vector3(
+      car.mouseAimWorldX,
+      car.mouseAimWorldY,
+      car.mouseAimWorldZ
     );
   }
 
@@ -1058,6 +1192,8 @@ function updateAimCross(car){
   let mouseMoved=input.mouse.hasPosition && input.mouse.version!==car.lastAimMouseVersion;
 
   if(gamepadAimActive){
+    car.hasMouseAimPoint=false;
+    car.aimDistance=32;
     car.aimOffsetX=clamp(car.aimOffsetX-aim.x*0.42,-11,11);
     car.aimOffsetY=clamp(car.aimOffsetY-aim.y*0.32,aimOffsetYMin,aimOffsetYMax);
   }else if(gameMode==="single" && car===playerCar && mouseMoved){
@@ -1066,20 +1202,28 @@ function updateAimCross(car){
       -(input.mouse.y/innerHeight)*2+1
     );
     mouseAimRaycaster.setFromCamera(mouseAimPointer,car.camera);
-    mouseAimPlanePoint.set(0,3.15,32);
-    car.group.localToWorld(mouseAimPlanePoint);
-    mouseAimPlaneNormal.set(0,0,1).applyQuaternion(car.group.quaternion).normalize();
-    mouseAimPlane.setFromNormalAndCoplanarPoint(mouseAimPlaneNormal,mouseAimPlanePoint);
+    let worldPoint=mouseAimWorldPointFromRay(car);
+    car.mouseAimWorldX=worldPoint.x;
+    car.mouseAimWorldY=worldPoint.y;
+    car.mouseAimWorldZ=worldPoint.z;
+    car.hasMouseAimPoint=true;
+    car.lastAimMouseVersion=input.mouse.version;
+  }
 
-    if(mouseAimRaycaster.ray.intersectPlane(mouseAimPlane,mouseAimHitPoint)){
-      car.group.worldToLocal(mouseAimHitPoint);
-      car.aimOffsetX=clamp(mouseAimHitPoint.x,-11,11);
-      car.aimOffsetY=clamp(mouseAimHitPoint.y-3.15,aimOffsetYMin,aimOffsetYMax);
-      car.lastAimMouseVersion=input.mouse.version;
+  if(car.hasMouseAimPoint){
+    mouseAimHitPoint.set(car.mouseAimWorldX,car.mouseAimWorldY,car.mouseAimWorldZ);
+    car.group.worldToLocal(mouseAimHitPoint);
+    if(mouseAimHitPoint.z>4){
+      car.aimOffsetX=mouseAimHitPoint.x;
+      car.aimOffsetY=mouseAimHitPoint.y-3.15;
+      car.aimDistance=mouseAimHitPoint.z;
+    }else{
+      car.hasMouseAimPoint=false;
+      car.aimDistance=32;
     }
   }
 
-  car.aimCross.position.set(car.aimOffsetX,3.15+car.aimOffsetY,32);
+  car.aimCross.position.set(car.aimOffsetX,3.15+car.aimOffsetY,car.aimDistance || 32);
   let locked=!!nearbyRocketTargetForCar(car);
   let ring=car.aimCross.userData.ring;
   let cross=car.aimCross.userData.cross;
@@ -1153,11 +1297,14 @@ function fireRocket(car){
   let aimY=aimPoint.y-startY;
   let aimZ=aimPoint.z-startZ;
   let aimLen=Math.max(0.001,Math.hypot(aimX,aimY,aimZ));
-  let rocketLife=targetActor ? Math.min(300,Math.max(115,Math.ceil(aimLen/rocketSpeed)+80)) : 115;
+  let rocketLife=targetActor
+    ? Math.min(300,Math.max(115,Math.ceil(aimLen/rocketSpeed)+80))
+    : Math.min(360,Math.max(115,Math.ceil(aimLen/rocketSpeed)+45));
+  let targetDistance=targetActor ? 180 : Math.max(180,aimLen);
   let target={
-    x:startX+(aimX/aimLen)*180,
-    y:startY+(aimY/aimLen)*180,
-    z:startZ+(aimZ/aimLen)*180
+    x:startX+(aimX/aimLen)*targetDistance,
+    y:startY+(aimY/aimLen)*targetDistance,
+    z:startZ+(aimZ/aimLen)*targetDistance
   };
   mesh.position.set(startX,startY,startZ);
   mesh.rotation.y=Math.atan2(aimX,aimZ);
@@ -1290,6 +1437,7 @@ function fireCannon(car){
   let aimY=aimPoint.y-startY;
   let aimZ=aimPoint.z-startZ;
   let aimLen=Math.max(0.001,Math.hypot(aimX,aimY,aimZ));
+  let boltLife=Math.min(150,Math.max(72,Math.ceil(aimLen/cannonSpeed)+12));
 
   mesh.position.set(startX,startY,startZ);
   mesh.rotation.y=Math.atan2(aimX,aimZ);
@@ -1306,7 +1454,7 @@ function fireCannon(car){
     vy:(aimY/aimLen)*cannonSpeed,
     vz:(aimZ/aimLen)*cannonSpeed,
     age:0,
-    life:72
+    life:boltLife
   });
 
   for(let i=0;i<7;i++){
@@ -4035,6 +4183,11 @@ function placeCarOnRoad(car,z){
   car.lastJetButton=false;
   car.aimOffsetX=0;
   car.aimOffsetY=0;
+  car.aimDistance=32;
+  car.hasMouseAimPoint=false;
+  car.mouseAimWorldX=0;
+  car.mouseAimWorldY=0;
+  car.mouseAimWorldZ=0;
   car.lastAimMouseVersion=input.mouse.version;
   if(car.aimCross) car.aimCross.position.set(0,3.15,32);
   car.lastRocketButton=false;
