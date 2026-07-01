@@ -7,6 +7,7 @@ export function createWorld(scene,options={}){
   let chunkQueue=[];
   let removalQueue=[];
   let neededChunks=new Set();
+  let chunkDetails=new Map();
   let chunks=new Map();
   let bossBases=[];
   let bossBaseColliders=[];
@@ -702,6 +703,7 @@ function terrainPatchOk(x,z,radius,maxHeight=24,maxRange=7){
 function makeChunk(cx,cz){
   let envColors=environmentColors();
   let vegetation=environmentVegetation();
+  let detail=chunkDetails.get(chunkKey(cx,cz)) || {treeDensity:1,partDensity:1,grassDensity:1};
   let colors=[];
   let colliders=[];
   let geo=new THREE.PlaneGeometry(chunkSize,chunkSize,segments,segments);
@@ -755,11 +757,11 @@ function makeChunk(cx,cz){
   freezeStaticObject(water);
   scene.add(water);
 
-  let clusterCount=vegetation.treeClusters;
-  let treesPerCluster=vegetation.treesPerCluster;
+  let clusterCount=Math.max(0,Math.ceil(vegetation.treeClusters*detail.treeDensity));
+  let treesPerCluster=Math.max(1,Math.ceil(vegetation.treesPerCluster*detail.treeDensity));
   let clusterRadius=vegetation.treeClusterRadius;
-  let crownsPerTree=Math.max(1,Math.floor(vegetation.crownsPerTree));
-  let podsPerTree=Math.max(0,Math.floor(vegetation.podsPerTree));
+  let crownsPerTree=Math.max(1,Math.floor(vegetation.crownsPerTree*detail.partDensity));
+  let podsPerTree=Math.max(0,Math.floor(vegetation.podsPerTree*detail.partDensity));
   let maxTrees=clusterCount*treesPerCluster;
 
   let trunks=new THREE.InstancedMesh(trunkGeo,barkMat,maxTrees);
@@ -882,8 +884,8 @@ function makeChunk(cx,cz){
   freezeStaticObject(pods);
   scene.add(trunks,crowns,pods);
 
-  let grassClusterCount=vegetation.grassClusters;
-  let grassPerCluster=vegetation.grassPerCluster;
+  let grassClusterCount=Math.max(0,Math.ceil(vegetation.grassClusters*detail.grassDensity));
+  let grassPerCluster=Math.max(1,Math.ceil(vegetation.grassPerCluster*detail.grassDensity));
   let grassClusterRadius=vegetation.grassClusterRadius;
   let maxGrasses=grassClusterCount*grassPerCluster;
 
@@ -1259,12 +1261,33 @@ function updateChunksForCenters(centers){
   chunkQueue=[];
   let queuedChunks=new Set();
 
+  function detailForDistanceSq(distanceSq){
+    if(distanceSq<=8) return {treeDensity:1,partDensity:1,grassDensity:1};
+    if(distanceSq<=24) return {treeDensity:0.58,partDensity:0.62,grassDensity:0.62};
+    return {treeDensity:0.24,partDensity:0.42,grassDensity:0.34};
+  }
+
   for(let center of chunkCenters){
     for(let x=-viewDistance;x<=viewDistance;x++){
       for(let z=-viewDistance;z<=viewDistance;z++){
         let cx=center.cx+x;
         let cz=center.cz+z;
         let key=chunkKey(cx,cz);
+        let distanceSq=x*x+z*z;
+        let currentDetail=chunkDetails.get(key);
+        let nextDetail=detailForDistanceSq(distanceSq);
+        let detailIncreased=!currentDetail
+          || nextDetail.treeDensity>currentDetail.treeDensity
+          || nextDetail.partDensity>currentDetail.partDensity
+          || nextDetail.grassDensity>currentDetail.grassDensity;
+
+        if(detailIncreased){
+          chunkDetails.set(key,nextDetail);
+          if(currentDetail && chunks.has(key)){
+            removalQueue.push(chunks.get(key));
+            chunks.delete(key);
+          }
+        }
 
         neededChunks.add(key);
 
@@ -1296,6 +1319,7 @@ function updateChunksForCenters(centers){
     if(!neededChunks.has(key)){
       removalQueue.push(chunk);
       chunks.delete(key);
+      chunkDetails.delete(key);
     }
   }
 }
@@ -1388,6 +1412,7 @@ function resetChunks(){
   }
   chunks.clear();
   neededChunks.clear();
+  chunkDetails.clear();
   chunkQueue=[];
   removalQueue=[];
   lastChunkBuildTime=0;

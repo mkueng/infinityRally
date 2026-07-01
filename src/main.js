@@ -64,7 +64,7 @@ const worldEnvironments=[
       grass:0x75ff6a,grassEmissive:0x1b6d18,rock:0x2f4d3c,wall:0x4e6747,roof:0x253921,trim:0x9cc779,brick:0x4f7241
     },
     groundTexture:{base:"#275f35",dark:[24,70,36],bright:[86,150,62],streak:"124,255,120"},
-    vegetation:{treeClusters:4,treesPerCluster:10,treeClusterRadius:34,crownsPerTree:9,podsPerTree:5,trunkHeightBase:1.55,trunkHeightVariance:0.58,trunkWidthBase:0.64,trunkWidthVariance:0.28,leanAmount:0.24,crownBaseScale:1.45,crownScaleStep:0.045,crownSpreadBase:2.0,crownSpreadVariance:3.2,crownLiftBase:11.2,crownLiftStep:0.42,crownWidthScale:1.35,crownFlatness:0.78,crownDepthScale:1.35,podScaleBase:0.26,podScaleVariance:0.2,podLiftBase:8.8,podLiftVariance:3.2,podElongation:1.8,grassClusters:28,grassPerCluster:360,grassClusterRadius:15}
+    vegetation:{treeClusters:3,treesPerCluster:8,treeClusterRadius:34,crownsPerTree:7,podsPerTree:3,trunkHeightBase:1.55,trunkHeightVariance:0.58,trunkWidthBase:0.64,trunkWidthVariance:0.28,leanAmount:0.24,crownBaseScale:1.45,crownScaleStep:0.045,crownSpreadBase:2.0,crownSpreadVariance:3.2,crownLiftBase:11.2,crownLiftStep:0.42,crownWidthScale:1.35,crownFlatness:0.78,crownDepthScale:1.35,podScaleBase:0.26,podScaleVariance:0.2,podLiftBase:8.8,podLiftVariance:3.2,podElongation:1.8,grassClusters:24,grassPerCluster:300,grassClusterRadius:15}
   },
   {
     name:"dschungel wetlands",
@@ -78,7 +78,7 @@ const worldEnvironments=[
       grass:0x8be65d,grassEmissive:0x255d13,rock:0x33493c,wall:0x4d6352,roof:0x21382a,trim:0x8ebf75,brick:0x486a4b
     },
     groundTexture:{base:"#24543c",dark:[20,62,45],bright:[80,132,70],streak:"94,230,154"},
-    vegetation:{treeClusters:5,treesPerCluster:8,treeClusterRadius:38,crownsPerTree:8,podsPerTree:7,trunkHeightBase:1.2,trunkHeightVariance:0.38,trunkWidthBase:0.9,trunkWidthVariance:0.35,leanAmount:0.42,crownBaseScale:1.28,crownScaleStep:0.06,crownSpreadBase:2.7,crownSpreadVariance:2.9,crownLiftBase:8.4,crownLiftStep:0.18,crownWidthScale:1.75,crownFlatness:0.48,crownDepthScale:1.55,podScaleBase:0.22,podScaleVariance:0.22,podLiftBase:6.2,podLiftVariance:2.1,podElongation:1.2,grassClusters:30,grassPerCluster:340,grassClusterRadius:18}
+    vegetation:{treeClusters:4,treesPerCluster:7,treeClusterRadius:38,crownsPerTree:6,podsPerTree:4,trunkHeightBase:1.2,trunkHeightVariance:0.38,trunkWidthBase:0.9,trunkWidthVariance:0.35,leanAmount:0.42,crownBaseScale:1.28,crownScaleStep:0.06,crownSpreadBase:2.7,crownSpreadVariance:2.9,crownLiftBase:8.4,crownLiftStep:0.18,crownWidthScale:1.75,crownFlatness:0.48,crownDepthScale:1.55,podScaleBase:0.22,podScaleVariance:0.22,podLiftBase:6.2,podLiftVariance:2.1,podElongation:1.2,grassClusters:25,grassPerCluster:280,grassClusterRadius:18}
   }
 ];
 let currentEnvironment=worldEnvironments[Math.floor(Math.random()*worldEnvironments.length)];
@@ -157,6 +157,7 @@ let mothershipDelay=mothershipMinDelay+Math.floor(Math.random()*mothershipRandom
 let jetUnlocked=false;
 let score=0;
 let enemyScoreAmount=100;
+let giantScoreAmount=350;
 let bossScoreAmount=650;
 let villageScoreAmount=1000;
 let scoredVillages=new WeakSet();
@@ -681,8 +682,8 @@ function damageEnemy(enemy,amount){
       enemy.shadow=null;
     }
     scene.remove(enemy.group);
-    addScore(enemy.isBoss ? bossScoreAmount : enemyScoreAmount);
-    spawnRocketExplosion(enemy.x,enemy.y+2.2,enemy.z);
+    addScore(enemy.isBoss ? bossScoreAmount : enemy.isGiant ? giantScoreAmount : enemyScoreAmount);
+    spawnRocketExplosion(enemy.x,enemy.y+(enemy.isGiant ? 5.8 : 2.2),enemy.z);
   }
 }
 
@@ -738,7 +739,7 @@ function collidesWithOtherCars(car,nextX,nextZ){
     if(!other.active && other.isEnemy) continue;
     let dx=nextX-other.x;
     let dz=nextZ-other.z;
-    let minGap=3.6;
+    let minGap=(car.collisionRadius || 1.8)+(other.collisionRadius || 1.8);
     if(dx*dx+dz*dz<minGap*minGap) return other;
   }
   return null;
@@ -1263,6 +1264,7 @@ function raySphereDistance(origin,direction,x,y,z,radius,minDistance=0){
 }
 
 function actorAimRadius(actor){
+  if(actor.aimRadius) return actor.aimRadius;
   if(actor.isBoss) return 9.5;
   if(actor.isSpider) return 4.8;
   if(actor.isDrone) return 4.2;
@@ -1950,9 +1952,11 @@ function updateRockets(){
       for(let actor of combatActors()){
         if(actor===rocket.owner) continue;
         if(rocket.owner.isEnemy && actor.isEnemy) continue;
+        let hitRadius=actor.collisionRadius ? Math.max(4.2,actor.collisionRadius+1.1) : 4.2;
+        let hitHeight=actor.hitHeight || 4.2;
         let dx=rocket.x-actor.x;
         let dz=rocket.z-actor.z;
-        if(dx*dx+dz*dz<4.2*4.2 && Math.abs(rocket.y-actor.y)<4.2){
+        if(dx*dx+dz*dz<hitRadius*hitRadius && Math.abs(rocket.y-actor.y)<hitHeight){
           hitActor=actor;
           break;
         }
@@ -2034,9 +2038,11 @@ function updateCannonBolts(){
       for(let actor of combatActors()){
         if(actor===bolt.owner) continue;
         if(bolt.owner.isEnemy && actor.isEnemy) continue;
+        let hitRadius=actor.collisionRadius ? Math.max(3.6,actor.collisionRadius+0.6) : 3.6;
+        let hitHeight=actor.hitHeight || 4.0;
         let dx=bolt.x-actor.x;
         let dz=bolt.z-actor.z;
-        if(dx*dx+dz*dz<3.6*3.6 && Math.abs(bolt.y-actor.y)<4.0){
+        if(dx*dx+dz*dz<hitRadius*hitRadius && Math.abs(bolt.y-actor.y)<hitHeight){
           hitActor=actor;
           break;
         }
@@ -2276,6 +2282,8 @@ function spawnEnemyWave(){
     if(village.bossVillage && !village.bossSpawned){
       type="boss";
       village.bossSpawned=true;
+    }else if(Math.random()<(village.bossVillage ? 0.14 : 0.055)){
+      type="giant";
     }else if(Math.random()<(village.bossVillage ? 0.38 : 0.22)){
       type="drone";
     }
@@ -2301,7 +2309,9 @@ function spawnEnemyPatrol(){
   for(let i=0;i<count;i++){
     let point=enemyPatrolSpawnPoint(i);
     if(!point) return false;
-    let enemy=createEnemyState(++enemySpawnSerial,point.x,point.z,Math.random()<0.45 ? "drone" : "mech");
+    let roll=Math.random();
+    let type=roll<0.08 ? "giant" : roll<0.48 ? "drone" : "mech";
+    let enemy=createEnemyState(++enemySpawnSerial,point.x,point.z,type);
     enemy.isPatrol=true;
     enemy.angle=roadYawAt(point.z)+Math.PI+(Math.random()-0.5)*1.4;
     enemy.velAngle=enemy.angle;
@@ -2634,6 +2644,11 @@ function updateEnemy(enemy){
       desiredAngle+=enemy.aiStrafe*clamp((44-distance)/28,0,1)*0.52;
     }
     desiredSpeed=distance>70 ? 0.3 : distance>38 ? 0.14 : -0.05;
+  }else if(enemy.isGiant){
+    if(distance<62){
+      desiredAngle+=enemy.aiStrafe*clamp((62-distance)/38,0,1)*0.28;
+    }
+    desiredSpeed=distance>88 ? 0.2 : distance>46 ? 0.085 : -0.035;
   }else if(enemy.spawnVillage && !enemy.isPatrol){
     let homeX=Number.isFinite(enemy.guardX) ? enemy.guardX : enemy.spawnVillage.x;
     let homeZ=Number.isFinite(enemy.guardZ) ? enemy.guardZ : enemy.spawnVillage.z;
@@ -2662,12 +2677,13 @@ function updateEnemy(enemy){
     desiredSpeed=distance>58 ? 0.38 : distance>30 ? 0.18 : -0.08;
   }
 
-  let turn=clamp(normalizeAngle(desiredAngle-enemy.angle),enemy.isDrone || enemy.isSpider ? -0.075 : -0.045,enemy.isDrone || enemy.isSpider ? 0.075 : 0.045);
+  let turnLimit=enemy.isGiant ? 0.026 : enemy.isDrone || enemy.isSpider ? 0.075 : 0.045;
+  let turn=clamp(normalizeAngle(desiredAngle-enemy.angle),-turnLimit,turnLimit);
   enemy.angle=normalizeAngle(enemy.angle+turn);
 
   desiredSpeed*=settings.speed;
   enemy.speed+=clamp(desiredSpeed-enemy.speed,-0.012*settings.speed,0.012*settings.speed);
-  let maxEnemySpeed=(enemy.isSpider ? 0.32 : enemy.isDrone ? 0.48 : enemy.isGuard ? 0.32 : enemy.isBoss ? 0.15 : enemy.spawnVillage && !enemy.isPatrol ? 0.18 : 0.42)*settings.speed;
+  let maxEnemySpeed=(enemy.isSpider ? 0.32 : enemy.isDrone ? 0.48 : enemy.isGiant ? 0.22 : enemy.isGuard ? 0.32 : enemy.isBoss ? 0.15 : enemy.spawnVillage && !enemy.isPatrol ? 0.18 : 0.42)*settings.speed;
   enemy.speed=clamp(enemy.speed,-0.14*settings.speed,maxEnemySpeed);
 
   let prevX=enemy.x;
@@ -2684,9 +2700,9 @@ function updateEnemy(enemy){
     enemy.speed*=-0.25;
     enemy.angle=normalizeAngle(enemy.angle+(Math.random()<0.5 ? -1 : 1)*0.55);
     enemy.aiStrafe*=-1;
-    if(enemy.isSpider && collision.otherCar && enemy.contactCooldown<=0){
-      damageCar(collision.otherCar,4);
-      rattleActor(collision.otherCar,0.6);
+    if((enemy.isSpider || enemy.isGiant) && collision.otherCar && enemy.contactCooldown<=0){
+      damageCar(collision.otherCar,enemy.isGiant ? 8 : 4);
+      rattleActor(collision.otherCar,enemy.isGiant ? 1.1 : 0.6);
       enemy.contactCooldown=42;
     }
   }
@@ -2738,11 +2754,11 @@ function updateEnemy(enemy){
     }
   }
 
-  let fireRange=enemy.isDrone ? 118 : enemy.isGuard ? 96 : enemy.isBoss ? 112 : 82;
-  let fireArc=enemy.isDrone ? 0.82 : enemy.isGuard ? 0.62 : enemy.isBoss ? 0.68 : 0.52;
+  let fireRange=enemy.isDrone ? 118 : enemy.isGiant ? 132 : enemy.isGuard ? 96 : enemy.isBoss ? 112 : 82;
+  let fireArc=enemy.isDrone ? 0.82 : enemy.isGiant ? 0.58 : enemy.isGuard ? 0.62 : enemy.isBoss ? 0.68 : 0.52;
   if(!enemy.isSpider && distance<fireRange && Math.abs(normalizeAngle(targetAngle-enemy.angle))<fireArc){
     if(fireCannon(enemy)){
-      let baseDelay=enemy.isDrone ? 54+Math.floor(Math.random()*42) : enemy.isGuard ? 64+Math.floor(Math.random()*36) : enemy.isBoss ? 44+Math.floor(Math.random()*36) : 78+Math.floor(Math.random()*58);
+      let baseDelay=enemy.isDrone ? 54+Math.floor(Math.random()*42) : enemy.isGiant ? 92+Math.floor(Math.random()*46) : enemy.isGuard ? 64+Math.floor(Math.random()*36) : enemy.isBoss ? 44+Math.floor(Math.random()*36) : 78+Math.floor(Math.random()*58);
       enemy.cannonCooldown=scaledDelay(baseDelay,settings.fireDelay);
     }
   }
@@ -3091,6 +3107,105 @@ function resetMechPart(part){
   part.position.copy(part.userData.basePosition);
   part.rotation.copy(part.userData.baseRotation);
   if(part.userData.baseScale) part.scale.copy(part.userData.baseScale);
+}
+
+function rememberMechBasePose(model){
+  if(!model) return;
+  model.updateMatrixWorld(true);
+  model.traverse(child=>{
+    if(!child.isMesh) return;
+    child.userData.basePosition=child.position.clone();
+    child.userData.baseRotation=child.rotation.clone();
+    child.userData.baseScale=child.scale.clone();
+  });
+}
+
+function enemyVariantValue(seed,salt){
+  return Math.sin(seed*91.17+salt*37.91)*0.5+0.5;
+}
+
+function makeEnemyRobotVariant(seed,type){
+  let heavy=type==="boss" || type==="giant" || type==="guard";
+  return {
+    height:heavy ? 1.04+enemyVariantValue(seed,1)*0.2 : 0.88+enemyVariantValue(seed,1)*0.32,
+    width:heavy ? 1.04+enemyVariantValue(seed,2)*0.26 : 0.84+enemyVariantValue(seed,2)*0.38,
+    depth:0.86+enemyVariantValue(seed,3)*0.34,
+    arm:0.82+enemyVariantValue(seed,4)*0.45,
+    leg:0.9+enemyVariantValue(seed,5)*0.35,
+    shoulder:0.9+enemyVariantValue(seed,6)*0.55,
+    head:0.82+enemyVariantValue(seed,7)*0.38,
+    hunch:(enemyVariantValue(seed,8)-0.5)*(heavy ? 0.16 : 0.34),
+    asymmetry:(enemyVariantValue(seed,9)-0.5)*0.22
+  };
+}
+
+function scaleMeshPart(mesh,x=1,y=1,z=1){
+  if(mesh) mesh.scale.set(mesh.scale.x*x,mesh.scale.y*y,mesh.scale.z*z);
+}
+
+function shiftMeshPart(mesh,x=0,y=0,z=0){
+  if(mesh) mesh.position.set(mesh.position.x+x,mesh.position.y+y,mesh.position.z+z);
+}
+
+function applyEnemyRobotVariant(model,seed,type){
+  let parts=model && model.userData ? model.userData.walkParts : null;
+  if(!parts) return;
+  let variant=makeEnemyRobotVariant(seed,type);
+
+  scaleMeshPart(parts.pelvis,variant.width*0.92,variant.height*0.78,variant.depth);
+  scaleMeshPart(parts.torso,variant.width,variant.height,variant.depth);
+  scaleMeshPart(parts.chestPlate,variant.width*1.08,variant.height*0.86,variant.depth*0.78);
+  scaleMeshPart(parts.reactorPack,variant.width*0.86,variant.height,variant.depth*1.16);
+  scaleMeshPart(parts.neck,variant.head*0.84,variant.height,variant.head*0.84);
+  scaleMeshPart(parts.head,variant.head,variant.head*(1.04+variant.hunch*0.3),variant.head);
+  scaleMeshPart(parts.visor,variant.head*1.12,variant.head*0.82,variant.head*0.88);
+  shiftMeshPart(parts.head,0,variant.hunch*0.35,variant.hunch*0.42);
+  shiftMeshPart(parts.visor,0,variant.hunch*0.35,variant.hunch*0.42);
+
+  for(let sideName of ["left","right"]){
+    let side=sideName==="left" ? -1 : 1;
+    let sideParts=parts[sideName];
+    if(!sideParts) continue;
+    let sideAsym=1+variant.asymmetry*side;
+    scaleMeshPart(sideParts.shoulder,variant.shoulder*sideAsym,variant.shoulder*0.9,variant.depth);
+    scaleMeshPart(sideParts.upperArm,variant.arm*0.78*sideAsym,variant.arm*1.08,variant.arm*0.86);
+    scaleMeshPart(sideParts.forearm,variant.arm*0.82*sideAsym,variant.arm*1.12,variant.arm);
+    scaleMeshPart(sideParts.hand,variant.arm*0.9,variant.arm*0.9,variant.arm*0.9);
+    scaleMeshPart(sideParts.cannon,variant.arm*0.82,variant.arm*1.08,variant.arm*1.18);
+    scaleMeshPart(sideParts.cannonShroud,variant.arm*0.9,variant.arm*0.92,variant.arm*1.15);
+    scaleMeshPart(sideParts.hip,variant.width*0.92,variant.leg*0.86,variant.depth);
+    scaleMeshPart(sideParts.upperLeg,variant.leg*0.9,variant.leg*1.12,variant.leg*0.9);
+    scaleMeshPart(sideParts.shin,variant.leg*0.84,variant.leg*1.16,variant.leg*0.84);
+    scaleMeshPart(sideParts.foot,variant.leg*0.95,variant.leg*0.76,variant.leg*1.16);
+    scaleMeshPart(sideParts.toePlate,variant.leg*0.9,variant.leg*0.76,variant.leg*1.2);
+    shiftMeshPart(sideParts.shoulder,side*(variant.width-1)*0.28,variant.hunch*0.18,0);
+    shiftMeshPart(sideParts.hip,side*(variant.width-1)*0.18,0,0);
+  }
+
+  if(type==="giant"){
+    let core=parts.torso || model;
+    for(let side of [-1,1]){
+      let pauldron=new THREE.Mesh(new THREE.BoxGeometry(0.78,0.58,1.35),enemyTrimMat.clone());
+      pauldron.name=side<0 ? "giant-left-pauldron" : "giant-right-pauldron";
+      pauldron.position.set(side*1.95,3.72,0.02);
+      pauldron.rotation.z=side*0.16;
+      pauldron.castShadow=true;
+      pauldron.receiveShadow=true;
+      model.add(pauldron);
+
+      let backFin=new THREE.Mesh(new THREE.ConeGeometry(0.22,1.28,5),enemyTrimMat.clone());
+      backFin.name=side<0 ? "giant-left-back-fin" : "giant-right-back-fin";
+      backFin.position.set(side*0.72,4.35,-0.92);
+      backFin.rotation.x=-0.52;
+      backFin.rotation.z=side*0.22;
+      backFin.castShadow=true;
+      backFin.receiveShadow=true;
+      model.add(backFin);
+    }
+    scaleMeshPart(core,1.16,1.08,1.12);
+  }
+
+  rememberMechBasePose(model);
 }
 
 function morphStage(progress,start,end){
@@ -3567,7 +3682,7 @@ function setMorphCarModel(car,model){
   updateMorphVisual(car);
 }
 
-function makeEnemyMechModel(seed=0){
+function makeEnemyMechModel(seed=0,type="mech"){
   let mech=makeMechModel(seed%2===0 ? 0x9cff2f : 0xff5a2f);
   mech.name="enemy-mech";
   mech.scale.set(1.18,0.96,1.1);
@@ -3616,11 +3731,12 @@ function makeEnemyMechModel(seed=0){
     addEnemyPart(shoulderSpike);
   }
 
+  applyEnemyRobotVariant(mech,seed,type);
   return mech;
 }
 
 function makeGuardRobotModel(seed=0){
-  let mech=makeEnemyMechModel(seed+17);
+  let mech=makeEnemyMechModel(seed+17,"guard");
   mech.name="base-guard";
   mech.scale.set(1.34,1.08,1.22);
 
@@ -3805,15 +3921,21 @@ function createEnemyState(index,x,z,type="mech"){
   let isBoss=type==="boss";
   let isSpider=type==="spider";
   let isGuard=type==="guard";
-  let mech=(isDrone || isSpider) ? null : isGuard ? makeGuardRobotModel(index) : makeEnemyMechModel(index);
+  let isGiant=type==="giant";
+  let mech=(isDrone || isSpider) ? null : isGuard ? makeGuardRobotModel(index) : makeEnemyMechModel(index,type);
   let drone=isDrone ? makeDroneModel(index) : null;
   let spider=isSpider ? makeSpiderModel(index) : null;
   if(mech){
     if(isBoss) mech.scale.multiplyScalar(1.55);
+    if(isGiant) mech.scale.multiplyScalar(2.2);
     group.add(mech);
   }
   if(drone) group.add(drone);
   if(spider) group.add(spider);
+  let collisionRadius=isGiant ? 7.9 : isBoss ? 5.8 : isGuard ? 3.15 : isSpider ? 3.2 : isDrone ? 2.9 : 2.35;
+  let aimRadius=isGiant ? 10.5 : isBoss ? 9.5 : isSpider ? 4.8 : isDrone ? 4.2 : isGuard ? 5.0 : 4.5;
+  let hitHeight=isGiant ? 12.5 : isBoss ? 8.5 : isDrone ? 5.2 : isSpider ? 3.6 : 5.2;
+  let baseHealth=isGiant ? 420 : isBoss ? 260 : isGuard ? 82 : isDrone ? 34 : isSpider ? 24 : 36;
 
   return {
     id:`enemy-${index}`,
@@ -3823,6 +3945,7 @@ function createEnemyState(index,x,z,type="mech"){
     isSpider,
     isGuard,
     isBoss,
+    isGiant,
     active:true,
     group,
     shadow:isDrone ? null : createCarShadow(scene),
@@ -3834,6 +3957,9 @@ function createEnemyState(index,x,z,type="mech"){
     x,
     y:drivingSurfaceHeight(x,z)+(isDrone ? 20 : 0),
     z,
+    collisionRadius,
+    aimRadius,
+    hitHeight,
     angle:Math.random()*Math.PI*2,
     velAngle:0,
     speed:0,
@@ -3861,7 +3987,7 @@ function createEnemyState(index,x,z,type="mech"){
     lastRocketButton:false,
     rocketCooldown:0,
     lastCannonButton:false,
-    cannonCooldown:(isBoss ? 35 : isDrone ? 46 : 60)+Math.floor(Math.random()*(isBoss ? 35 : isDrone ? 38 : 70)),
+    cannonCooldown:(isGiant ? 70 : isBoss ? 35 : isDrone ? 46 : 60)+Math.floor(Math.random()*(isGiant ? 70 : isBoss ? 35 : isDrone ? 38 : 70)),
     clusterBombCooldown:0,
     clusterBombAmmo:0,
     flightTimer:0,
@@ -3872,7 +3998,7 @@ function createEnemyState(index,x,z,type="mech"){
     walkCycle:0,
     lastWalkX:x,
     lastWalkZ:z,
-    health:isBoss ? 260 : isGuard ? 82 : isDrone ? 34 : isSpider ? 24 : 36,
+    health:baseHealth,
     aiTarget:null,
     aiStrafe:Math.random()<0.5 ? -1 : 1,
     aiThink:0,
