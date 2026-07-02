@@ -148,6 +148,7 @@ let lastSkyWeatherIntensity=-1;
 let lastSkyNightAmount=-1;
 let hemiLight=null;
 let sun=null;
+let headlightNightAmount=0;
 const stormSkyStops=["#040711","#09121e","#172534","#2f3c45","#5f6660"];
 const nightSkyStops=["#02040c","#071121","#0d1930","#18223c","#26304a"];
 const dayNightCycleMs=360000;
@@ -239,6 +240,7 @@ function updateDayNight(now=performance.now(),forceSky=false){
   let day=state.dayAmount;
   let night=state.nightAmount;
   let rainDim=1-rainIntensity*0.24;
+  headlightNightAmount=night;
 
   if(hemiLight){
     hemiLight.intensity=(0.42+day*0.93)*rainDim;
@@ -4392,16 +4394,81 @@ function makeAimCross(accentColor){
   return group;
 }
 
+function makeVehicleHeadlights(accentColor){
+  let rig=new THREE.Group();
+  let lensMat=new THREE.MeshBasicMaterial({
+    color:accentColor,
+    transparent:true,
+    opacity:0,
+    depthWrite:false
+  });
+  let lensGeo=new THREE.SphereGeometry(0.16,12,8);
+  rig.userData.lenses=[];
+  rig.userData.spots=[];
+  rig.userData.targets=[];
+
+  for(let side of [-1,1]){
+    let spot=new THREE.SpotLight(0xfff1c8,0,130,0.4,0.5,1.12);
+    let target=new THREE.Object3D();
+    let lens=new THREE.Mesh(lensGeo,lensMat.clone());
+
+    lens.scale.set(1,0.55,0.35);
+    lens.renderOrder=18;
+    spot.target=target;
+    rig.add(spot,target,lens);
+    rig.userData.spots.push(spot);
+    rig.userData.targets.push(target);
+    rig.userData.lenses.push(lens);
+  }
+
+  return rig;
+}
+
+function updateVehicleHeadlights(car){
+  let rig=car.headlights;
+  if(!rig) return;
+
+  let nightPower=clamp01((headlightNightAmount-0.28)/0.5);
+  nightPower=nightPower*nightPower*(3-2*nightPower);
+  let jetFade=1-clamp01((car.jetProgress || 0)*1.7);
+  let power=nightPower*jetFade*(car.health>0 && car.group.visible && !gameOver ? 1 : 0);
+  let carBlend=car.morphProgress || 0;
+  let y=(3.45*(1-carBlend)+0.72*carBlend);
+  let z=(0.92*(1-carBlend)+2.1*carBlend);
+  let x=(0.42*(1-carBlend)+0.78*carBlend);
+  let targetY=(2.55*(1-carBlend)+0.28*carBlend);
+  let targetZ=(15.5*(1-carBlend)+24*carBlend);
+
+  rig.visible=power>0.01;
+  for(let i=0;i<2;i++){
+    let side=i===0 ? -1 : 1;
+    let spot=rig.userData.spots[i];
+    let target=rig.userData.targets[i];
+    let lens=rig.userData.lenses[i];
+
+    spot.position.set(side*x,y,z);
+    spot.intensity=power*(carBlend>0.55 ? 11.5 : 8.8);
+    spot.distance=carBlend>0.55 ? 145 : 118;
+    spot.angle=carBlend>0.55 ? 0.34 : 0.42;
+    target.position.set(side*x*0.7,targetY,targetZ);
+    lens.position.set(side*x,y,z+0.05);
+    lens.material.opacity=0.26+power*0.74;
+  }
+}
+
 function setupMorphModels(car,accentColor){
   let mech=makeMechModel(accentColor);
   let aimCross=makeAimCross(accentColor);
+  let headlights=makeVehicleHeadlights(accentColor);
 
   car.group.clear();
-  car.group.add(mech,aimCross);
+  car.group.add(mech,headlights,aimCross);
   car.mechModel=mech;
   car.jetModel=null;
   car.carModel=null;
   car.aimCross=aimCross;
+  car.headlights=headlights;
+  updateVehicleHeadlights(car);
 }
 
 function setMorphCarModel(car,model){
@@ -4897,6 +4964,7 @@ function updateMorphVisual(car){
   if(car.aimCross){
     car.aimCross.scale.setScalar(1+Math.sin(performance.now()*0.004)*0.035);
   }
+  updateVehicleHeadlights(car);
 
   if(car.group.visible && car.health>0 && !gameOver && previous!==p){
     if(crossedMorphStage(previous,p,0.22)) emitMorphSparks(car,10);
@@ -5410,8 +5478,9 @@ function loop(){
   if(!gameStarted){
     updateCameras();
     world.processChunkQueue(4,true);
-    world.updateWind(performance.now());
     updateWeather();
+    world.updateWind(performance.now(),rainIntensity);
+    for(let car of cars) updateVehicleHeadlights(car);
     clouds.update();
     birds.update();
     rain.update();
@@ -5436,8 +5505,9 @@ function loop(){
   updateExplosions();
   updateRockDebris();
   updateBossLaserBeams();
-  world.updateWind(performance.now());
   updateWeather();
+  world.updateWind(performance.now(),rainIntensity);
+  for(let car of cars) updateVehicleHeadlights(car);
   motorAudio.update();
   updateCameras();
 

@@ -92,12 +92,14 @@ let grassWindShader=null;
 let grassMat=new THREE.MeshStandardMaterial({color:0x9df58d,emissive:0x173d18,emissiveIntensity:0.12,roughness:0.84});
 grassMat.onBeforeCompile=shader=>{
   shader.uniforms.windTime={value:0};
+  shader.uniforms.windStrength={value:1};
   grassWindShader=shader;
   shader.vertexShader=shader.vertexShader.replace(
     "#include <common>",
     [
       "#include <common>",
-      "uniform float windTime;"
+      "uniform float windTime;",
+      "uniform float windStrength;"
     ].join("\n")
   );
   shader.vertexShader=shader.vertexShader.replace(
@@ -118,7 +120,7 @@ grassMat.onBeforeCompile=shader=>{
       "#else",
       "vec3 windLocal=windWorld;",
       "#endif",
-      "float gust=0.18+sin(windTime*1.35)*0.07+sin(windTime*2.1)*0.035;",
+      "float gust=(0.18+sin(windTime*1.35)*0.07+sin(windTime*2.1)*0.035)*windStrength;",
       "float windBend=bladeHeight*bladeHeight*gust;",
       "transformed+=windLocal*windBend;"
     ].join("\n")
@@ -1420,8 +1422,11 @@ function processChunkQueue(maxItems=1,immediate=false){
   }
 }
 
-function updateWind(time){
-  if(grassWindShader) grassWindShader.uniforms.windTime.value=time*0.001;
+function updateWind(time,rainIntensity=0){
+  if(!grassWindShader) return;
+  let rain=Math.max(0,Math.min(1,rainIntensity));
+  grassWindShader.uniforms.windTime.value=time*0.001*(1+rain*0.55);
+  grassWindShader.uniforms.windStrength.value=1+rain*2.4;
 }
 
 function resetChunks(){
