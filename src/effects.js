@@ -1,6 +1,6 @@
 import { THREE } from "./three.js";
 import { cloudCount } from "./constants.js";
-import { makeCarShadowTexture, makeCloudTexture, makeDustTexture } from "./textures.js";
+import { makeCarShadowTexture, makeCloudTexture, makeDustTexture } from "./textures.js?v=smeared-clouds-unclipped";
 import { rand } from "./terrain.js";
 
 export function createCarShadow(scene){
@@ -54,15 +54,15 @@ export function createClouds(scene,getCarPosition){
 
   function makeClouds(){
     let cloudTexture=makeCloudTexture();
-    let cloudRange=5200;
+    let cloudRange=12800;
     let cloudRand=(a,b)=>rand(a,b)*0.5+0.5;
 
     for(let i=0;i<cloudCount;i++){
       let material=new THREE.SpriteMaterial({
         map:cloudTexture,
-        color:0xffb2d6,
+        color:0xffffff,
         transparent:true,
-        opacity:0.24+cloudRand(i*17,91)*0.22,
+        opacity:0.035+cloudRand(i*17,91)*0.075,
         depthWrite:false,
         fog:false
       });
@@ -70,8 +70,8 @@ export function createClouds(scene,getCarPosition){
       let baseX=(cloudRand(i*23,7)-0.5)*cloudRange;
       let baseZ=(cloudRand(i*31,11)-0.5)*cloudRange;
       let baseY=155+cloudRand(i*43,19)*210;
-      let width=430+cloudRand(i*59,29)*520;
-      let height=145+cloudRand(i*61,31)*155;
+      let width=980+cloudRand(i*59,29)*1280;
+      let height=190+cloudRand(i*61,31)*190;
       let windAngle=-0.45+cloudRand(i*73,47)*0.35;
       let windSpeed=18+cloudRand(i*71,37)*16;
 
@@ -104,7 +104,7 @@ export function createClouds(scene,getCarPosition){
   function update(){
     let {carX,carZ}=getCarPosition();
     cloudTime+=0.016;
-    let range=5200;
+    let range=12800;
 
     for(let cloud of cloudSprites){
       let data=cloud.userData;
@@ -117,7 +117,7 @@ export function createClouds(scene,getCarPosition){
       let y=data.baseY+Math.sin(cloudTime*data.bobSpeed+data.phase)*data.bobAmount;
       let dx=x-carX;
       let dz=z-carZ;
-      let minDist=850;
+      let minDist=3600;
       if(dx*dx+dz*dz<minDist*minDist){
         let angle=Math.atan2(dz || 1,dx || 1);
         x=carX+Math.cos(angle)*minDist;
@@ -295,6 +295,80 @@ export function createBirds(scene,getCarPosition){
   }
 
   return {makeBirds,update};
+}
+
+export function createRain(scene,getCarPosition,getRainIntensity=()=>0){
+  let maxDrops=850;
+  let range=420;
+  let height=190;
+  let positions=new Float32Array(maxDrops*2*3);
+  let speeds=new Float32Array(maxDrops);
+  let offsets=new Float32Array(maxDrops*3);
+  let rainTime=0;
+
+  for(let i=0;i<maxDrops;i++){
+    offsets[i*3]=(Math.random()-0.5)*range;
+    offsets[i*3+1]=Math.random()*height;
+    offsets[i*3+2]=(Math.random()-0.5)*range;
+    speeds[i]=4.8+Math.random()*4.6;
+  }
+
+  let geometry=new THREE.BufferGeometry();
+  geometry.setAttribute("position",new THREE.BufferAttribute(positions,3));
+  let material=new THREE.LineBasicMaterial({
+    color:0xbfefff,
+    transparent:true,
+    opacity:0.46,
+    depthWrite:false,
+    fog:true
+  });
+  let rain=new THREE.LineSegments(geometry,material);
+  rain.frustumCulled=false;
+  rain.visible=false;
+  scene.add(rain);
+
+  function wrap(value,halfRange){
+    while(value<-halfRange) value+=halfRange*2;
+    while(value>halfRange) value-=halfRange*2;
+    return value;
+  }
+
+  function update(){
+    let intensity=Math.max(0,Math.min(1,getRainIntensity()));
+    if(intensity<=0.01){
+      rain.visible=false;
+      return;
+    }
+
+    rain.visible=true;
+    material.opacity=0.18+intensity*0.42;
+    let activeDrops=Math.max(40,Math.floor(maxDrops*intensity));
+    let {carX,carZ}=getCarPosition();
+    rainTime+=0.016;
+
+    for(let i=0;i<activeDrops;i++){
+      let ox=wrap(offsets[i*3]+Math.sin(rainTime*0.7+i)*18,range*0.5);
+      let fall=(offsets[i*3+1]-rainTime*speeds[i]*60)%height;
+      if(fall<0) fall+=height;
+      let oz=wrap(offsets[i*3+2]+Math.cos(rainTime*0.55+i*0.7)*12,range*0.5);
+      let x=carX+ox;
+      let y=18+fall;
+      let z=carZ+oz;
+      let base=i*6;
+
+      positions[base]=x;
+      positions[base+1]=y;
+      positions[base+2]=z;
+      positions[base+3]=x-1.5;
+      positions[base+4]=y-10-intensity*8;
+      positions[base+5]=z+0.65;
+    }
+
+    geometry.setDrawRange(0,activeDrops*2);
+    geometry.attributes.position.needsUpdate=true;
+  }
+
+  return {update};
 }
 
 export function createDust(scene){

@@ -6,7 +6,7 @@ export function createMotorAudio(cars){
   let supported=true;
   let backgroundMusic=new Audio("./assets/music/ROSpace.mp3");
   backgroundMusic.loop=true;
-  backgroundMusic.volume=0;
+  backgroundMusic.volume=0.23;
   backgroundMusic.preload="auto";
 
   function clamp(value,min,max){

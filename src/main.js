@@ -2,9 +2,9 @@ import { THREE } from "./three.js";
 import { gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize, mothershipDropCount, mothershipDropInterval, mothershipDropLineSpacing, mothershipHoverDistance, mothershipHoverFrames, mothershipMinDelay, mothershipRandomDelay, mothershipRocketHits } from "./constants.js";
 import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=no-ramps";
 import { createInput } from "./input.js";
-import { createHud } from "./hud.js";
-import { createBirds, createCarShadow, createClouds, createDust, createWheelTracks } from "./effects.js?v=soft-clouds";
-import { createWorld } from "./world.js?v=alien-planet";
+import { createHud } from "./hud.js?v=planet-map";
+import { createBirds, createCarShadow, createClouds, createDust, createRain, createWheelTracks } from "./effects.js?v=initial-clouds";
+import { createWorld } from "./world.js?v=planet-boss-bases";
 import { createMotorAudio } from "./audio.js?v=alien-planet-world";
 import { loadCarModel, makeJetModel, makeMechModel } from "./models.js?v=jet-morph";
 import { makeSkyTexture } from "./textures.js?v=alien-planet";
@@ -22,6 +22,8 @@ const worldEnvironments=[
       grass:0x9df58d,grassEmissive:0x173d18,rock:0x3f334b,wall:0x5a526d,roof:0x322b45,trim:0xa78fbd,brick:0x714060
     },
     groundTexture:{base:"#6f2d46",dark:[55,20,70],bright:[150,70,55],streak:"104,255,213"},
+    rainChance:0.24,
+    rainIntensity:[0.18,0.42],
     vegetation:{treeClusters:2,treesPerCluster:8,treeClusterRadius:25,crownsPerTree:7,podsPerTree:4,trunkHeightBase:1,trunkHeightVariance:0.34,trunkWidthBase:0.72,trunkWidthVariance:0.34,leanAmount:0.18,crownBaseScale:1.25,crownScaleStep:0.08,crownSpreadBase:1.1,crownSpreadVariance:2.4,crownLiftBase:9.1,crownLiftStep:0.28,crownWidthScale:1,crownFlatness:1,crownDepthScale:1,podScaleBase:0.42,podScaleVariance:0.34,podLiftBase:7.1,podLiftVariance:1.6,podElongation:1.35,grassClusters:20,grassPerCluster:400,grassClusterRadius:10}
   },
   {
@@ -36,6 +38,8 @@ const worldEnvironments=[
       grass:0xb8ffdf,grassEmissive:0x1f5c4c,rock:0x5f6f84,wall:0x697d8a,roof:0x2f4559,trim:0xc2d6dc,brick:0x506879
     },
     groundTexture:{base:"#496b7d",dark:[38,58,76],bright:[132,170,180],streak:"210,255,255"},
+    rainChance:0.18,
+    rainIntensity:[0.12,0.32],
     vegetation:{treeClusters:2,treesPerCluster:7,treeClusterRadius:24,crownsPerTree:5,podsPerTree:3,trunkHeightBase:1.28,trunkHeightVariance:0.45,trunkWidthBase:0.52,trunkWidthVariance:0.22,leanAmount:0.09,crownBaseScale:1.05,crownScaleStep:0.04,crownSpreadBase:0.65,crownSpreadVariance:1.2,crownLiftBase:10.6,crownLiftStep:0.92,crownWidthScale:0.74,crownFlatness:1.65,crownDepthScale:0.74,podScaleBase:0.28,podScaleVariance:0.22,podLiftBase:9.4,podLiftVariance:2.4,podElongation:2.15,grassClusters:16,grassPerCluster:320,grassClusterRadius:11}
   },
   {
@@ -50,6 +54,8 @@ const worldEnvironments=[
       grass:0xdfb65a,grassEmissive:0x5f3608,rock:0x5b3a35,wall:0x72544b,roof:0x3c2529,trim:0xd29a65,brick:0x8f4c38
     },
     groundTexture:{base:"#733823",dark:[72,31,25],bright:[172,83,44],streak:"255,185,86"},
+    rainChance:0.08,
+    rainIntensity:[0.1,0.24],
     vegetation:{treeClusters:1,treesPerCluster:7,treeClusterRadius:28,crownsPerTree:4,podsPerTree:6,trunkHeightBase:0.82,trunkHeightVariance:0.22,trunkWidthBase:1.05,trunkWidthVariance:0.42,leanAmount:0.34,crownBaseScale:0.96,crownScaleStep:0.12,crownSpreadBase:1.8,crownSpreadVariance:3.8,crownLiftBase:6.8,crownLiftStep:0.08,crownWidthScale:1.55,crownFlatness:0.52,crownDepthScale:1.35,podScaleBase:0.32,podScaleVariance:0.42,podLiftBase:5.8,podLiftVariance:1.2,podElongation:1.05,grassClusters:12,grassPerCluster:260,grassClusterRadius:12}
   },
   {
@@ -64,6 +70,8 @@ const worldEnvironments=[
       grass:0x75ff6a,grassEmissive:0x1b6d18,rock:0x2f4d3c,wall:0x4e6747,roof:0x253921,trim:0x9cc779,brick:0x4f7241
     },
     groundTexture:{base:"#275f35",dark:[24,70,36],bright:[86,150,62],streak:"124,255,120"},
+    rainChance:0.72,
+    rainIntensity:[0.38,0.82],
     vegetation:{treeClusters:3,treesPerCluster:8,treeClusterRadius:34,crownsPerTree:7,podsPerTree:3,trunkHeightBase:1.55,trunkHeightVariance:0.58,trunkWidthBase:0.64,trunkWidthVariance:0.28,leanAmount:0.24,crownBaseScale:1.45,crownScaleStep:0.045,crownSpreadBase:2.0,crownSpreadVariance:3.2,crownLiftBase:11.2,crownLiftStep:0.42,crownWidthScale:1.35,crownFlatness:0.78,crownDepthScale:1.35,podScaleBase:0.26,podScaleVariance:0.2,podLiftBase:8.8,podLiftVariance:3.2,podElongation:1.8,grassClusters:24,grassPerCluster:300,grassClusterRadius:15}
   },
   {
@@ -78,15 +86,141 @@ const worldEnvironments=[
       grass:0x8be65d,grassEmissive:0x255d13,rock:0x33493c,wall:0x4d6352,roof:0x21382a,trim:0x8ebf75,brick:0x486a4b
     },
     groundTexture:{base:"#24543c",dark:[20,62,45],bright:[80,132,70],streak:"94,230,154"},
+    rainChance:0.88,
+    rainIntensity:[0.48,0.96],
     vegetation:{treeClusters:4,treesPerCluster:7,treeClusterRadius:38,crownsPerTree:6,podsPerTree:4,trunkHeightBase:1.2,trunkHeightVariance:0.38,trunkWidthBase:0.9,trunkWidthVariance:0.35,leanAmount:0.42,crownBaseScale:1.28,crownScaleStep:0.06,crownSpreadBase:2.7,crownSpreadVariance:2.9,crownLiftBase:8.4,crownLiftStep:0.18,crownWidthScale:1.75,crownFlatness:0.48,crownDepthScale:1.55,podScaleBase:0.22,podScaleVariance:0.22,podLiftBase:6.2,podLiftVariance:2.1,podElongation:1.2,grassClusters:25,grassPerCluster:280,grassClusterRadius:18}
+  },
+  {
+    name:"storm archipelago",
+    terrain:{heightScale:0.52,hillScale:1.05,mountainScale:0.48,baseHeight:-5.6,roadWave1:190,roadWave2:132,roadWave3:52,roadFrequencyScale:0.92},
+    sky:["#03111f","#063756","#18707b","#69a7a8","#f0dca9"],
+    fog:0x2d7180,
+    colors:{
+      underwater:0x0a3044,shore:0xd4c06f,low:0x1d6d74,mid:0x2c8b80,high:0x5d7f73,
+      water:0x22d7ff,waterEmissive:0x045f78,bark:0x17313b,barkEmissive:0x041119,
+      leaf:0x43d7a2,leafEmissive:0x0a5f48,pod:0xffcf67,podEmissive:0xa65f00,
+      grass:0x90e68c,grassEmissive:0x1f5f25,rock:0x355365,wall:0x557477,roof:0x223548,trim:0x9fd6cc,brick:0x486569
+    },
+    groundTexture:{base:"#2f6b69",dark:[22,64,72],bright:[92,156,130],streak:"98,230,255"},
+    rainChance:0.94,
+    rainIntensity:[0.42,1],
+    vegetation:{treeClusters:2,treesPerCluster:6,treeClusterRadius:42,crownsPerTree:5,podsPerTree:5,trunkHeightBase:1.05,trunkHeightVariance:0.52,trunkWidthBase:0.72,trunkWidthVariance:0.32,leanAmount:0.55,crownBaseScale:1.08,crownScaleStep:0.08,crownSpreadBase:2.6,crownSpreadVariance:3.4,crownLiftBase:7.8,crownLiftStep:0.22,crownWidthScale:1.6,crownFlatness:0.56,crownDepthScale:1.45,podScaleBase:0.3,podScaleVariance:0.28,podLiftBase:6.7,podLiftVariance:2.5,podElongation:1.35,grassClusters:18,grassPerCluster:240,grassClusterRadius:20}
+  },
+  {
+    name:"violet mesas",
+    terrain:{heightScale:1.16,hillScale:0.72,mountainScale:1.82,baseHeight:3.2,roadWave1:285,roadWave2:62,roadWave3:58,roadFrequencyScale:1.18},
+    sky:["#100b24","#2f2462","#724b98","#c9798f","#ffe1ba"],
+    fog:0x76548a,
+    colors:{
+      underwater:0x3f315f,shore:0xcaa66d,low:0x674e8b,mid:0x895d89,high:0xb08b82,
+      water:0xb474ff,waterEmissive:0x4e1b8d,bark:0x2d2138,barkEmissive:0x100719,
+      leaf:0xff8fd0,leafEmissive:0x8a2c68,pod:0x8dfff2,podEmissive:0x0ebdb2,
+      grass:0xd0a6ff,grassEmissive:0x46306d,rock:0x6b5274,wall:0x7d667f,roof:0x3c2b4e,trim:0xdfb3d6,brick:0x86605f
+    },
+    groundTexture:{base:"#67487c",dark:[58,42,80],bright:[152,96,132],streak:"226,168,240"},
+    rainChance:0.16,
+    rainIntensity:[0.08,0.28],
+    vegetation:{treeClusters:1,treesPerCluster:6,treeClusterRadius:30,crownsPerTree:4,podsPerTree:5,trunkHeightBase:1.42,trunkHeightVariance:0.62,trunkWidthBase:0.46,trunkWidthVariance:0.18,leanAmount:0.12,crownBaseScale:0.82,crownScaleStep:0.1,crownSpreadBase:0.9,crownSpreadVariance:1.6,crownLiftBase:12.8,crownLiftStep:1.1,crownWidthScale:0.68,crownFlatness:1.9,crownDepthScale:0.72,podScaleBase:0.34,podScaleVariance:0.28,podLiftBase:10.6,podLiftVariance:3.1,podElongation:2.4,grassClusters:10,grassPerCluster:220,grassClusterRadius:13}
+  },
+  {
+    name:"ash bloom",
+    terrain:{heightScale:0.96,hillScale:1.34,mountainScale:1.08,baseHeight:0.4,roadWave1:210,roadWave2:105,roadWave3:44,roadFrequencyScale:0.98},
+    sky:["#07090c","#20242a","#5d6861","#b17d67","#f2c99a"],
+    fog:0x697067,
+    colors:{
+      underwater:0x263642,shore:0xa79368,low:0x4e5f58,mid:0x66705a,high:0x8b8170,
+      water:0x78cfd1,waterEmissive:0x1c6266,bark:0x1e1e20,barkEmissive:0x08080a,
+      leaf:0x9ee36d,leafEmissive:0x385d16,pod:0xff7a5c,podEmissive:0xbd2a12,
+      grass:0xb7d879,grassEmissive:0x3d4f18,rock:0x565b5c,wall:0x6f7268,roof:0x2b3034,trim:0xd4b36f,brick:0x766150
+    },
+    groundTexture:{base:"#555a4f",dark:[50,52,52],bright:[134,130,94],streak:"255,132,92"},
+    rainChance:0.32,
+    rainIntensity:[0.16,0.48],
+    vegetation:{treeClusters:2,treesPerCluster:7,treeClusterRadius:31,crownsPerTree:6,podsPerTree:6,trunkHeightBase:0.92,trunkHeightVariance:0.34,trunkWidthBase:0.82,trunkWidthVariance:0.38,leanAmount:0.3,crownBaseScale:1.18,crownScaleStep:0.075,crownSpreadBase:1.55,crownSpreadVariance:2.5,crownLiftBase:8.2,crownLiftStep:0.34,crownWidthScale:1.25,crownFlatness:0.82,crownDepthScale:1.18,podScaleBase:0.38,podScaleVariance:0.32,podLiftBase:6.8,podLiftVariance:1.9,podElongation:1.05,grassClusters:15,grassPerCluster:260,grassClusterRadius:14}
   }
 ];
 let currentEnvironment=worldEnvironments[Math.floor(Math.random()*worldEnvironments.length)];
+let rainIntensity=0;
+let weatherTargetIntensity=0;
+let nextWeatherChange=0;
+let baseFogDensity=0.00042;
+let lastSkyWeatherIntensity=-1;
+const stormSkyStops=["#040711","#09121e","#172534","#2f3c45","#5f6660"];
+
+function randomRange(min,max){
+  return min+Math.random()*(max-min);
+}
+
+function randomRainIntensity(environment,scale=1){
+  let range=environment.rainIntensity || [0.2,0.55];
+  return Math.max(0,Math.min(1,randomRange(range[0],range[1])*scale));
+}
+
+function chooseWeatherTarget(environment){
+  let wetness=environment.rainChance || 0;
+  let roll=Math.random();
+  let clearChance=Math.max(0.08,0.72-wetness*0.64);
+  let drizzleChance=Math.min(0.36,0.12+wetness*0.28);
+  let rainChance=Math.min(0.34,0.08+wetness*0.26);
+
+  if(roll<clearChance) return 0;
+  if(roll<clearChance+drizzleChance) return randomRainIntensity(environment,0.45);
+  if(roll<clearChance+drizzleChance+rainChance) return randomRainIntensity(environment,0.82);
+  return randomRainIntensity(environment,1.18);
+}
+
+function scheduleNextWeatherChange(now=performance.now()){
+  nextWeatherChange=now+randomRange(18000,46000);
+}
+
+weatherTargetIntensity=chooseWeatherTarget(currentEnvironment);
+rainIntensity=weatherTargetIntensity;
+scheduleNextWeatherChange(0);
+
+function blendHexColor(from,to,amount){
+  let a=new THREE.Color(from);
+  let b=new THREE.Color(to);
+  a.lerp(b,Math.max(0,Math.min(1,amount)));
+  return `#${a.getHexString()}`;
+}
+
+function weatherSkyStops(){
+  let sky=currentEnvironment.sky || ["#12072b","#33145f","#9c416f","#f08c71","#ffd3a5"];
+  let stormAmount=Math.pow(Math.max(0,Math.min(1,rainIntensity)),0.72)*0.82;
+  return sky.map((color,index)=>blendHexColor(color,stormSkyStops[index] || stormSkyStops[stormSkyStops.length-1],stormAmount));
+}
+
+function updateSkyForWeather(force=false){
+  let bucket=Math.round(rainIntensity*24)/24;
+  if(!force && Math.abs(bucket-lastSkyWeatherIntensity)<0.001) return;
+  lastSkyWeatherIntensity=bucket;
+  if(scene.background && scene.background.dispose) scene.background.dispose();
+  scene.background=makeSkyTexture({...currentEnvironment,sky:weatherSkyStops()});
+}
 
 function refreshSceneEnvironment(){
-  if(scene.background && scene.background.dispose) scene.background.dispose();
-  scene.background=makeSkyTexture(currentEnvironment);
-  scene.fog=new THREE.FogExp2(currentEnvironment.fog || 0x7b4771,0.00042);
+  lastSkyWeatherIntensity=-1;
+  updateSkyForWeather(true);
+  scene.fog=new THREE.FogExp2(currentEnvironment.fog || 0x7b4771,baseFogDensity);
+}
+
+function updateWeather(){
+  let now=performance.now();
+  if(now>=nextWeatherChange){
+    weatherTargetIntensity=chooseWeatherTarget(currentEnvironment);
+    scheduleNextWeatherChange(now);
+  }
+
+  rainIntensity+=(weatherTargetIntensity-rainIntensity)*0.006;
+  if(Math.abs(weatherTargetIntensity-rainIntensity)<0.003) rainIntensity=weatherTargetIntensity;
+
+  if(scene.fog){
+    scene.fog.density=baseFogDensity+rainIntensity*0.00042;
+  }
+  if(sun){
+    sun.intensity=2.05-rainIntensity*0.55;
+  }
+  updateSkyForWeather();
 }
 
 let scene=new THREE.Scene();
@@ -239,6 +373,9 @@ let bossLaserPointB=new THREE.Vector3();
 let droneBodyMat=new THREE.MeshStandardMaterial({color:0x202935,emissive:0x061728,emissiveIntensity:0.35,roughness:0.56,metalness:0.7});
 let droneWingMat=new THREE.MeshStandardMaterial({color:0x58657a,emissive:0x121827,emissiveIntensity:0.22,roughness:0.6,metalness:0.55});
 let droneCoreMat=new THREE.MeshBasicMaterial({color:0x9fd8ff,transparent:true,opacity:0.78,depthWrite:false,blending:THREE.AdditiveBlending});
+let boatHullMat=new THREE.MeshStandardMaterial({color:0x1a2630,emissive:0x06121a,emissiveIntensity:0.28,roughness:0.58,metalness:0.62});
+let boatDeckMat=new THREE.MeshStandardMaterial({color:0x4f6172,emissive:0x101820,emissiveIntensity:0.16,roughness:0.52,metalness:0.58});
+let boatMissileMat=new THREE.MeshStandardMaterial({color:0x7f2f25,emissive:0x2f0703,emissiveIntensity:0.42,roughness:0.4,metalness:0.5});
 let spiderBodyMat=new THREE.MeshStandardMaterial({color:0x151821,emissive:0x220912,emissiveIntensity:0.38,roughness:0.76,metalness:0.52});
 let spiderLegMat=new THREE.MeshStandardMaterial({color:0x3a2334,emissive:0x120512,emissiveIntensity:0.26,roughness:0.68,metalness:0.48});
 let mothershipHullMat=new THREE.MeshStandardMaterial({color:0x211c32,emissive:0x09051a,emissiveIntensity:0.42,roughness:0.72,metalness:0.58});
@@ -553,11 +690,13 @@ secondCar.shadow.setVisible(false);
 let world=createWorld(scene,{getDifficulty:()=>gameDifficulty,getEnvironment:()=>currentEnvironment});
 let clouds=createClouds(scene,()=>({carX:playerCar.x,carZ:playerCar.z}));
 let birds=createBirds(scene,()=>({carX:playerCar.x,carZ:playerCar.z}));
+let rain=createRain(scene,()=>({carX:px,carZ:pz}),()=>rainIntensity);
 let dust=createDust(scene);
 let wheelTracks=createWheelTracks(scene);
 let motorAudio=createMotorAudio(cars);
 let hud=createHud({
   getPerformanceMode:()=>gameMode==="double" ? "split" : "full",
+  getEnvironment:()=>currentEnvironment,
   getCarStates:()=>displayCars().map(car=>({
     id:car.id,
     label:car.id==="car1" ? "P1" : "P2",
@@ -1579,6 +1718,66 @@ function fireRocket(car){
   if(!car.isEnemy) car.rocketAmmo=Math.max(0,car.rocketAmmo-1);
 }
 
+function fireBoatMissile(boat,target){
+  if(gameOver || !boat || !target || boat.health<=0 || boat.cannonCooldown>0) return false;
+
+  let forwardX=Math.sin(boat.angle);
+  let forwardZ=Math.cos(boat.angle);
+  let rightX=Math.cos(boat.angle);
+  let rightZ=-Math.sin(boat.angle);
+  let side=boat.missileSide || 1;
+  boat.missileSide=-side;
+
+  let startX=boat.x+forwardX*2.4+rightX*side*1.35;
+  let startY=boat.y+2.15;
+  let startZ=boat.z+forwardZ*2.4+rightZ*side*1.35;
+  let targetX=target.x;
+  let targetY=Math.max(target.y+1.4,waterLevel+1.4);
+  let targetZ=target.z;
+  let dx=targetX-startX;
+  let dz=targetZ-startZ;
+  let distance=Math.max(1,Math.hypot(dx,dz));
+  let flightTime=clamp(distance/1.45,95,210);
+  let gravity=0.018;
+  let mesh=makeRocketMesh();
+  mesh.scale.setScalar(1.28);
+  mesh.position.set(startX,startY,startZ);
+  scene.add(mesh);
+
+  let vx=dx/flightTime;
+  let vz=dz/flightTime;
+  let vy=(targetY-startY+0.5*gravity*flightTime*flightTime)/flightTime;
+  let angle=Math.atan2(vx,vz);
+  mesh.rotation.y=angle;
+  mesh.rotation.x=-Math.atan2(vy,Math.max(0.001,Math.hypot(vx,vz)));
+
+  rockets.push({
+    owner:boat,
+    mesh,
+    x:startX,
+    y:startY,
+    z:startZ,
+    angle,
+    targetX,
+    targetY,
+    targetZ,
+    vx,
+    vy,
+    vz,
+    age:0,
+    life:Math.ceil(flightTime)+28,
+    impactAge:Math.ceil(flightTime),
+    ballistic:true,
+    gravity,
+    damage:22,
+    blastRadius:18
+  });
+
+  motorAudio.playRocketLaunch(boat);
+  boat.cannonCooldown=scaledDelay(175+Math.floor(Math.random()*115),currentDifficulty().fireDelay);
+  return true;
+}
+
 function rattleCar(car,amount=1){
   car.hitRattle=Math.max(car.hitRattle,amount);
   car.hitRattleSeed=Math.random()*Math.PI*2;
@@ -1898,27 +2097,41 @@ function updateRockets(){
     let rocket=rockets[i];
     rocket.age++;
 
-    if(rocket.targetActor && rocket.targetActor.active && rocket.targetActor.health>0){
+    if(!rocket.ballistic && rocket.targetActor && rocket.targetActor.active && rocket.targetActor.health>0){
       let targetPoint=rocketTargetPoint(rocket.targetActor);
       rocket.targetX=targetPoint.x;
       rocket.targetY=targetPoint.y;
       rocket.targetZ=targetPoint.z;
     }
 
-    let dx=rocket.targetX-rocket.x;
-    let dy=rocket.targetY-rocket.y;
-    let dz=rocket.targetZ-rocket.z;
-    let desiredLen=Math.max(0.001,Math.hypot(dx,dy,dz));
-    let desiredVx=(dx/desiredLen)*rocketSpeed;
-    let desiredVy=(dy/desiredLen)*rocketSpeed;
-    let desiredVz=(dz/desiredLen)*rocketSpeed;
-    rocket.vx+=(desiredVx-rocket.vx)*rocketTurnRate;
-    rocket.vy+=(desiredVy-rocket.vy)*rocketTurnRate;
-    rocket.vz+=(desiredVz-rocket.vz)*rocketTurnRate;
-    let velocityLen=Math.max(0.001,Math.hypot(rocket.vx,rocket.vy,rocket.vz));
-    rocket.vx=(rocket.vx/velocityLen)*rocketSpeed;
-    rocket.vy=(rocket.vy/velocityLen)*rocketSpeed;
-    rocket.vz=(rocket.vz/velocityLen)*rocketSpeed;
+    if(rocket.ballistic){
+      rocket.vy-=rocket.gravity || 0.018;
+      if(rocket.targetX!==undefined && rocket.age<rocket.life*0.62){
+        let dx=rocket.targetX-rocket.x;
+        let dz=rocket.targetZ-rocket.z;
+        let desiredAngle=Math.atan2(dx,dz);
+        let speedXZ=Math.max(0.001,Math.hypot(rocket.vx,rocket.vz));
+        let steer=clamp(normalizeAngle(desiredAngle-Math.atan2(rocket.vx,rocket.vz)),-0.012,0.012);
+        let steeredAngle=Math.atan2(rocket.vx,rocket.vz)+steer;
+        rocket.vx=Math.sin(steeredAngle)*speedXZ;
+        rocket.vz=Math.cos(steeredAngle)*speedXZ;
+      }
+    }else{
+      let dx=rocket.targetX-rocket.x;
+      let dy=rocket.targetY-rocket.y;
+      let dz=rocket.targetZ-rocket.z;
+      let desiredLen=Math.max(0.001,Math.hypot(dx,dy,dz));
+      let desiredVx=(dx/desiredLen)*rocketSpeed;
+      let desiredVy=(dy/desiredLen)*rocketSpeed;
+      let desiredVz=(dz/desiredLen)*rocketSpeed;
+      rocket.vx+=(desiredVx-rocket.vx)*rocketTurnRate;
+      rocket.vy+=(desiredVy-rocket.vy)*rocketTurnRate;
+      rocket.vz+=(desiredVz-rocket.vz)*rocketTurnRate;
+      let velocityLen=Math.max(0.001,Math.hypot(rocket.vx,rocket.vy,rocket.vz));
+      rocket.vx=(rocket.vx/velocityLen)*rocketSpeed;
+      rocket.vy=(rocket.vy/velocityLen)*rocketSpeed;
+      rocket.vz=(rocket.vz/velocityLen)*rocketSpeed;
+    }
     rocket.angle=Math.atan2(rocket.vx,rocket.vz);
 
     let prevX=rocket.x;
@@ -1929,7 +2142,8 @@ function updateRockets(){
     rocket.z+=rocket.vz;
     rocket.mesh.position.set(rocket.x,rocket.y,rocket.z);
     rocket.mesh.rotation.y=rocket.angle;
-    rocket.mesh.rotation.x=-Math.asin(clamp(rocket.vy/rocketSpeed,-1,1));
+    let rocketVelocity=Math.max(0.001,Math.hypot(rocket.vx,rocket.vy,rocket.vz));
+    rocket.mesh.rotation.x=-Math.asin(clamp(rocket.vy/rocketVelocity,-1,1));
     rocket.mesh.rotation.z=Math.sin(rocket.age*0.45)*0.05;
 
     if(rocket.age%2===0){
@@ -1967,17 +2181,28 @@ function updateRockets(){
     }
 
     let hitObstacle=world.obstacleAlongSegment3D(prevX,prevY,prevZ,rocket.x,rocket.y,rocket.z,1.25);
-    let hit=rocket.y<=surfaceY+0.35 || hitObstacle || hitActor || mothershipHit;
+    let targetImpact=false;
+    if(rocket.ballistic && rocket.targetX!==undefined){
+      let dx=rocket.x-rocket.targetX;
+      let dz=rocket.z-rocket.targetZ;
+      targetImpact=(rocket.age>=rocket.impactAge && dx*dx+dz*dz<28*28)
+        || (dx*dx+dz*dz<12*12 && rocket.y<=rocket.targetY+14);
+    }
+    let hit=rocket.y<=surfaceY+0.35 || hitObstacle || hitActor || mothershipHit || targetImpact;
 
     if(hit || rocket.age>rocket.life){
-      if(hit){
-        let explosionX=mothershipHit ? mothershipHit.x : hitObstacle ? hitObstacle.x : rocket.x;
-        let explosionZ=mothershipHit ? mothershipHit.z : hitObstacle ? hitObstacle.z : rocket.z;
+      let shouldExplode=hit || rocket.ballistic;
+      if(shouldExplode){
+        let explosionX=mothershipHit ? mothershipHit.x : hitObstacle ? hitObstacle.x : targetImpact ? rocket.targetX : rocket.x;
+        let explosionZ=mothershipHit ? mothershipHit.z : hitObstacle ? hitObstacle.z : targetImpact ? rocket.targetZ : rocket.z;
+        let explosionSurfaceY=drivingSurfaceHeight(explosionX,explosionZ);
         let explosionY=hitObstacle
-          ? Math.max(groundHeight(hitObstacle.x,hitObstacle.z)+Math.max(0.8,hitObstacle.r*0.45),surfaceY+0.5)
+          ? Math.max(groundHeight(hitObstacle.x,hitObstacle.z)+Math.max(0.8,hitObstacle.r*0.45),explosionSurfaceY+0.5)
           : mothershipHit
           ? mothershipHit.y
-          : Math.max(rocket.y,surfaceY+0.5);
+          : targetImpact
+          ? Math.max(rocket.targetY,explosionSurfaceY+0.5)
+          : Math.max(rocket.y,explosionSurfaceY+0.5);
         spawnRocketExplosion(explosionX,explosionY,explosionZ);
         if(mothershipHit) damageMothership(explosionX,explosionY,explosionZ,1);
         if(hitObstacle){
@@ -1991,8 +2216,20 @@ function updateRockets(){
           }
         }
         if(hitActor){
-          damageActor(hitActor,18);
+          damageActor(hitActor,rocket.damage || 18);
           rattleActor(hitActor,1);
+        }
+        if(rocket.blastRadius){
+          for(let actor of combatActors()){
+            if(actor===rocket.owner || actor===hitActor) continue;
+            if(rocket.owner.isEnemy && actor.isEnemy) continue;
+            let dx=actor.x-explosionX;
+            let dz=actor.z-explosionZ;
+            if(dx*dx+dz*dz<rocket.blastRadius*rocket.blastRadius){
+              damageActor(actor,Math.max(6,(rocket.damage || 18)*0.55));
+              rattleActor(actor,0.85);
+            }
+          }
         }
       }
       removeRocket(i);
@@ -2174,6 +2411,63 @@ function playerDistanceSqForEnemy(enemy){
   return best;
 }
 
+function updateBoatEnemy(enemy,target,distance,targetAngle,settings){
+  let preferredDistance=230;
+  let minDistance=120;
+  let maxDistance=390;
+  let desiredAngle=targetAngle+enemy.aiStrafe*(0.72+Math.sin(performance.now()*0.0012+enemy.guardPhase)*0.18);
+  let desiredSpeed=0.11;
+
+  if(distance>maxDistance){
+    desiredAngle=targetAngle;
+    desiredSpeed=0.32;
+  }else if(distance<minDistance){
+    desiredAngle=targetAngle+Math.PI+enemy.aiStrafe*0.36;
+    desiredSpeed=0.24;
+  }else if(distance>preferredDistance){
+    desiredSpeed=0.18;
+  }
+
+  let turn=clamp(normalizeAngle(desiredAngle-enemy.angle),-0.038,0.038);
+  enemy.angle=normalizeAngle(enemy.angle+turn);
+  enemy.speed+=clamp(desiredSpeed*settings.speed-enemy.speed,-0.009*settings.speed,0.009*settings.speed);
+  enemy.speed=clamp(enemy.speed,0,0.34*settings.speed);
+
+  let prevX=enemy.x;
+  let prevZ=enemy.z;
+  if(!gameOver){
+    enemy.x+=Math.sin(enemy.angle)*enemy.speed;
+    enemy.z+=Math.cos(enemy.angle)*enemy.speed;
+  }
+
+  if(waterDepthAt(enemy.x,enemy.z)<1.6 || world.collidesWithObstacles(enemy.x,enemy.z)){
+    enemy.x=prevX;
+    enemy.z=prevZ;
+    enemy.speed*=0.25;
+    enemy.angle=normalizeAngle(targetAngle+enemy.aiStrafe*(0.95+Math.random()*0.55));
+    enemy.aiStrafe*=-1;
+  }
+
+  enemy.y=waterLevel+0.5+Math.sin(performance.now()*0.003+enemy.guardPhase)*0.12;
+  enemy.pitch=Math.sin(performance.now()*0.002+enemy.guardPhase)*0.025;
+  enemy.velAngle=enemy.angle;
+  enemy.onGround=false;
+  enemy.airborne=false;
+  enemy.group.position.set(enemy.x,enemy.y,enemy.z);
+  enemy.group.rotation.y=enemy.angle;
+  enemy.group.rotation.x=enemy.pitch;
+  enemy.group.rotation.z=Math.sin(performance.now()*0.0024+enemy.guardPhase)*0.035;
+
+  if(enemy.boatModel && enemy.boatModel.userData.core){
+    enemy.boatModel.userData.core.scale.setScalar(1+Math.sin(performance.now()*0.018+enemy.guardPhase)*0.12);
+  }
+
+  let aimError=Math.abs(normalizeAngle(targetAngle-enemy.angle));
+  if(distance>130 && distance<430 && aimError<0.72){
+    fireBoatMissile(enemy,target);
+  }
+}
+
 function prepareVillageEnemyBudget(village){
   if(!village) return;
   if(village.enemyBudgetRun===enemyBudgetRun && village.enemyDifficulty===gameDifficulty) return;
@@ -2266,6 +2560,28 @@ function enemyPatrolSpawnPoint(index){
   return null;
 }
 
+function enemyBoatSpawnPoint(index){
+  let center=playerCenter();
+
+  for(let attempt=0;attempt<34;attempt++){
+    let angle=Math.random()*Math.PI*2;
+    let distance=300+Math.random()*420+index*35;
+    let x=center.x+Math.cos(angle)*distance+(Math.random()-0.5)*36;
+    let z=center.z+Math.sin(angle)*distance+(Math.random()-0.5)*36;
+
+    if(
+      waterDepthAt(x,z)>3.2
+      && playerSpawnDistanceSq(x,z)>210*210
+      && roadDistance(x,z)>70
+      && !world.collidesWithObstacles(x,z)
+    ){
+      return {x,z};
+    }
+  }
+
+  return null;
+}
+
 function spawnEnemyWave(){
   let village=enemySpawnVillage();
   if(!village) return false;
@@ -2307,13 +2623,14 @@ function spawnEnemyPatrol(){
   let settings=currentDifficulty();
   let count=Math.max(1,Math.round(2*settings.waveCount));
   for(let i=0;i<count;i++){
-    let point=enemyPatrolSpawnPoint(i);
+    let boatPoint=Math.random()<0.38 ? enemyBoatSpawnPoint(i) : null;
+    let point=boatPoint || enemyPatrolSpawnPoint(i);
     if(!point) return false;
     let roll=Math.random();
-    let type=roll<0.08 ? "giant" : roll<0.48 ? "drone" : "mech";
+    let type=boatPoint ? "boat" : roll<0.08 ? "giant" : roll<0.48 ? "drone" : "mech";
     let enemy=createEnemyState(++enemySpawnSerial,point.x,point.z,type);
     enemy.isPatrol=true;
-    enemy.angle=roadYawAt(point.z)+Math.PI+(Math.random()-0.5)*1.4;
+    enemy.angle=boatPoint ? Math.random()*Math.PI*2 : roadYawAt(point.z)+Math.PI+(Math.random()-0.5)*1.4;
     enemy.velAngle=enemy.angle;
     enemy.group.position.set(enemy.x,enemy.y,enemy.z);
     enemy.group.rotation.y=enemy.angle;
@@ -2609,6 +2926,10 @@ function updateEnemy(enemy){
   let dz=target.z-enemy.z;
   let distance=Math.max(0.001,Math.hypot(dx,dz));
   let targetAngle=Math.atan2(dx,dz);
+  if(enemy.isBoat){
+    updateBoatEnemy(enemy,target,distance,targetAngle,settings);
+    return;
+  }
   let desiredAngle=targetAngle;
   let desiredSpeed;
 
@@ -3846,6 +4167,66 @@ function makeSpiderModel(seed=0){
   return spider;
 }
 
+function makeRobotBoatModel(seed=0){
+  let boat=new THREE.Group();
+  let variant=Math.abs(Math.sin(seed*12.9898)*43758.5453)%1;
+
+  function addPart(mesh){
+    mesh.castShadow=true;
+    mesh.receiveShadow=true;
+    boat.add(mesh);
+    return mesh;
+  }
+
+  let hull=new THREE.Mesh(new THREE.BoxGeometry(5.4,0.9,8.4),boatHullMat.clone());
+  hull.position.y=0.52;
+  hull.scale.x=0.9+variant*0.18;
+  addPart(hull);
+
+  let prow=new THREE.Mesh(new THREE.ConeGeometry(2.45,2.6,4),boatHullMat.clone());
+  prow.position.set(0,0.54,4.85);
+  prow.rotation.y=Math.PI*0.25;
+  prow.rotation.x=Math.PI*0.5;
+  prow.scale.set(1.05,0.92,0.72);
+  addPart(prow);
+
+  for(let side of [-1,1]){
+    let pontoon=new THREE.Mesh(new THREE.CylinderGeometry(0.54,0.7,7.6,12),boatDeckMat.clone());
+    pontoon.position.set(side*2.95,0.04,0.2);
+    pontoon.rotation.x=Math.PI*0.5;
+    addPart(pontoon);
+
+    let rack=new THREE.Mesh(new THREE.BoxGeometry(0.82,0.52,2.3),boatMissileMat.clone());
+    rack.position.set(side*1.55,1.52,-1.15);
+    rack.rotation.x=-0.18;
+    addPart(rack);
+
+    for(let i=0;i<2;i++){
+      let tube=new THREE.Mesh(new THREE.CylinderGeometry(0.18,0.2,1.35,10),rocketBodyMat);
+      tube.position.set(side*1.55,1.78,-1.72+i*0.82);
+      tube.rotation.x=Math.PI*0.5-0.2;
+      addPart(tube);
+    }
+  }
+
+  let cabin=new THREE.Mesh(new THREE.BoxGeometry(2.5,1.25,2.2),boatDeckMat.clone());
+  cabin.position.set(0,1.42,0.82);
+  cabin.rotation.y=(variant-0.5)*0.12;
+  addPart(cabin);
+
+  let sensor=new THREE.Mesh(new THREE.SphereGeometry(0.36,16,10),droneCoreMat.clone());
+  sensor.position.set(0,1.62,2.08);
+  boat.add(sensor);
+
+  let antenna=new THREE.Mesh(new THREE.CylinderGeometry(0.045,0.06,1.5,8),enemyTrimMat.clone());
+  antenna.position.set(0.72,2.34,0.18);
+  antenna.rotation.z=-0.16;
+  addPart(antenna);
+
+  boat.userData.core=sensor;
+  return boat;
+}
+
 function makeMothershipModel(){
   let ship=new THREE.Group();
   let hull=new THREE.Mesh(new THREE.SphereGeometry(1,32,16),mothershipHullMat);
@@ -3922,9 +4303,11 @@ function createEnemyState(index,x,z,type="mech"){
   let isSpider=type==="spider";
   let isGuard=type==="guard";
   let isGiant=type==="giant";
-  let mech=(isDrone || isSpider) ? null : isGuard ? makeGuardRobotModel(index) : makeEnemyMechModel(index,type);
+  let isBoat=type==="boat";
+  let mech=(isDrone || isSpider || isBoat) ? null : isGuard ? makeGuardRobotModel(index) : makeEnemyMechModel(index,type);
   let drone=isDrone ? makeDroneModel(index) : null;
   let spider=isSpider ? makeSpiderModel(index) : null;
+  let boat=isBoat ? makeRobotBoatModel(index) : null;
   if(mech){
     if(isBoss) mech.scale.multiplyScalar(1.55);
     if(isGiant) mech.scale.multiplyScalar(2.2);
@@ -3932,10 +4315,12 @@ function createEnemyState(index,x,z,type="mech"){
   }
   if(drone) group.add(drone);
   if(spider) group.add(spider);
-  let collisionRadius=isGiant ? 7.9 : isBoss ? 5.8 : isGuard ? 3.15 : isSpider ? 3.2 : isDrone ? 2.9 : 2.35;
-  let aimRadius=isGiant ? 10.5 : isBoss ? 9.5 : isSpider ? 4.8 : isDrone ? 4.2 : isGuard ? 5.0 : 4.5;
-  let hitHeight=isGiant ? 12.5 : isBoss ? 8.5 : isDrone ? 5.2 : isSpider ? 3.6 : 5.2;
-  let baseHealth=isGiant ? 420 : isBoss ? 260 : isGuard ? 82 : isDrone ? 34 : isSpider ? 24 : 36;
+  if(boat) group.add(boat);
+  let collisionRadius=isGiant ? 7.9 : isBoss ? 5.8 : isBoat ? 5.6 : isGuard ? 3.15 : isSpider ? 3.2 : isDrone ? 2.9 : 2.35;
+  let aimRadius=isGiant ? 10.5 : isBoss ? 9.5 : isBoat ? 7.5 : isSpider ? 4.8 : isDrone ? 4.2 : isGuard ? 5.0 : 4.5;
+  let hitHeight=isGiant ? 12.5 : isBoss ? 8.5 : isBoat ? 4.6 : isDrone ? 5.2 : isSpider ? 3.6 : 5.2;
+  let baseHealth=isGiant ? 420 : isBoss ? 260 : isGuard ? 82 : isBoat ? 72 : isDrone ? 34 : isSpider ? 24 : 36;
+  let startY=isBoat ? waterLevel+0.56 : drivingSurfaceHeight(x,z)+(isDrone ? 20 : 0);
 
   return {
     id:`enemy-${index}`,
@@ -3946,16 +4331,18 @@ function createEnemyState(index,x,z,type="mech"){
     isGuard,
     isBoss,
     isGiant,
+    isBoat,
     active:true,
     group,
-    shadow:isDrone ? null : createCarShadow(scene),
+    shadow:(isDrone || isBoat) ? null : createCarShadow(scene),
     mechModel:mech,
     droneModel:drone,
     spiderModel:spider,
+    boatModel:boat,
     carModel:null,
     aimCross:null,
     x,
-    y:drivingSurfaceHeight(x,z)+(isDrone ? 20 : 0),
+    y:startY,
     z,
     collisionRadius,
     aimRadius,
@@ -3963,7 +4350,7 @@ function createEnemyState(index,x,z,type="mech"){
     angle:Math.random()*Math.PI*2,
     velAngle:0,
     speed:0,
-    onGround:!isDrone,
+    onGround:!isDrone && !isBoat,
     airborne:isDrone,
     vy:0,
     pitch:0,
@@ -3987,7 +4374,7 @@ function createEnemyState(index,x,z,type="mech"){
     lastRocketButton:false,
     rocketCooldown:0,
     lastCannonButton:false,
-    cannonCooldown:(isGiant ? 70 : isBoss ? 35 : isDrone ? 46 : 60)+Math.floor(Math.random()*(isGiant ? 70 : isBoss ? 35 : isDrone ? 38 : 70)),
+    cannonCooldown:(isBoat ? 150 : isGiant ? 70 : isBoss ? 35 : isDrone ? 46 : 60)+Math.floor(Math.random()*(isBoat ? 120 : isGiant ? 70 : isBoss ? 35 : isDrone ? 38 : 70)),
     clusterBombCooldown:0,
     clusterBombAmmo:0,
     flightTimer:0,
@@ -4375,9 +4762,10 @@ function updateCar(car){
     emitJetHoverExhaust(car);
   }
 
-  let waterDrag=clamp(waterDepthAt(car.x,car.z)/3.5,0,1);
+  let robotWaterMovement=!jetHovering && car.morphProgress<0.4;
+  let waterDrag=clamp(waterDepthAt(car.x,car.z)/(robotWaterMovement ? 8.2 : 9.5),0,1);
   if(!gameOver && !carDisabled && !jetHovering && waterDrag>0){
-    car.speed*=1-0.12*waterDrag;
+    car.speed*=1-(robotWaterMovement ? 0.03 : 0.018)*waterDrag;
   }
 
   if(!gameOver && !carDisabled) car.vy-=flying ? gravityStrength*0.22 : jetHovering ? 0 : gravityStrength;
@@ -4562,8 +4950,10 @@ function loop(){
     updateCameras();
     world.processChunkQueue(4,true);
     world.updateWind(performance.now());
+    updateWeather();
     clouds.update();
     birds.update();
+    rain.update();
     renderGame();
     return;
   }
@@ -4586,6 +4976,7 @@ function loop(){
   updateRockDebris();
   updateBossLaserBeams();
   world.updateWind(performance.now());
+  updateWeather();
   motorAudio.update();
   updateCameras();
 
@@ -4598,6 +4989,7 @@ function loop(){
 
   clouds.update();
   birds.update();
+  rain.update();
   hud.updateSpeedHud();
   hud.updateMapHud();
   hud.updateCompassHud();

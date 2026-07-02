@@ -73,14 +73,15 @@ export function makeCarShadowTexture(){
 export function makeCloudTexture(){
   let canvas=document.createElement("canvas");
   canvas.width=512;
-  canvas.height=384;
+  canvas.height=256;
   let ctx=canvas.getContext("2d");
-  ctx.clearRect(0,0,512,384);
+  ctx.clearRect(0,0,512,256);
 
   function puff(x,y,r,alpha){
     let gradient=ctx.createRadialGradient(x,y,0,x,y,r);
     gradient.addColorStop(0,`rgba(255,255,255,${alpha})`);
-    gradient.addColorStop(0.55,`rgba(255,255,255,${alpha*0.48})`);
+    gradient.addColorStop(0.5,`rgba(255,255,255,${alpha*0.54})`);
+    gradient.addColorStop(0.86,`rgba(255,255,255,${alpha*0.16})`);
     gradient.addColorStop(1,"rgba(255,255,255,0)");
     ctx.fillStyle=gradient;
     ctx.beginPath();
@@ -88,21 +89,14 @@ export function makeCloudTexture(){
     ctx.fill();
   }
 
-  puff(120,145,78,0.82);
-  puff(190,112,92,0.9);
-  puff(270,132,104,0.84);
-  puff(360,142,82,0.72);
-  puff(250,160,150,0.48);
-
-  let fade=ctx.createLinearGradient(0,0,0,384);
-  fade.addColorStop(0,"rgba(255,255,255,0)");
-  fade.addColorStop(0.18,"rgba(255,255,255,1)");
-  fade.addColorStop(0.72,"rgba(255,255,255,1)");
-  fade.addColorStop(1,"rgba(255,255,255,0)");
-  ctx.globalCompositeOperation="destination-in";
-  ctx.fillStyle=fade;
-  ctx.fillRect(0,0,512,384);
-  ctx.globalCompositeOperation="source-over";
+  puff(92,138,68,0.68);
+  puff(158,118,82,0.86);
+  puff(230,108,92,0.92);
+  puff(315,118,90,0.84);
+  puff(394,140,72,0.68);
+  puff(250,142,108,0.48);
+  puff(176,154,78,0.32);
+  puff(340,154,82,0.3);
 
   let tex=new THREE.CanvasTexture(canvas);
   tex.minFilter=THREE.LinearFilter;

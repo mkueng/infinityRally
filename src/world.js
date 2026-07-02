@@ -175,6 +175,12 @@ function setMaterialColor(material,color,emissive=null){
   if(material.emissive && emissive!=null) material.emissive.set(emissive);
 }
 
+function mixHexColor(a,b,amount){
+  let color=new THREE.Color(a);
+  color.lerp(new THREE.Color(b),Math.max(0,Math.min(1,amount)));
+  return color.getHex();
+}
+
 function applyEnvironment(environment={}){
   currentEnvironment={
     ...defaultEnvironment,
@@ -197,6 +203,18 @@ function applyEnvironment(environment={}){
   setMaterialColor(chimneyMat,colors.roof);
   setMaterialColor(houseTrimMat,colors.trim);
   setMaterialColor(brickWallMat,colors.brick);
+
+  let bossHull=mixHexColor(colors.rock,colors.roof,0.56);
+  let bossHullEmissive=mixHexColor(colors.barkEmissive || colors.bark,colors.rock,0.32);
+  let bossTrim=colors.trim;
+  let bossTrimEmissive=mixHexColor(colors.trim,colors.podEmissive || colors.pod || colors.water,0.42);
+  let bossGlow=colors.podEmissive || colors.pod || colors.water;
+  setMaterialColor(bossBaseMat,bossHull,bossHullEmissive);
+  setMaterialColor(bossBaseTrimMat,bossTrim,bossTrimEmissive);
+  if(bossBaseGlowMat.color) bossBaseGlowMat.color.set(bossGlow);
+  setMaterialColor(turretBaseMat,mixHexColor(colors.rock,colors.wall,0.44));
+  setMaterialColor(turretHeadMat,mixHexColor(colors.wall,colors.trim,0.36),bossHullEmissive);
+  setMaterialColor(turretBarrelMat,mixHexColor(colors.roof,colors.rock,0.5),colors.waterEmissive || bossGlow);
 }
 
 applyEnvironment(currentEnvironment);
@@ -797,17 +815,20 @@ function makeChunk(cx,cz){
       if(wy<-15 || wy>32) continue;
       if(roadDistance(wx,wz)<45) continue;
 
-      let treeCollider={x:wx,z:wz,r:2.4,type:"tree",instances:[]};
-      colliders.push(treeCollider);
-
       let scale=.55+rand(i+cx+c,cz-i)*.9;
       let rot=rand(i,cx+cz+c)*Math.PI*2;
       let leanX=(rand(cx*13+i,cz*19+c)-0.5)*vegetation.leanAmount;
       let leanZ=(rand(cx*23-i,cz*29-c)-0.5)*vegetation.leanAmount;
       let trunkHeightScale=vegetation.trunkHeightBase+rand(cx*31+i,cz*41-c)*vegetation.trunkHeightVariance;
       let trunkWidthScale=vegetation.trunkWidthBase+rand(cx*43-i,cz*47+c)*vegetation.trunkWidthVariance;
+      let rootRadius=Math.max(1.7,scale*trunkWidthScale*1.9);
+      if(!terrainPatchOk(wx,wz,rootRadius,34,2.6)) continue;
 
-      dummy.position.set(wx,wy+5.25*scale*trunkHeightScale,wz);
+      let treeCollider={x:wx,z:wz,r:2.4,type:"tree",instances:[]};
+      colliders.push(treeCollider);
+      let rootSink=0.45+Math.min(0.9,Math.abs(leanX)+Math.abs(leanZ));
+
+      dummy.position.set(wx,wy+5.25*scale*trunkHeightScale-rootSink,wz);
       dummy.rotation.set(leanX,rot,leanZ);
       dummy.scale.set(scale*trunkWidthScale,scale*trunkHeightScale,scale*trunkWidthScale);
       dummy.updateMatrix();

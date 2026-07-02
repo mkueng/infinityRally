@@ -1,7 +1,7 @@
 import { chunkSize } from "./constants.js";
 import { carSurfaceHeight } from "./terrain.js?v=no-ramps";
 
-export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getPerformanceMode=()=>"full"}){
+export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getPerformanceMode=()=>"full",getEnvironment=()=>({})}){
   let panels=[];
   let gameOverOverlay;
   let mapUpdateFrame=0;
@@ -278,6 +278,39 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getPerfo
     };
   }
 
+  function hexToRgb(color,fallback=0xffffff){
+    let value=Number.isFinite(color) ? color : fallback;
+    return {
+      r:(value>>16)&255,
+      g:(value>>8)&255,
+      b:value&255
+    };
+  }
+
+  function rgba(color,alpha,fallback=0xffffff){
+    let {r,g,b}=hexToRgb(color,fallback);
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+
+  function mapPalette(){
+    let environment=getEnvironment() || {};
+    let colors=environment.colors || {};
+    return {
+      water:rgba(colors.water,0.5,0x20ffd4),
+      low:rgba(colors.low,0.95,0x8b3852),
+      mid:rgba(colors.mid,0.96,0x5a3b70),
+      high:rgba(colors.high,0.96,0x3f3456),
+      border:rgba(colors.water || colors.trim,0.26,0x8dfff2),
+      outline:rgba(colors.trim || colors.water,0.95,0x8dfff2),
+      villageFill:rgba(colors.shore || colors.wall,0.24,0xd6b25a),
+      villageStroke:rgba(colors.trim || colors.shore,0.82,0xffe26f),
+      bossFill:rgba(colors.pod || colors.trim,0.28,0xff5c36),
+      bossStroke:rgba(colors.podEmissive || colors.pod,0.92,0xff6a42),
+      clearedFill:rgba(colors.grass || colors.leaf,0.18,0x7cff78),
+      clearedStroke:rgba(colors.grass || colors.leaf,0.72,0x7cff78)
+    };
+  }
+
   function drawMapHud(panel,state,states,enemies){
     if(!panel.mapCtx) return;
 
@@ -287,6 +320,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getPerfo
     let centerX=state.carX;
     let centerZ=state.carZ;
     let radius=chunkSize*2.3;
+    let palette=mapPalette();
 
     mapCtx.clearRect(0,0,size,size);
     let cells=getPerformanceMode()==="split" ? 32 : 48;
@@ -296,27 +330,27 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getPerfo
         let wx=centerX-radius+((gx+0.5)/cells)*radius*2;
         let wz=centerZ-radius+((gy+0.5)/cells)*radius*2;
         let h=carSurfaceHeight(wx,wz);
-        if(h<-20) mapCtx.fillStyle="rgba(32,255,212,0.5)";
-        else if(h<15) mapCtx.fillStyle="rgba(139,56,82,0.95)";
-        else if(h<30) mapCtx.fillStyle="rgba(90,59,112,0.96)";
-        else mapCtx.fillStyle="rgba(63,52,86,0.96)";
+        if(h<-20) mapCtx.fillStyle=palette.water;
+        else if(h<15) mapCtx.fillStyle=palette.low;
+        else if(h<30) mapCtx.fillStyle=palette.mid;
+        else mapCtx.fillStyle=palette.high;
         mapCtx.fillRect(gx*cellSize,gy*cellSize,cellSize+1,cellSize+1);
       }
     }
 
-    mapCtx.strokeStyle="rgba(141,255,242,0.22)";
+    mapCtx.strokeStyle=palette.border;
     mapCtx.lineWidth=1;
     mapCtx.strokeRect(0.5,0.5,size-1,size-1);
 
-    drawVillages(mapCtx,centerX,centerZ,radius,size);
+    drawVillages(mapCtx,centerX,centerZ,radius,size,palette);
     drawEnemyDots(mapCtx,enemies,centerX,centerZ,radius,size);
-    drawOtherCars(mapCtx,state,states,centerX,centerZ,radius,size);
+    drawOtherCars(mapCtx,state,states,centerX,centerZ,radius,size,palette);
 
     mapCtx.save();
     mapCtx.translate(size*0.5,size*0.5);
     mapCtx.rotate(-state.carVelAngle+Math.PI);
     mapCtx.fillStyle=panel.color;
-    mapCtx.strokeStyle="rgba(141,255,242,0.95)";
+    mapCtx.strokeStyle=palette.outline;
     mapCtx.lineWidth=1.6;
     mapCtx.beginPath();
     mapCtx.moveTo(0,-7);
@@ -329,7 +363,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getPerfo
     mapCtx.restore();
   }
 
-  function drawVillages(mapCtx,centerX,centerZ,radius,size){
+  function drawVillages(mapCtx,centerX,centerZ,radius,size,palette){
     let chunks=getChunks();
     if(!chunks) return;
 
@@ -343,19 +377,19 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getPerfo
 
         let cleared=!!(village.buildings && village.buildings.length>0 && village.buildings.every(building=>building.destroyed));
         let boss=!!village.bossVillage;
-        mapCtx.fillStyle=cleared ? "rgba(124,255,120,0.18)" : boss ? "rgba(255,92,54,0.26)" : "rgba(214,178,90,0.24)";
-        mapCtx.strokeStyle=cleared ? "rgba(124,255,120,0.72)" : boss ? "rgba(255,106,66,0.92)" : "rgba(255,226,111,0.82)";
+        mapCtx.fillStyle=cleared ? palette.clearedFill : boss ? palette.bossFill : palette.villageFill;
+        mapCtx.strokeStyle=cleared ? palette.clearedStroke : boss ? palette.bossStroke : palette.villageStroke;
         mapCtx.lineWidth=1.3;
         mapCtx.fillRect(p.x-halfVillageSize,p.y-halfVillageSize,villageSize,villageSize);
         mapCtx.strokeRect(p.x-halfVillageSize+0.5,p.y-halfVillageSize+0.5,villageSize-1,villageSize-1);
 
-        mapCtx.fillStyle=cleared ? "rgba(124,255,120,0.86)" : boss ? "rgba(255,106,66,0.95)" : "rgba(255,226,111,0.92)";
+        mapCtx.fillStyle=cleared ? palette.clearedStroke : boss ? palette.bossStroke : palette.villageStroke;
         mapCtx.fillRect(p.x-2.5,p.y-2.5,5,5);
       }
     }
   }
 
-  function drawOtherCars(mapCtx,state,states,centerX,centerZ,radius,size){
+  function drawOtherCars(mapCtx,state,states,centerX,centerZ,radius,size,palette){
     for(let other of states){
       if(!other || other.id===state.id) continue;
 
@@ -363,7 +397,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getPerfo
       if(p.x<-8 || p.x>size+8 || p.y<-8 || p.y>size+8) continue;
 
       mapCtx.fillStyle=other.color;
-      mapCtx.strokeStyle="rgba(141,255,242,0.95)";
+      mapCtx.strokeStyle=palette.outline;
       mapCtx.lineWidth=1.5;
       mapCtx.beginPath();
       mapCtx.arc(p.x,p.y,4.5,0,Math.PI*2);
