@@ -145,10 +145,32 @@ let weatherTargetIntensity=0;
 let nextWeatherChange=0;
 let baseFogDensity=0.00042;
 let lastSkyWeatherIntensity=-1;
+let lastSkyNightAmount=-1;
+let hemiLight=null;
+let sun=null;
 const stormSkyStops=["#040711","#09121e","#172534","#2f3c45","#5f6660"];
+const nightSkyStops=["#02040c","#071121","#0d1930","#18223c","#26304a"];
+const dayNightCycleMs=360000;
 
 function randomRange(min,max){
   return min+Math.random()*(max-min);
+}
+
+function clamp01(value){
+  return Math.max(0,Math.min(1,value));
+}
+
+function dayNightState(now=performance.now()){
+  let phase=(now/dayNightCycleMs+0.18)%1;
+  let sunHeight=Math.sin(phase*Math.PI*2);
+  let dayAmount=clamp01((sunHeight+0.32)/0.44);
+  dayAmount=dayAmount*dayAmount*(3-2*dayAmount);
+  return {
+    phase,
+    sunHeight,
+    dayAmount,
+    nightAmount:1-dayAmount
+  };
 }
 
 function randomRainIntensity(environment,scale=1){
@@ -190,18 +212,54 @@ function weatherSkyStops(){
   return sky.map((color,index)=>blendHexColor(color,stormSkyStops[index] || stormSkyStops[stormSkyStops.length-1],stormAmount));
 }
 
-function updateSkyForWeather(force=false){
-  let bucket=Math.round(rainIntensity*24)/24;
-  if(!force && Math.abs(bucket-lastSkyWeatherIntensity)<0.001) return;
-  lastSkyWeatherIntensity=bucket;
+function timeOfDaySkyStops(now=performance.now()){
+  let nightAmount=dayNightState(now).nightAmount*0.88;
+  return weatherSkyStops().map((color,index)=>blendHexColor(color,nightSkyStops[index] || nightSkyStops[nightSkyStops.length-1],nightAmount));
+}
+
+function updateSkyForWeather(force=false,now=performance.now()){
+  let weatherBucket=Math.round(rainIntensity*24)/24;
+  let nightBucket=Math.round(dayNightState(now).nightAmount*32)/32;
+  if(!force && Math.abs(weatherBucket-lastSkyWeatherIntensity)<0.001 && Math.abs(nightBucket-lastSkyNightAmount)<0.001) return;
+  lastSkyWeatherIntensity=weatherBucket;
+  lastSkyNightAmount=nightBucket;
   if(scene.background && scene.background.dispose) scene.background.dispose();
-  scene.background=makeSkyTexture({...currentEnvironment,sky:weatherSkyStops()});
+  scene.background=makeSkyTexture({...currentEnvironment,sky:timeOfDaySkyStops(now)});
 }
 
 function refreshSceneEnvironment(){
   lastSkyWeatherIntensity=-1;
+  lastSkyNightAmount=-1;
   updateSkyForWeather(true);
   scene.fog=new THREE.FogExp2(currentEnvironment.fog || 0x7b4771,baseFogDensity);
+}
+
+function updateDayNight(now=performance.now(),forceSky=false){
+  let state=dayNightState(now);
+  let day=state.dayAmount;
+  let night=state.nightAmount;
+  let rainDim=1-rainIntensity*0.24;
+
+  if(hemiLight){
+    hemiLight.intensity=(0.42+day*0.93)*rainDim;
+    hemiLight.color.set(0xffb8d4).lerp(new THREE.Color(0x6f86c8),night*0.82);
+    hemiLight.groundColor.set(0x21484d).lerp(new THREE.Color(0x07101b),night*0.72);
+  }
+
+  if(sun){
+    let sunAngle=state.phase*Math.PI*2;
+    let sunLift=Math.max(0,state.sunHeight);
+    sun.position.set(Math.cos(sunAngle)*5.5,1.2+sunLift*8.5,Math.sin(sunAngle)*5.5);
+    sun.intensity=(0.22+day*1.83)*rainDim;
+    sun.color.set(0xffd29b).lerp(new THREE.Color(0x9db8ff),night*0.92);
+  }
+
+  if(scene.fog){
+    scene.fog.color.set(currentEnvironment.fog || 0x7b4771).lerp(new THREE.Color(0x081226),night*0.72);
+    scene.fog.density=baseFogDensity+rainIntensity*0.00042+night*0.00026;
+  }
+
+  updateSkyForWeather(forceSky,now);
 }
 
 function updateWeather(){
@@ -214,13 +272,7 @@ function updateWeather(){
   rainIntensity+=(weatherTargetIntensity-rainIntensity)*0.006;
   if(Math.abs(weatherTargetIntensity-rainIntensity)<0.003) rainIntensity=weatherTargetIntensity;
 
-  if(scene.fog){
-    scene.fog.density=baseFogDensity+rainIntensity*0.00042;
-  }
-  if(sun){
-    sun.intensity=2.05-rainIntensity*0.55;
-  }
-  updateSkyForWeather();
+  updateDayNight(now);
 }
 
 let scene=new THREE.Scene();
@@ -237,10 +289,12 @@ renderer.setScissorTest(true);
 document.body.appendChild(renderer.domElement);
 refreshSceneEnvironment();
 
-scene.add(new THREE.HemisphereLight(0xffb8d4,0x21484d,1.35));
-let sun=new THREE.DirectionalLight(0xffd29b,2.05);
+hemiLight=new THREE.HemisphereLight(0xffb8d4,0x21484d,1.35);
+scene.add(hemiLight);
+sun=new THREE.DirectionalLight(0xffd29b,2.05);
 sun.position.set(-3.5,6.5,2.2);
 scene.add(sun);
+updateDayNight(performance.now(),true);
 
 let input=createInput();
 let px=0,py=20,pz=0;
