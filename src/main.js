@@ -4,7 +4,7 @@ import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed
 import { createInput } from "./input.js";
 import { createHud } from "./hud.js?v=robot-ammo-icons";
 import { createBirds, createCarShadow, createClouds, createDust, createRain, createWheelTracks } from "./effects.js?v=continuous-buggy-tracks";
-import { createWorld } from "./world.js?v=planet-boss-bases";
+import { createWorld } from "./world.js?v=mode-terrain-detail";
 import { createMotorAudio } from "./audio.js?v=mech-walk-audio";
 import { loadCarModel, loadJetModel, makeMechModel } from "./models.js?v=jet-assets";
 import { makeSkyTexture } from "./textures.js?v=alien-planet";
@@ -140,6 +140,8 @@ const worldEnvironments=[
   }
 ];
 let currentEnvironment=worldEnvironments[Math.floor(Math.random()*worldEnvironments.length)];
+let currentTerrainSeed=0;
+let currentTerrainProfile=null;
 let rainIntensity=0;
 let weatherTargetIntensity=0;
 let nextWeatherChange=0;
@@ -149,6 +151,16 @@ const stormSkyStops=["#040711","#09121e","#172534","#2f3c45","#5f6660"];
 
 function randomRange(min,max){
   return min+Math.random()*(max-min);
+}
+
+function randomizedTerrainProfile(environment){
+  let terrain=environment.terrain || {};
+  return {
+    ...terrain,
+    heightScale:(terrain.heightScale ?? 1)*randomRange(0.72,1.18),
+    hillScale:(terrain.hillScale ?? 1)*randomRange(0.62,1.36),
+    mountainScale:(terrain.mountainScale ?? 1)*randomRange(0.35,1.35)
+  };
 }
 
 function randomRainIntensity(environment,scale=1){
@@ -719,7 +731,7 @@ cars=[playerCar,secondCar];
 secondCar.group.visible=false;
 secondCar.shadow.setVisible(false);
 
-let world=createWorld(scene,{getDifficulty:()=>gameDifficulty,getEnvironment:()=>currentEnvironment});
+let world=createWorld(scene,{getDifficulty:()=>gameDifficulty,getEnvironment:()=>currentEnvironment,getGameMode:()=>gameMode});
 let clouds=createClouds(scene,()=>({carX:playerCar.x,carZ:playerCar.z}));
 let birds=createBirds(scene,()=>({carX:playerCar.x,carZ:playerCar.z}));
 let rain=createRain(scene,()=>({carX:px,carZ:pz}),()=>rainIntensity);
@@ -5661,6 +5673,8 @@ function startGame(mode,difficulty="medium"){
   clearRockets();
   clearEnemies();
   clearSupplyBoxes();
+  world.resetChunks();
+  setWorldSeed(currentTerrainSeed,currentTerrainProfile);
   jetUnlocked=false;
   score=0;
   scoredVillages=new WeakSet();
@@ -5801,7 +5815,9 @@ function placeCarOnOpenField(car,startInfo){
   updateMorphVisual(car);
 }
 
-setWorldSeed(Math.random()*100000,currentEnvironment.terrain || {});
+currentTerrainSeed=Math.random()*100000;
+currentTerrainProfile=randomizedTerrainProfile(currentEnvironment);
+setWorldSeed(currentTerrainSeed,currentTerrainProfile);
 let initialStartInfo=findSafeFieldStart([playerCar.lateralOffset,0,secondCar.lateralOffset]);
 placeCarOnOpenField(playerCar,initialStartInfo);
 placeCarOnOpenField(secondCar,initialStartInfo);

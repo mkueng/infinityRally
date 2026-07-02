@@ -13,6 +13,7 @@ export function createWorld(scene,options={}){
   let bossBaseColliders=[];
   let lastChunkBuildTime=0;
   let getDifficulty=typeof options.getDifficulty==="function" ? options.getDifficulty : ()=>"medium";
+  let getGameMode=typeof options.getGameMode==="function" ? options.getGameMode : ()=>"single";
   let defaultEnvironment={
     colors:{
       underwater:0x8f5a6c,
@@ -721,10 +722,11 @@ function terrainPatchOk(x,z,radius,maxHeight=24,maxRange=7){
 function makeChunk(cx,cz){
   let envColors=environmentColors();
   let vegetation=environmentVegetation();
-  let detail=chunkDetails.get(chunkKey(cx,cz)) || {treeDensity:1,partDensity:1,grassDensity:1};
+  let detail=chunkDetails.get(chunkKey(cx,cz)) || {treeDensity:1,partDensity:1,grassDensity:1,terrainSegments:segments};
+  let terrainSegments=detail.terrainSegments || segments;
   let colors=[];
   let colliders=[];
-  let geo=new THREE.PlaneGeometry(chunkSize,chunkSize,segments,segments);
+  let geo=new THREE.PlaneGeometry(chunkSize,chunkSize,terrainSegments,terrainSegments);
   geo.rotateX(-Math.PI/2);
 
   let pos=geo.attributes.position;
@@ -1283,9 +1285,15 @@ function updateChunksForCenters(centers){
   let queuedChunks=new Set();
 
   function detailForDistanceSq(distanceSq){
-    if(distanceSq<=8) return {treeDensity:1,partDensity:1,grassDensity:1};
-    if(distanceSq<=24) return {treeDensity:0.58,partDensity:0.62,grassDensity:0.62};
-    return {treeDensity:0.24,partDensity:0.42,grassDensity:0.34};
+    let splitMode=getGameMode()==="double";
+    let nearSegments=128;
+    let closeSegments=96;
+    let performanceTier=splitMode ? "split" : "full";
+
+    if(distanceSq<=2) return {treeDensity:1,partDensity:1,grassDensity:1,terrainSegments:nearSegments,performanceTier};
+    if(distanceSq<=8) return {treeDensity:1,partDensity:1,grassDensity:1,terrainSegments:closeSegments,performanceTier};
+    if(distanceSq<=24) return {treeDensity:0.58,partDensity:0.62,grassDensity:0.62,terrainSegments:segments,performanceTier};
+    return {treeDensity:0.24,partDensity:0.42,grassDensity:0.34,terrainSegments:segments,performanceTier};
   }
 
   for(let center of chunkCenters){
@@ -1300,7 +1308,10 @@ function updateChunksForCenters(centers){
         let detailIncreased=!currentDetail
           || nextDetail.treeDensity>currentDetail.treeDensity
           || nextDetail.partDensity>currentDetail.partDensity
-          || nextDetail.grassDensity>currentDetail.grassDensity;
+          || nextDetail.grassDensity>currentDetail.grassDensity
+          || nextDetail.terrainSegments>(currentDetail.terrainSegments || segments)
+          || (nextDetail.performanceTier!==currentDetail.performanceTier
+            && nextDetail.terrainSegments<(currentDetail.terrainSegments || segments));
 
         if(detailIncreased){
           chunkDetails.set(key,nextDetail);
