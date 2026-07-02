@@ -294,7 +294,7 @@ let enemySpawnSerial=0;
 let enemyBudgetRun=0;
 let mothership=null;
 let mothershipDelay=mothershipMinDelay+Math.floor(Math.random()*mothershipRandomDelay);
-let jetUnlocked=true;
+let jetUnlocked=false;
 let score=0;
 let enemyScoreAmount=100;
 let giantScoreAmount=350;
@@ -433,6 +433,10 @@ let controllerAimLocalPoint=new THREE.Vector3();
 let controllerAimWorldPoint=new THREE.Vector3();
 let controllerAimOrigin=new THREE.Vector3();
 let controllerAimDirection=new THREE.Vector3();
+let aimCrossWorldPoint=new THREE.Vector3();
+let aimCrossYawQuaternion=new THREE.Quaternion();
+let aimCrossParentInverseQuaternion=new THREE.Quaternion();
+let aimCrossYawAxis=new THREE.Vector3(0,1,0);
 let mouseAimMaxDistance=430;
 let mouseAimFallbackDistance=170;
 let explosionBursts=[];
@@ -1635,15 +1639,22 @@ function mouseAimWorldPointFromRay(car){
 }
 
 function gamepadAimWorldPointFromCross(car){
-  car.group.updateMatrixWorld(true);
-  controllerAimLocalPoint.set(car.controllerAimOffsetX || 0,3.15+(car.controllerAimOffsetY || 0),32);
-  controllerAimWorldPoint.copy(controllerAimLocalPoint);
-  car.group.localToWorld(controllerAimWorldPoint);
-  controllerAimOrigin.set(0,2.6,0);
-  car.group.localToWorld(controllerAimOrigin);
+  let forwardX=Math.sin(car.angle);
+  let forwardZ=Math.cos(car.angle);
+  let rightX=Math.cos(car.angle);
+  let rightZ=-Math.sin(car.angle);
+  let offsetX=car.controllerAimOffsetX || 0;
+  let offsetY=car.controllerAimOffsetY || 0;
+
+  controllerAimWorldPoint.set(
+    car.x+forwardX*32+rightX*offsetX,
+    car.y+3.15+offsetY,
+    car.z+forwardZ*32+rightZ*offsetX
+  );
+  controllerAimOrigin.set(car.x,car.y+2.6,car.z);
   controllerAimDirection.copy(controllerAimWorldPoint).sub(controllerAimOrigin);
   if(controllerAimDirection.lengthSq()<0.001){
-    controllerAimDirection.set(Math.sin(car.angle),0,Math.cos(car.angle));
+    controllerAimDirection.set(forwardX,0,forwardZ);
   }else{
     controllerAimDirection.normalize();
   }
@@ -1719,11 +1730,19 @@ function updateAimCross(car){
 
   if(car.hasMouseAimPoint || car.hasGamepadAimPoint){
     mouseAimHitPoint.set(car.mouseAimWorldX,car.mouseAimWorldY,car.mouseAimWorldZ);
-    car.group.worldToLocal(mouseAimHitPoint);
-    if(mouseAimHitPoint.z>4){
-      car.aimOffsetX=mouseAimHitPoint.x;
-      car.aimOffsetY=mouseAimHitPoint.y-3.15;
-      car.aimDistance=mouseAimHitPoint.z;
+    let forwardX=Math.sin(car.angle);
+    let forwardZ=Math.cos(car.angle);
+    let rightX=Math.cos(car.angle);
+    let rightZ=-Math.sin(car.angle);
+    let dx=mouseAimHitPoint.x-car.x;
+    let dz=mouseAimHitPoint.z-car.z;
+    let localX=dx*rightX+dz*rightZ;
+    let localZ=dx*forwardX+dz*forwardZ;
+    let localY=mouseAimHitPoint.y-car.y;
+    if(localZ>4){
+      car.aimOffsetX=localX;
+      car.aimOffsetY=localY-3.15;
+      car.aimDistance=localZ;
     }else{
       car.hasMouseAimPoint=false;
       car.hasGamepadAimPoint=false;
@@ -1731,7 +1750,23 @@ function updateAimCross(car){
     }
   }
 
-  car.aimCross.position.set(car.aimOffsetX,3.15+car.aimOffsetY,car.aimDistance || 32);
+  let aimDisplayDistance=car.aimDistance || 32;
+  let forwardX=Math.sin(car.angle);
+  let forwardZ=Math.cos(car.angle);
+  let rightX=Math.cos(car.angle);
+  let rightZ=-Math.sin(car.angle);
+  aimCrossWorldPoint.set(
+    car.x+forwardX*aimDisplayDistance+rightX*car.aimOffsetX,
+    car.y+3.15+car.aimOffsetY,
+    car.z+forwardZ*aimDisplayDistance+rightZ*car.aimOffsetX
+  );
+  car.group.updateMatrixWorld(true);
+  car.aimCross.position.copy(aimCrossWorldPoint);
+  car.group.worldToLocal(car.aimCross.position);
+  aimCrossYawQuaternion.setFromAxisAngle(aimCrossYawAxis,car.angle);
+  aimCrossParentInverseQuaternion.copy(car.group.quaternion).invert();
+  car.aimCross.quaternion.copy(aimCrossParentInverseQuaternion).multiply(aimCrossYawQuaternion);
+
   let locked=!!nearbyRocketTargetForCar(car);
   let ring=car.aimCross.userData.ring;
   let cross=car.aimCross.userData.cross;
@@ -3559,6 +3594,7 @@ function updateFlightThrust(car,surfaceY){
 }
 
 function emitFlightExhaust(car){
+  let spawnJetParticle=dust.spawnJetExhaustParticle || dust.spawnThrusterParticle;
   let speedAbs=Math.abs(car.speed || 0);
   for(let side of [-1,1]){
     let footX=car.x+Math.cos(car.angle)*side*0.72-Math.sin(car.angle)*0.08;
@@ -3570,40 +3606,42 @@ function emitFlightExhaust(car){
       let px=footX+Math.cos(car.angle)*lateral-Math.sin(car.angle)*rear;
       let pz=footZ-Math.sin(car.angle)*lateral-Math.cos(car.angle)*rear;
 
-      dust.spawnThrusterParticle(
+      spawnJetParticle(
         px,
         car.y+0.12+Math.random()*0.12,
         pz,
-        (Math.random()-.5)*0.24-Math.sin(car.angle)*speedAbs*0.28,
-        (Math.random()-.5)*0.24-Math.cos(car.angle)*speedAbs*0.28,
-        -2.2-Math.random()*1.8,
-        0.28+Math.random()*0.18,
-        0.12+Math.random()*0.08
+        (Math.random()-.5)*0.18-Math.sin(car.angle)*(0.55+speedAbs*0.52),
+        (Math.random()-.5)*0.18-Math.cos(car.angle)*(0.55+speedAbs*0.52),
+        -0.35-Math.random()*0.42,
+        0.22+Math.random()*0.14,
+        0.24+Math.random()*0.14
       );
     }
   }
 }
 
 function emitJetHoverExhaust(car){
+  let spawnJetParticle=dust.spawnJetExhaustParticle || dust.spawnThrusterParticle;
   let speedAbs=Math.abs(car.speed || 0);
   let forwardX=Math.sin(car.angle);
   let forwardZ=Math.cos(car.angle);
   let rightX=Math.cos(car.angle);
   let rightZ=-Math.sin(car.angle);
 
-  for(let side of [-1,1]){
-    let px=car.x-forwardX*2.25+rightX*side*0.42;
-    let pz=car.z-forwardZ*2.25+rightZ*side*0.42;
-
-    dust.spawnThrusterParticle(
-      px+(Math.random()-0.5)*0.16,
+  for(let i=0;i<3;i++){
+    let spread=(Math.random()-0.5)*1.05;
+    let rearJitter=(Math.random()-0.5)*0.34;
+    let px=car.x-forwardX*(2.35+rearJitter)+rightX*spread;
+    let pz=car.z-forwardZ*(2.35+rearJitter)+rightZ*spread;
+    spawnJetParticle(
+      px,
       car.y+0.7+Math.random()*0.12,
-      pz+(Math.random()-0.5)*0.16,
-      -forwardX*(1.4+speedAbs*0.6)+(Math.random()-0.5)*0.22,
-      -forwardZ*(1.4+speedAbs*0.6)+(Math.random()-0.5)*0.22,
-      -1.8-Math.random()*1.1,
-      0.18+Math.random()*0.08,
-      0.08+Math.random()*0.04
+      pz,
+      -forwardX*(1.8+speedAbs*0.75)+rightX*(Math.random()-0.5)*0.38,
+      -forwardZ*(1.8+speedAbs*0.75)+rightZ*(Math.random()-0.5)*0.38,
+      -0.18-Math.random()*0.28,
+      0.2+Math.random()*0.08,
+      0.22+Math.random()*0.1
     );
   }
 }
@@ -5165,7 +5203,7 @@ function updateCar(car){
   let emitSplash=!jetHovering && !carDisabled && inWater && car.y<=waterLevel+1.1 && Math.abs(car.speed)>0.08;
   car.onGround=!jetHovering && car.y<=surfaceY+0.18;
   if(!jetHovering) wheelTracks.addCarTracks(car,surfaceY,inWater);
-  emitBuggyGroundDust(car,surfaceY);
+  if(!jetHovering) emitBuggyGroundDust(car,surfaceY);
   if(emitSplash){
     let speedAbs=Math.abs(car.speed);
     let splashAmount=Math.ceil(speedAbs*18);
@@ -5623,7 +5661,7 @@ function startGame(mode,difficulty="medium"){
   clearRockets();
   clearEnemies();
   clearSupplyBoxes();
-  jetUnlocked=true;
+  jetUnlocked=false;
   score=0;
   scoredVillages=new WeakSet();
   playerCar.lateralOffset=mode==="single" ? 0 : -4.2;

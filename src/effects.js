@@ -448,6 +448,16 @@ export function createDust(scene){
     });
   }
 
+  function spawnJetExhaustParticle(px,py,pz,vx,vz,vy,life,size){
+    spawnParticle(px,py,pz,vx,vz,vy,life,size,{
+      color:Math.random()>0.45 ? 0xd8fbff : 0x7ac8ff,
+      gravity:-0.004,
+      growth:1.65,
+      opacity:0.36,
+      fadePower:0.82
+    });
+  }
+
   function update(){
     for(let i=dustParticles.length-1;i>=0;i--){
       let p=dustParticles[i];
@@ -474,7 +484,7 @@ export function createDust(scene){
     }
   }
 
-  return {spawnSplashParticle,spawnGroundDustParticle,spawnThrusterParticle,update};
+  return {spawnSplashParticle,spawnGroundDustParticle,spawnThrusterParticle,spawnJetExhaustParticle,update};
 }
 
 export function createWheelTracks(scene){
