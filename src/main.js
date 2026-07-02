@@ -6,7 +6,7 @@ import { createHud } from "./hud.js?v=robot-ammo-icons";
 import { createBirds, createCarShadow, createClouds, createDust, createRain, createWheelTracks } from "./effects.js?v=continuous-buggy-tracks";
 import { createWorld } from "./world.js?v=planet-boss-bases";
 import { createMotorAudio } from "./audio.js?v=alien-planet-world";
-import { loadCarModel, makeJetModel, makeMechModel } from "./models.js?v=buggy-track-width";
+import { loadCarModel, loadJetModel, makeMechModel } from "./models.js?v=jet-assets";
 import { makeSkyTexture } from "./textures.js?v=alien-planet";
 
 const worldEnvironments=[
@@ -260,7 +260,9 @@ let difficultySettings={
     speed:0.58,
     fireDelay:1.55,
     villageBudget:0.42,
-    hardFlight:false
+    hardFlight:false,
+    rocketAmmo:70,
+    cannonAmmo:500
   },
   medium:{
     waveCount:1,
@@ -269,7 +271,9 @@ let difficultySettings={
     speed:1,
     fireDelay:1,
     villageBudget:1,
-    hardFlight:false
+    hardFlight:false,
+    rocketAmmo:50,
+    cannonAmmo:300
   },
   hard:{
     waveCount:1.65,
@@ -278,7 +282,9 @@ let difficultySettings={
     speed:1.14,
     fireDelay:0.5,
     villageBudget:1.45,
-    hardFlight:true
+    hardFlight:true,
+    rocketAmmo:30,
+    cannonAmmo:200
   }
 };
 let enemies=[];
@@ -288,7 +294,7 @@ let enemySpawnSerial=0;
 let enemyBudgetRun=0;
 let mothership=null;
 let mothershipDelay=mothershipMinDelay+Math.floor(Math.random()*mothershipRandomDelay);
-let jetUnlocked=false;
+let jetUnlocked=true;
 let score=0;
 let enemyScoreAmount=100;
 let giantScoreAmount=350;
@@ -299,6 +305,8 @@ let waterLevel=-20;
 let mechGroundMaxSpeed=0.4;
 let mechAirMaxSpeed=0.9;
 let morphedCarSpeedMultiplier=4;
+let morphTransitionRate=0.075;
+let jetTransitionRate=0.075;
 let jetMaxSpeed=2.4;
 let mechStrideLength=2.35;
 let rocketSpeed=1.75;
@@ -307,8 +315,6 @@ let rocketTurnRate=0.075;
 let rocketAimYOffset=-4.2;
 let aimOffsetYMin=-9;
 let aimOffsetYMax=13;
-let initialRocketAmmo=30;
-let initialCannonAmmo=200;
 let initialClusterBombAmmo=10;
 let maxBoostCharge=100;
 let rocketSupplyAmount=6;
@@ -607,6 +613,14 @@ function currentDifficulty(){
   return difficultySettings[gameDifficulty] || difficultySettings.medium;
 }
 
+function maxCannonAmmo(){
+  return currentDifficulty().cannonAmmo || difficultySettings.medium.cannonAmmo;
+}
+
+function maxRocketAmmo(){
+  return currentDifficulty().rocketAmmo || difficultySettings.medium.rocketAmmo;
+}
+
 function scaledDelay(frames,scale){
   return Math.max(1,Math.round(frames*scale));
 }
@@ -659,6 +673,7 @@ function createCarState(id,lateralOffset,controls,camera,gamepadIndex){
     lastMorphProgress:0,
     jetMode:false,
     jetProgress:0,
+    jetBank:0,
     jetAltitudeTarget:20,
     mechModel:null,
     jetModel:null,
@@ -677,10 +692,10 @@ function createCarState(id,lateralOffset,controls,camera,gamepadIndex){
     lastAimMouseVersion:-1,
     lastRocketButton:false,
     rocketCooldown:0,
-    rocketAmmo:initialRocketAmmo,
+    rocketAmmo:maxRocketAmmo(),
     lastCannonButton:false,
     cannonCooldown:0,
-    cannonAmmo:initialCannonAmmo,
+    cannonAmmo:maxCannonAmmo(),
     clusterBombCooldown:0,
     clusterBombAmmo:initialClusterBombAmmo,
     boostCharge:maxBoostCharge,
@@ -923,22 +938,28 @@ function controlsFor(car){
   let forward=0;
   let turn=0;
   let lift=0;
+  let keyboardForward=0;
 
   if(!gameOver){
-    if(input.keys[car.controls.up]) forward=1;
-    if(input.keys[car.controls.down]) forward=-1;
+    if(input.keys[car.controls.up]) keyboardForward=1;
+    if(input.keys[car.controls.down]) keyboardForward=-1;
+    forward=keyboardForward;
     if(input.keys[car.controls.left]) turn=1;
     if(input.keys[car.controls.right]) turn=-1;
 
     let gamepadControls=input.getGamepadControls(car.gamepadIndex);
-    let gamepadForward=car.jetMode || car.jetProgress>0.35 ? gamepadControls.dpadForward : gamepadControls.forward;
+    let jetControls=car.jetMode || car.jetProgress>0.35;
+    let gamepadForward=jetControls
+      ? Math.min(gamepadControls.dpadForward,gamepadControls.lift,0)
+      : gamepadControls.forward;
     if(Math.abs(gamepadForward)>Math.abs(forward)){
       forward=gamepadForward;
     }
     if(Math.abs(gamepadControls.turn)>Math.abs(turn)){
       turn=-gamepadControls.turn;
     }
-    lift=gamepadControls.lift || 0;
+    let keyboardLift=jetControls ? keyboardForward : 0;
+    lift=Math.abs(gamepadControls.lift)>Math.abs(keyboardLift) ? gamepadControls.lift : keyboardLift;
   }
 
   return {forward,turn,lift};
@@ -981,6 +1002,35 @@ function movementCollision(car,fromX,fromZ,toX,toZ){
   return {hit:false,otherCar:null,safeX:toX,safeZ:toZ};
 }
 
+function terrainCollisionAlongSegment(fromX,fromY,fromZ,toX,toY,toZ,clearance=1.15){
+  let dx=toX-fromX;
+  let dy=toY-fromY;
+  let dz=toZ-fromZ;
+  let distance=Math.max(Math.hypot(dx,dz),Math.abs(dy));
+  let steps=Math.max(1,Math.min(32,Math.ceil(distance/0.45)));
+  let safeX=fromX;
+  let safeY=fromY;
+  let safeZ=fromZ;
+
+  for(let i=1;i<=steps;i++){
+    let t=i/steps;
+    let x=fromX+dx*t;
+    let y=fromY+dy*t;
+    let z=fromZ+dz*t;
+    let surfaceY=drivingSurfaceHeight(x,z);
+
+    if(y<=surfaceY+clearance){
+      return {hit:true,safeX,safeY,safeZ,surfaceY};
+    }
+
+    safeX=x;
+    safeY=y;
+    safeZ=z;
+  }
+
+  return {hit:false,safeX:toX,safeY:toY,safeZ:toZ,surfaceY:drivingSurfaceHeight(toX,toZ)};
+}
+
 function makeRocketMesh(){
   let group=new THREE.Group();
 
@@ -1016,8 +1066,8 @@ function makeRocketMesh(){
   return group;
 }
 
-function spawnRocketExplosion(x,y,z){
-  motorAudio.playExplosion();
+function spawnRocketExplosion(x,y,z,playSound=true){
+  if(playSound) motorAudio.playExplosion();
 
   let flash=new THREE.Mesh(explosionFlashGeo,explosionFlashMat.clone());
   flash.position.set(x,y,z);
@@ -1048,8 +1098,8 @@ function spawnRocketExplosion(x,y,z){
   }
 }
 
-function spawnRadiusExplosion(x,y,z,radius){
-  motorAudio.playExplosion();
+function spawnRadiusExplosion(x,y,z,radius,playSound=true){
+  if(playSound) motorAudio.playExplosion();
 
   let flash=new THREE.Mesh(explosionFlashGeo,explosionFlashMat.clone());
   flash.position.set(x,y,z);
@@ -1392,11 +1442,13 @@ function collectSupplyBox(box,car){
   let type=box.userData.type;
 
   if(type==="rocket"){
-    if(car.rocketAmmo>=initialRocketAmmo) return false;
-    car.rocketAmmo=Math.min(initialRocketAmmo,car.rocketAmmo+rocketSupplyAmount);
+    let rocketAmmoCap=maxRocketAmmo();
+    if(car.rocketAmmo>=rocketAmmoCap) return false;
+    car.rocketAmmo=Math.min(rocketAmmoCap,car.rocketAmmo+rocketSupplyAmount);
   }else if(type==="cannon"){
-    if(car.cannonAmmo>=initialCannonAmmo) return false;
-    car.cannonAmmo=Math.min(initialCannonAmmo,car.cannonAmmo+cannonSupplyAmount);
+    let cannonAmmoCap=maxCannonAmmo();
+    if(car.cannonAmmo>=cannonAmmoCap) return false;
+    car.cannonAmmo=Math.min(cannonAmmoCap,car.cannonAmmo+cannonSupplyAmount);
   }else if(type==="boost"){
     if(car.boostCharge>=maxBoostCharge) return false;
     car.boostCharge=Math.min(maxBoostCharge,car.boostCharge+boostSupplyAmount);
@@ -2050,8 +2102,27 @@ function destroyObstaclesInRadius(x,z,radius){
   return destroyed;
 }
 
+function damageBossBasesInRadius(x,y,z,radius){
+  for(let base of world.bossBases || []){
+    if(!base || !base.active || base.health<=0) continue;
+    let reach=radius+(base.r || 0);
+    let dx=base.x-x;
+    let dz=base.z-z;
+    if(dx*dx+dz*dz>reach*reach) continue;
+
+    let bombHitDamage=(base.maxHealth || 720)/3/0.48;
+    damageBossBaseObstacle(
+      {type:"bossBase",base},
+      base.x,
+      Math.max(y,base.y+12),
+      base.z,
+      bombHitDamage
+    );
+  }
+}
+
 function detonateClusterBomb(owner,x,y,z){
-  spawnRadiusExplosion(x,y,z,clusterBombRadius);
+  spawnRadiusExplosion(x,y,z,clusterBombRadius,false);
 
   for(let i=0;i<12;i++){
     let angle=(i/12)*Math.PI*2+Math.random()*0.28;
@@ -2059,10 +2130,11 @@ function detonateClusterBomb(owner,x,y,z){
     let bx=x+Math.cos(angle)*dist;
     let bz=z+Math.sin(angle)*dist;
     let by=drivingSurfaceHeight(bx,bz)+0.8+Math.random()*2.2;
-    spawnRocketExplosion(bx,by,bz);
+    spawnRocketExplosion(bx,by,bz,false);
   }
 
   let destroyed=destroyObstaclesInRadius(x,z,clusterBombRadius);
+  damageBossBasesInRadius(x,y,z,clusterBombRadius);
   let debrisCount=0;
   for(let obstacle of destroyed){
     if(debrisCount>=42) break;
@@ -2111,7 +2183,8 @@ function detonateClusterBomb(owner,x,y,z){
     );
   }
 
-  motorAudio.playExplosion();
+  if(motorAudio.playBombExplosion) motorAudio.playBombExplosion();
+  else motorAudio.playExplosion();
 }
 
 function updateCannonInput(car){
@@ -4229,13 +4302,12 @@ function makeAimCross(accentColor){
 
 function setupMorphModels(car,accentColor){
   let mech=makeMechModel(accentColor);
-  let jet=makeJetModel(accentColor);
   let aimCross=makeAimCross(accentColor);
 
   car.group.clear();
-  car.group.add(mech,jet,aimCross);
+  car.group.add(mech,aimCross);
   car.mechModel=mech;
-  car.jetModel=jet;
+  car.jetModel=null;
   car.carModel=null;
   car.aimCross=aimCross;
 }
@@ -4244,6 +4316,14 @@ function setMorphCarModel(car,model){
   if(car.carModel) car.group.remove(car.carModel);
   model.visible=false;
   car.carModel=model;
+  car.group.add(model);
+  updateMorphVisual(car);
+}
+
+function setMorphJetModel(car,model){
+  if(car.jetModel) car.group.remove(car.jetModel);
+  model.visible=false;
+  car.jetModel=model;
   car.group.add(model);
   updateMorphVisual(car);
 }
@@ -4659,12 +4739,12 @@ function createEnemyState(index,x,z,type="mech"){
 function updateMorphVisual(car){
   let target=car.morphed ? 1 : 0;
   let previous=car.morphProgress;
-  car.morphProgress+=(target-car.morphProgress)*0.16;
+  car.morphProgress+=(target-car.morphProgress)*morphTransitionRate;
   if(Math.abs(target-car.morphProgress)<0.003) car.morphProgress=target;
 
   let jetTarget=car.jetMode ? 1 : 0;
   let previousJet=car.jetProgress || 0;
-  car.jetProgress+=(jetTarget-car.jetProgress)*0.16;
+  car.jetProgress+=(jetTarget-car.jetProgress)*jetTransitionRate;
   if(Math.abs(jetTarget-car.jetProgress)<0.003) car.jetProgress=jetTarget;
 
   let p=car.morphProgress;
@@ -4918,6 +4998,7 @@ function updateCar(car){
     car.throttleEase=0;
     car.turnInputEase=0;
     car.turnVelocity=0;
+    car.jetBank+=(0-(car.jetBank || 0))*0.18;
   }else{
     let speedAbs=Math.abs(car.speed);
     let speedRatio=clamp(speedAbs/mechGroundMaxSpeed,0,1);
@@ -4952,8 +5033,10 @@ function updateCar(car){
       }else if(brakeOrReverse){
         car.speed+=(car.speed>0.03 ? -0.02 : -0.0045)*throttlePower;
       }else{
-        car.speed*=car.onGround ? 0.965 : 0.985;
-        if(Math.abs(car.speed)<0.008) car.speed=0;
+        if(!jetMovement){
+          car.speed*=car.onGround ? 0.965 : 0.985;
+          if(Math.abs(car.speed)<0.008) car.speed=0;
+        }
       }
     }
 
@@ -4980,7 +5063,8 @@ function updateCar(car){
       let highSpeedCalm=1-clamp((speedAbs-0.32)/0.32,0,0.18);
       let robotTurnBoost=1+0.42*(1-smoothStep(car.morphProgress/0.65));
       let steeringResponse=(0.52+movingSteer*0.54)*highSpeedCalm*robotTurnBoost;
-      car.angle+=turn*reverseSteer*0.031*steeringResponse;
+      let jetYawScale=jetMovement ? 0.36 : 1;
+      car.angle+=turn*reverseSteer*0.031*steeringResponse*jetYawScale;
       car.velAngle=car.angle;
     }
 
@@ -5038,6 +5122,21 @@ function updateCar(car){
   if(!gameOver && !carDisabled) car.vy-=flying ? gravityStrength*0.22 : jetHovering ? 0 : gravityStrength;
   let landingVy=car.vy;
   car.y+=car.vy;
+
+  if(!gameOver && !carDisabled && jetHovering){
+    let terrainCollision=terrainCollisionAlongSegment(prevX,prevY,prevZ,car.x,car.y,car.z,1.15);
+    if(terrainCollision.hit){
+      car.x=terrainCollision.safeX;
+      car.z=terrainCollision.safeZ;
+      surfaceY=drivingSurfaceHeight(car.x,car.z);
+      car.y=Math.max(terrainCollision.safeY,surfaceY+1.15);
+      car.vy=Math.max(0.12,-car.vy*0.25);
+      car.speed*=0.18;
+      car.jetAltitudeTarget=Math.max(car.jetAltitudeTarget || 0,car.y+7,surfaceY+9);
+      damageCar(car,4);
+      rattleActor(car,0.8);
+    }
+  }
 
   if(!jetHovering && car.y<surfaceY){
     if(!gameOver && landingVy<-0.9){
@@ -5108,11 +5207,13 @@ function updateCar(car){
   let jetPitch=clamp(-(car.liftInput || 0)*0.18-Math.max(0,car.speed)*0.025,-0.3,0.12);
   let targetPitch=jetHovering ? jetPitch : -Math.atan2(frontY-backY,pitchSampleDist*2);
   car.pitch+=(targetPitch-car.pitch)*0.18;
+  let jetBankTarget=jetHovering ? clamp((car.turnInputEase || 0)*-0.46+(car.turnVelocity || 0)*-5.5,-0.58,0.58) : 0;
+  car.jetBank+=(jetBankTarget-(car.jetBank || 0))*(jetHovering ? 0.12 : 0.18);
 
   car.group.position.set(car.x,car.y,car.z);
   car.group.rotation.y=car.angle+car.trickYaw;
   car.group.rotation.x=car.pitch+car.trickPitch;
-  car.group.rotation.z=car.trickRoll;
+  car.group.rotation.z=car.trickRoll+(car.jetBank || 0);
   updateMechAnimation(car);
   updateMorphVisual(car);
   updateCannonInput(car);
@@ -5286,18 +5387,54 @@ function roadPointForOffset(z,lateralOffset){
   };
 }
 
-function startPlacementInfo(z,lateralOffsets){
+const startFieldOffsets=[-135,135,-180,180,-105,105,-230,230];
+
+function fieldPatchInfo(x,z,radius=18){
+  let minH=Infinity;
+  let maxH=-Infinity;
+  let samples=[
+    [0,0],
+    [1,0],
+    [-1,0],
+    [0,1],
+    [0,-1],
+    [0.7,0.7],
+    [-0.7,0.7],
+    [0.7,-0.7],
+    [-0.7,-0.7]
+  ];
+
+  for(let sample of samples){
+    let sx=x+sample[0]*radius;
+    let sz=z+sample[1]*radius;
+    if(waterDepthAt(sx,sz)>0.05) return null;
+    if(roadDistance(sx,sz)<72) return null;
+
+    let h=groundHeight(sx,sz);
+    minH=Math.min(minH,h);
+    maxH=Math.max(maxH,h);
+  }
+
+  return {minH,maxH,range:maxH-minH};
+}
+
+function startPlacementInfo(z,fieldOffset,lateralOffsets){
   let maxHeight=-Infinity;
   let maxSlope=0;
+  let maxRange=0;
+  let points=[];
 
   for(let offset of lateralOffsets){
-    let point=roadPointForOffset(z,offset);
+    let point=roadPointForOffset(z,fieldOffset+offset);
     if(!Number.isFinite(point.x) || !Number.isFinite(point.z)) return null;
-    if(waterDepthAt(point.x,point.z)>0.05) return null;
+    if(roadDistance(point.x,point.z)<86) return null;
 
     let y=groundHeight(point.x,point.z);
-    let ahead=roadPointForOffset(z+40,offset);
-    let behind=roadPointForOffset(z-40,offset);
+    let patch=fieldPatchInfo(point.x,point.z);
+    if(!patch) return null;
+
+    let ahead=roadPointForOffset(z+40,fieldOffset+offset);
+    let behind=roadPointForOffset(z-40,fieldOffset+offset);
     let rightX=Math.cos(point.angle);
     let rightZ=-Math.sin(point.angle);
     let forwardSlope=Math.abs(groundHeight(ahead.x,ahead.z)-groundHeight(behind.x,behind.z))/80;
@@ -5307,35 +5444,89 @@ function startPlacementInfo(z,lateralOffsets){
     )/36;
 
     maxHeight=Math.max(maxHeight,y);
+    maxRange=Math.max(maxRange,patch.range);
     maxSlope=Math.max(maxSlope,forwardSlope,sideSlope);
+    points.push(point);
   }
 
   let preferredMaxHeight=waterLevel+30;
-  let preferredMaxSlope=0.16;
+  let preferredMaxSlope=0.18;
+  let preferredMaxRange=3.8;
   let mountainPenalty=Math.max(0,maxHeight-preferredMaxHeight);
 
   return {
-    preferred:maxHeight<=preferredMaxHeight && maxSlope<=preferredMaxSlope,
-    score:Math.abs(z)*0.002+maxHeight*2.5+maxSlope*90+mountainPenalty*18
+    z,
+    fieldOffset,
+    points,
+    angle:roadYawAt(z),
+    preferred:maxHeight<=preferredMaxHeight && maxSlope<=preferredMaxSlope && maxRange<=preferredMaxRange,
+    score:Math.abs(z)*0.002+Math.abs(fieldOffset)*0.025+maxHeight*2.5+maxSlope*90+maxRange*28+mountainPenalty*18
   };
 }
 
-function findSafeStartZ(lateralOffsets){
+function startAreaClear(info){
+  let center=info.points.reduce((acc,point)=>({
+    x:acc.x+point.x/info.points.length,
+    z:acc.z+point.z/info.points.length
+  }),{x:0,z:0});
+
+  world.updateChunksForCenters([center]);
+  world.processChunkQueue(80,true);
+
+  for(let point of info.points){
+    if(world.collidesWithObstacles(point.x,point.z)) return false;
+    let clearanceSamples=[
+      [12,0],
+      [-12,0],
+      [0,12],
+      [0,-12],
+      [8,8],
+      [-8,8],
+      [8,-8],
+      [-8,-8]
+    ];
+
+    for(let sample of clearanceSamples){
+      if(world.collidesWithObstacles(point.x+sample[0],point.z+sample[1])) return false;
+    }
+  }
+
+  return true;
+}
+
+function findSafeFieldStart(lateralOffsets){
   let step=80;
   let maxSteps=120;
-  let bestDry={z:0,score:Infinity};
+  let bestDry=[];
+
+  function rememberCandidate(info){
+    bestDry.push(info);
+    bestDry.sort((a,b)=>a.score-b.score);
+    if(bestDry.length>12) bestDry.length=12;
+  }
 
   for(let i=0;i<=maxSteps;i++){
     for(let direction of (i===0 ? [1] : [1,-1])){
       let z=i*step*direction;
-      let info=startPlacementInfo(z,lateralOffsets);
-      if(!info) continue;
-      if(info.score<bestDry.score) bestDry={z,score:info.score};
-      if(info.preferred) return z;
+      for(let fieldOffset of startFieldOffsets){
+        let info=startPlacementInfo(z,fieldOffset,lateralOffsets);
+        if(!info) continue;
+        rememberCandidate(info);
+        if(info.preferred && startAreaClear(info)) return info;
+      }
     }
   }
 
-  return bestDry.z;
+  for(let info of bestDry){
+    if(startAreaClear(info)) return info;
+  }
+
+  return {
+    z:0,
+    fieldOffset:startFieldOffsets[0],
+    points:lateralOffsets.map(offset=>roadPointForOffset(0,startFieldOffsets[0]+offset)),
+    angle:roadYawAt(0)
+  };
 }
 
 function activeBossBaseDefenders(base){
@@ -5432,14 +5623,14 @@ function startGame(mode,difficulty="medium"){
   clearRockets();
   clearEnemies();
   clearSupplyBoxes();
-  jetUnlocked=false;
+  jetUnlocked=true;
   score=0;
   scoredVillages=new WeakSet();
   playerCar.lateralOffset=mode==="single" ? 0 : -4.2;
   secondCar.lateralOffset=4.2;
-  let startZ=findSafeStartZ(mode==="double" ? [playerCar.lateralOffset,secondCar.lateralOffset] : [playerCar.lateralOffset]);
-  placeCarOnRoad(playerCar,startZ);
-  placeCarOnRoad(secondCar,startZ);
+  let startInfo=findSafeFieldStart(mode==="double" ? [playerCar.lateralOffset,secondCar.lateralOffset] : [playerCar.lateralOffset]);
+  placeCarOnOpenField(playerCar,startInfo);
+  placeCarOnOpenField(secondCar,startInfo);
   world.placeTestBossBaseNearStart(playerCar.x,playerCar.z,playerCar.angle);
   spawnBossBaseGuards();
   setCarActive(playerCar,true);
@@ -5485,12 +5676,28 @@ loadCarModel()
     console.error("Failed to load car model:",error);
   });
 
-function placeCarOnRoad(car,z){
-  let point=roadPointForOffset(z,car.lateralOffset);
+loadJetModel(0xb83a32)
+  .then(model=>{
+    setMorphJetModel(playerCar,model);
+  })
+  .catch(error=>{
+    console.error("Failed to load player jet model:",error);
+  });
+
+loadJetModel(0x2f66d8)
+  .then(model=>{
+    setMorphJetModel(secondCar,model);
+  })
+  .catch(error=>{
+    console.error("Failed to load second jet model:",error);
+  });
+
+function placeCarOnOpenField(car,startInfo){
+  let point=roadPointForOffset(startInfo.z,startInfo.fieldOffset+car.lateralOffset);
   car.x=point.x;
   car.z=point.z;
-  car.angle=point.angle;
-  car.velAngle=point.angle;
+  car.angle=startInfo.angle;
+  car.velAngle=startInfo.angle;
   car.speed=0;
   car.throttleEase=0;
   car.turnInputEase=0;
@@ -5518,6 +5725,7 @@ function placeCarOnRoad(car,z){
   car.lastMorphButton=false;
   car.jetMode=false;
   car.jetProgress=0;
+  car.jetBank=0;
   car.jetAltitudeTarget=drivingSurfaceHeight(car.x,car.z)+8;
   car.lastJetButton=false;
   car.aimOffsetX=0;
@@ -5534,10 +5742,10 @@ function placeCarOnRoad(car,z){
   if(car.aimCross) car.aimCross.position.set(0,3.15,32);
   car.lastRocketButton=false;
   car.rocketCooldown=0;
-  car.rocketAmmo=initialRocketAmmo;
+  car.rocketAmmo=maxRocketAmmo();
   car.lastCannonButton=false;
   car.cannonCooldown=0;
-  car.cannonAmmo=initialCannonAmmo;
+  car.cannonAmmo=maxCannonAmmo();
   car.clusterBombCooldown=0;
   car.clusterBombAmmo=initialClusterBombAmmo;
   car.boostCharge=maxBoostCharge;
@@ -5556,9 +5764,9 @@ function placeCarOnRoad(car,z){
 }
 
 setWorldSeed(Math.random()*100000,currentEnvironment.terrain || {});
-let initialStartZ=findSafeStartZ([playerCar.lateralOffset,0,secondCar.lateralOffset]);
-placeCarOnRoad(playerCar,initialStartZ);
-placeCarOnRoad(secondCar,initialStartZ);
+let initialStartInfo=findSafeFieldStart([playerCar.lateralOffset,0,secondCar.lateralOffset]);
+placeCarOnOpenField(playerCar,initialStartInfo);
+placeCarOnOpenField(secondCar,initialStartInfo);
 world.placeTestBossBaseNearStart(playerCar.x,playerCar.z,playerCar.angle);
 playerCar.cameraYaw=playerCar.angle;
 secondCar.cameraYaw=secondCar.angle;

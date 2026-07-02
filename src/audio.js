@@ -380,6 +380,60 @@ export function createMotorAudio(cars){
     noise.stop(time+1.5);
   }
 
+  function playBombExplosion(){
+    ensureContext();
+    if(!context || !supported) return;
+    if(context.state==="suspended") context.resume();
+
+    let time=context.currentTime+0.005;
+    let sub=context.createOscillator();
+    let subGain=context.createGain();
+    let body=context.createOscillator();
+    let bodyGain=context.createGain();
+    let noise=context.createBufferSource();
+    let noiseFilter=context.createBiquadFilter();
+    let noiseGain=context.createGain();
+
+    noise.buffer=noiseBuffer || createNoiseBuffer();
+
+    sub.type="sine";
+    sub.frequency.setValueAtTime(28,time);
+    sub.frequency.exponentialRampToValueAtTime(11,time+1.65);
+    subGain.gain.setValueAtTime(0.0001,time);
+    subGain.gain.exponentialRampToValueAtTime(0.86,time+0.035);
+    subGain.gain.exponentialRampToValueAtTime(0.0001,time+2.25);
+
+    body.type="triangle";
+    body.frequency.setValueAtTime(54,time);
+    body.frequency.exponentialRampToValueAtTime(18,time+1.25);
+    bodyGain.gain.setValueAtTime(0.0001,time);
+    bodyGain.gain.exponentialRampToValueAtTime(0.48,time+0.05);
+    bodyGain.gain.exponentialRampToValueAtTime(0.0001,time+1.85);
+
+    noiseFilter.type="lowpass";
+    noiseFilter.frequency.setValueAtTime(210,time);
+    noiseFilter.frequency.exponentialRampToValueAtTime(38,time+1.8);
+    noiseFilter.Q.setValueAtTime(0.7,time);
+    noiseGain.gain.setValueAtTime(0.0001,time);
+    noiseGain.gain.exponentialRampToValueAtTime(0.62,time+0.055);
+    noiseGain.gain.exponentialRampToValueAtTime(0.0001,time+2.4);
+
+    sub.connect(subGain);
+    body.connect(bodyGain);
+    noise.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    subGain.connect(master);
+    bodyGain.connect(master);
+    noiseGain.connect(master);
+
+    sub.start(time);
+    body.start(time);
+    noise.start(time);
+    sub.stop(time+2.3);
+    body.stop(time+1.9);
+    noise.stop(time+2.45);
+  }
+
   function playLaserFire(){
     ensureContext();
     if(!context || !supported) return;
@@ -439,6 +493,7 @@ export function createMotorAudio(cars){
     playRocketLaunch,
     playCannonFire,
     playExplosion,
+    playBombExplosion,
     playLaserFire
   };
 }
