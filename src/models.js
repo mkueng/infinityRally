@@ -26,6 +26,8 @@ export function normalizeGasStationModel(station){
 
   box.setFromObject(model);
   asset.position.y-=box.min.y/scale;
+  box.setFromObject(model);
+  box.getSize(size);
 
   model.traverse(child=>{
     if(child.isMesh){
@@ -196,6 +198,7 @@ export function normalizeCarModel(car){
   model.position.y=0.04;
   model.userData.baseY=model.position.y;
   model.userData.baseScale=model.scale.clone();
+  model.userData.trackHalfWidth=Math.max(0.92,Math.min(1.18,size.x*0.43));
 
   return model;
 }

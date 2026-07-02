@@ -2,11 +2,11 @@ import { THREE } from "./three.js";
 import { gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize, mothershipDropCount, mothershipDropInterval, mothershipDropLineSpacing, mothershipHoverDistance, mothershipHoverFrames, mothershipMinDelay, mothershipRandomDelay, mothershipRocketHits } from "./constants.js";
 import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=no-ramps";
 import { createInput } from "./input.js";
-import { createHud } from "./hud.js?v=planet-map";
-import { createBirds, createCarShadow, createClouds, createDust, createRain, createWheelTracks } from "./effects.js?v=initial-clouds";
+import { createHud } from "./hud.js?v=robot-ammo-icons";
+import { createBirds, createCarShadow, createClouds, createDust, createRain, createWheelTracks } from "./effects.js?v=continuous-buggy-tracks";
 import { createWorld } from "./world.js?v=planet-boss-bases";
 import { createMotorAudio } from "./audio.js?v=alien-planet-world";
-import { loadCarModel, makeJetModel, makeMechModel } from "./models.js?v=jet-morph";
+import { loadCarModel, makeJetModel, makeMechModel } from "./models.js?v=buggy-track-width";
 import { makeSkyTexture } from "./textures.js?v=alien-planet";
 
 const worldEnvironments=[
@@ -380,6 +380,19 @@ let spiderBodyMat=new THREE.MeshStandardMaterial({color:0x151821,emissive:0x2209
 let spiderLegMat=new THREE.MeshStandardMaterial({color:0x3a2334,emissive:0x120512,emissiveIntensity:0.26,roughness:0.68,metalness:0.48});
 let mothershipHullMat=new THREE.MeshStandardMaterial({color:0x211c32,emissive:0x09051a,emissiveIntensity:0.42,roughness:0.72,metalness:0.58});
 let mothershipGlowMat=new THREE.MeshBasicMaterial({color:0x9fd8ff,transparent:true,opacity:0.46,depthWrite:false,blending:THREE.AdditiveBlending});
+let mothershipAuraMat=new THREE.MeshBasicMaterial({
+  color:0x7fbaff,
+  transparent:true,
+  opacity:0.16,
+  depthWrite:false,
+  depthTest:true,
+  blending:THREE.AdditiveBlending,
+  side:THREE.BackSide
+});
+let mothershipAuraColorA=new THREE.Color(0x6fb7ff);
+let mothershipAuraColorB=new THREE.Color(0xb18cff);
+let mothershipAuraColorC=new THREE.Color(0x78f0e6);
+let mothershipAuraColorTemp=new THREE.Color();
 let clusterBombRadius=300;
 let clusterBombCooldownFrames=150;
 let clusterBombInitialDropSpeed=0.22;
@@ -440,13 +453,13 @@ let rockDebrisGeo=new THREE.DodecahedronGeometry(1,0);
 let rockDebrisMat=new THREE.MeshStandardMaterial({color:0x4c3a5b,roughness:0.96,metalness:0.08});
 let buildingDebrisGeo=new THREE.BoxGeometry(1,1,1);
 let buildingDebrisMat=new THREE.MeshStandardMaterial({color:0x5a526d,roughness:0.9,metalness:0.12});
-let enemyTrimMat=new THREE.MeshStandardMaterial({color:0xb8ff37,roughness:0.42,metalness:0.45});
+let enemyTrimMat=new THREE.MeshStandardMaterial({color:0x8f7d5c,roughness:0.5,metalness:0.58});
 let enemyEyeMat=new THREE.MeshStandardMaterial({
-  color:0xff3a24,
-  emissive:0xff2200,
-  emissiveIntensity:1.2,
-  roughness:0.18,
-  metalness:0.12
+  color:0xd88a54,
+  emissive:0x5a2414,
+  emissiveIntensity:0.62,
+  roughness:0.24,
+  metalness:0.22
 });
 let supplyBoxGeo=new THREE.BoxGeometry(2.4,1.15,2.4);
 let supplyLidGeo=new THREE.BoxGeometry(2.65,0.22,2.65);
@@ -757,12 +770,84 @@ function destroyWorldObstacle(obstacle){
   return true;
 }
 
+function spawnBossBaseImpact(base,x,y,z,amount=1){
+  let baseX=base ? base.x : 0;
+  let baseY=base ? base.y : 0;
+  let baseZ=base ? base.z : 0;
+  let rawX=Number.isFinite(x) ? x : baseX;
+  let rawY=Number.isFinite(y) ? y : baseY+24;
+  let rawZ=Number.isFinite(z) ? z : baseZ;
+  let dx=rawX-baseX;
+  let dz=rawZ-baseZ;
+  let dist=Math.hypot(dx,dz);
+  let angle=dist>0.001 ? Math.atan2(dx,dz) : Math.random()*Math.PI*2;
+  let shellRadius=base && base.r ? base.r*0.86 : 40;
+  let hitX=base ? baseX+Math.sin(angle)*shellRadius : rawX;
+  let hitY=base ? clamp(rawY,baseY+12,baseY+50) : rawY;
+  let hitZ=base ? baseZ+Math.cos(angle)*shellRadius : rawZ;
+  let strength=Math.max(1.15,Math.min(2.8,amount/10));
+
+  let flash=new THREE.Mesh(explosionFlashGeo,explosionFlashMat.clone());
+  flash.position.set(hitX,hitY,hitZ);
+  flash.scale.setScalar(0.56*strength);
+  flash.material.color.set(0xffe1a8);
+  flash.material.depthTest=false;
+  flash.renderOrder=28;
+  scene.add(flash);
+
+  let ring=new THREE.Mesh(explosionRingGeo,explosionRingMat.clone());
+  ring.position.set(hitX,hitY+0.08,hitZ);
+  ring.rotation.x=Math.PI/2;
+  ring.scale.setScalar(1.4*strength);
+  ring.material.color.set(0xb9f7ff);
+  ring.material.depthTest=false;
+  ring.renderOrder=29;
+  scene.add(ring);
+
+  explosionBursts.push({
+    flash,
+    ring,
+    age:0,
+    life:0.38+0.08*strength,
+    startFlashScale:0.56*strength,
+    endFlashScale:3.4*strength,
+    startRingScale:1.4*strength,
+    endRingScale:8.5*strength,
+    flashOpacity:0.95,
+    ringOpacity:0.9
+  });
+
+  let sparkCount=18+Math.floor(strength*8);
+  for(let i=0;i<sparkCount;i++){
+    let angle=Math.random()*Math.PI*2;
+    let speed=2.2+Math.random()*6.2;
+    dust.spawnThrusterParticle(
+      hitX,
+      hitY,
+      hitZ,
+      Math.cos(angle)*speed,
+      Math.sin(angle)*speed,
+      0.9+Math.random()*4.4,
+      0.18+Math.random()*0.16,
+      0.08+Math.random()*0.08
+    );
+  }
+
+  if(base){
+    base.impactPulse=Math.max(base.impactPulse || 0,1);
+    base.reinforcementCooldown=Math.min(base.reinforcementCooldown || 0,60);
+  }
+}
+
 function damageBossBaseObstacle(obstacle,x,y,z,amount){
   if(!obstacle || obstacle.type!=="bossBase") return false;
-  let destroyed=world.damageBossBase(obstacle,amount);
+  let base=obstacle.base || obstacle;
+  spawnBossBaseImpact(base,x,y,z,amount);
+  requestBossBaseReinforcements(base,3);
+  let hardenedDamage=Math.max(1,amount*0.48);
+  let destroyed=world.damageBossBase(obstacle,hardenedDamage);
 
   if(destroyed){
-    let base=obstacle.base || obstacle;
     spawnBossBaseDebris(base);
     spawnRadiusExplosion(base.x,base.y+12,base.z,72);
     for(let i=0;i<8;i++){
@@ -789,19 +874,6 @@ function damageBossBaseObstacle(obstacle,x,y,z,amount){
       );
     }
     addScore(bossScoreAmount);
-  }else{
-    for(let i=0;i<5;i++){
-      dust.spawnThrusterParticle(
-        x,
-        y,
-        z,
-        (Math.random()-0.5)*2.2,
-        (Math.random()-0.5)*2.2,
-        0.8+Math.random()*2.2,
-        0.16,
-        0.06+Math.random()*0.05
-      );
-    }
   }
 
   return true;
@@ -1025,8 +1097,8 @@ function updateExplosions(){
 
     burst.flash.scale.setScalar(flashScale);
     burst.ring.scale.setScalar(ringScale);
-    burst.flash.material.opacity=0.9*Math.pow(1-t,1.6);
-    burst.ring.material.opacity=0.8*Math.pow(1-t,1.2);
+    burst.flash.material.opacity=(burst.flashOpacity ?? 0.9)*Math.pow(1-t,1.6);
+    burst.ring.material.opacity=(burst.ringOpacity ?? 0.8)*Math.pow(1-t,1.2);
 
     if(t>=1){
       scene.remove(burst.flash,burst.ring);
@@ -1788,7 +1860,7 @@ function updateRocketInput(car){
 
   let buttons=input.getGamepadFaceButtons(car.gamepadIndex);
   let pressedRocketTrigger=buttons.leftTrigger && !car.lastRocketButton;
-  let mouseRocket=gameMode==="single" && car===playerCar && input.mouse.left;
+  let mouseRocket=gameMode==="single" && car===playerCar && input.mouse.right;
   let pressedMouse=mouseRocket && !car.lastRocketButton;
   if(pressedRocketTrigger || pressedMouse) fireRocket(car);
   car.lastRocketButton=buttons.leftTrigger || mouseRocket;
@@ -2047,7 +2119,7 @@ function updateCannonInput(car){
   if(car.clusterBombCooldown>0) car.clusterBombCooldown--;
 
   let buttons=input.getGamepadFaceButtons(car.gamepadIndex);
-  let mouseShot=gameMode==="single" && car===playerCar && input.mouse.right;
+  let mouseShot=gameMode==="single" && car===playerCar && input.mouse.left;
   let cannonButton=buttons.rightTrigger || mouseShot;
   if(cannonButton){
     if(car.jetMode || car.jetProgress>0.65) fireClusterBomb(car);
@@ -2207,7 +2279,7 @@ function updateRockets(){
         if(mothershipHit) damageMothership(explosionX,explosionY,explosionZ,1);
         if(hitObstacle){
           if(hitObstacle.type==="bossBase"){
-            damageBossBaseObstacle(hitObstacle,explosionX,explosionY,explosionZ,34);
+            damageBossBaseObstacle(hitObstacle,rocket.x,rocket.y,rocket.z,34);
           }else if(hitObstacle.type==="rock" || hitObstacle.type==="smallRock" || hitObstacle.type==="building" || hitObstacle.type==="wall" || hitObstacle.type==="turret"){
             spawnRockDebris(hitObstacle.x,explosionY,hitObstacle.z,hitObstacle);
             destroyWorldObstacle(hitObstacle);
@@ -2305,7 +2377,7 @@ function updateCannonBolts(){
         if(mothershipHit) damageMothership(explosionX,explosionY,explosionZ,0.4);
         if(hitObstacle){
           if(hitObstacle.type==="bossBase"){
-            damageBossBaseObstacle(hitObstacle,explosionX,explosionY,explosionZ,13);
+            damageBossBaseObstacle(hitObstacle,bolt.x,bolt.y,bolt.z,13);
           }else if(hitObstacle.type==="rock" || hitObstacle.type==="smallRock" || hitObstacle.type==="building" || hitObstacle.type==="wall" || hitObstacle.type==="turret"){
             spawnRockDebris(hitObstacle.x,explosionY,hitObstacle.z,hitObstacle);
             destroyWorldObstacle(hitObstacle);
@@ -2872,6 +2944,24 @@ function updateMothership(){
   if(mothership.group.userData.bay){
     mothership.group.userData.bay.scale.setScalar(1+Math.sin(mothership.age*0.18)*0.08);
   }
+  if(mothership.group.userData.aura){
+    let pulse=0.5+0.5*Math.sin(mothership.age*0.045+mothership.phase);
+    let colorCycle=0.5+0.5*Math.sin(mothership.age*0.006+mothership.phase);
+    let colorMix=0.5+0.5*Math.sin(mothership.age*0.004+mothership.phase+1.7);
+    mothershipAuraColorTemp.copy(mothershipAuraColorA).lerp(mothershipAuraColorB,colorCycle).lerp(mothershipAuraColorC,colorMix*0.55);
+    mothership.group.userData.aura.material.color.copy(mothershipAuraColorTemp);
+    mothership.group.userData.aura.material.opacity=0.12+pulse*0.06;
+    mothership.group.userData.aura.scale.set(34+pulse*1.8,8.2+pulse*0.5,18+pulse*1.0);
+  }
+  if(mothership.group.userData.lowerAura){
+    let pulse=0.5+0.5*Math.sin(mothership.age*0.065+mothership.phase+1.4);
+    let colorCycle=0.5+0.5*Math.sin(mothership.age*0.006+mothership.phase+0.9);
+    let colorMix=0.5+0.5*Math.sin(mothership.age*0.004+mothership.phase+2.4);
+    mothershipAuraColorTemp.copy(mothershipAuraColorC).lerp(mothershipAuraColorB,colorCycle*0.75).lerp(mothershipAuraColorA,colorMix*0.45);
+    mothership.group.userData.lowerAura.material.color.copy(mothershipAuraColorTemp);
+    mothership.group.userData.lowerAura.material.opacity=0.16+pulse*0.08;
+    mothership.group.userData.lowerAura.scale.set(24+pulse*1.4,3.6+pulse*0.35,13+pulse*0.8);
+  }
   if(mothership.hitFlash>0){
     mothership.group.scale.setScalar(1+Math.sin(mothership.hitFlash*1.7)*0.012);
     mothership.hitFlash--;
@@ -3262,6 +3352,26 @@ function updateBossBaseDefenses(){
   for(let base of world.bossBases || []){
     if(!base || !base.active || base.health<=0) continue;
 
+    if(base.impactPulse>0){
+      let pulse=base.impactPulse;
+      base.group.scale.setScalar(1+Math.sin(pulse*Math.PI)*0.018);
+      base.impactPulse=Math.max(0,pulse-0.08);
+    }else if(base.group.scale.x!==1){
+      base.group.scale.setScalar(1);
+    }
+
+    base.reinforcementCooldown=Math.max(0,(base.reinforcementCooldown || 0)-1);
+
+    for(let car of activeCars()){
+      if(car.health<=0 || !car.group.visible) continue;
+      let dx=car.x-base.x;
+      let dz=car.z-base.z;
+      if(dx*dx+dz*dz<330*330){
+        requestBossBaseReinforcements(base,2);
+        break;
+      }
+    }
+
     for(let turret of base.turrets || []){
       let target=null;
       let bestDistSq=Infinity;
@@ -3334,9 +3444,11 @@ function updateAirTricks(car,airborne){
 function updateMorphInput(car){
   let buttons=input.getGamepadFaceButtons(car.gamepadIndex);
   let keyboardMorph=gameMode==="single" && car===playerCar && input.keys.t;
+  let keyboardJet=gameMode==="single" && car===playerCar && input.keys.z;
   let morphButton=buttons.a || keyboardMorph;
+  let jetButton=buttons.b || keyboardJet;
   let pressedMorph=morphButton && !car.lastMorphButton;
-  let pressedJet=jetUnlocked && buttons.b && !car.lastJetButton;
+  let pressedJet=jetUnlocked && jetButton && !car.lastJetButton;
 
   if(pressedMorph && !gameOver && car.health>0){
     car.morphed=!car.morphed;
@@ -3350,7 +3462,7 @@ function updateMorphInput(car){
     }
   }
   car.lastMorphButton=morphButton;
-  car.lastJetButton=buttons.b;
+  car.lastJetButton=jetButton;
 }
 
 function updateFlightThrust(car,surfaceY){
@@ -3423,6 +3535,52 @@ function emitJetHoverExhaust(car){
   }
 }
 
+function emitBuggyGroundDust(car,surfaceY){
+  if(!dust.spawnGroundDustParticle) return;
+
+  let speedAbs=Math.abs(car.speed || 0);
+  let dryGround=waterDepthAt(car.x,car.z)<=0.08;
+  let buggyMode=car.morphProgress>0.68 && car.jetProgress<0.35;
+  if(!buggyMode || !dryGround || !car.onGround || speedAbs<0.075 || gameOver || car.health<=0) return;
+
+  let forwardX=Math.sin(car.velAngle);
+  let forwardZ=Math.cos(car.velAngle);
+  let rightX=Math.cos(car.velAngle);
+  let rightZ=-Math.sin(car.velAngle);
+  let steeringDust=clamp(Math.abs(car.turnInputEase || 0)*0.9+Math.abs(car.turnVelocity || 0)*18,0,1.4);
+  let throttleDust=clamp(Math.abs(car.throttleEase || car.throttleInput || 0),0,1);
+  let dustAmount=Math.min(10,Math.max(1,Math.floor(speedAbs*12+steeringDust*2+throttleDust*1.6)));
+  let rearBase=2.15+speedAbs*1.4;
+  let modelTrackHalfWidth=car.carModel && car.carModel.userData
+    ? car.carModel.userData.trackHalfWidth
+    : null;
+  let modelWidthScale=car.carModel && car.carModel.userData && car.carModel.userData.baseScale
+    ? car.carModel.scale.x/Math.max(0.001,car.carModel.userData.baseScale.x)
+    : 1;
+  let tireHalfWidth=(modelTrackHalfWidth || 0.96)*Math.max(0.82,Math.min(1.08,modelWidthScale));
+
+  for(let i=0;i<dustAmount;i++){
+    let side=i%2===0 ? -1 : 1;
+    let lateral=side*(tireHalfWidth+(Math.random()-0.5)*0.18)+(Math.random()-0.5)*0.14;
+    let rear=rearBase+Math.random()*0.9;
+    let px=car.x-forwardX*rear+rightX*lateral;
+    let pz=car.z-forwardZ*rear+rightZ*lateral;
+    let wake=0.65+speedAbs*2.8;
+    let sideDrift=(Math.random()-0.5)*(0.45+steeringDust*0.4);
+
+    dust.spawnGroundDustParticle(
+      px,
+      surfaceY+0.14+Math.random()*0.12,
+      pz,
+      -forwardX*wake+rightX*sideDrift+(Math.random()-0.5)*0.18,
+      -forwardZ*wake+rightZ*sideDrift+(Math.random()-0.5)*0.18,
+      0.28+Math.random()*0.75+speedAbs*0.25,
+      0.32+Math.random()*0.24,
+      0.16+Math.random()*0.13+speedAbs*0.08
+    );
+  }
+}
+
 function resetMechPart(part){
   if(!part || !part.userData.basePosition || !part.userData.baseRotation) return;
   part.position.copy(part.userData.basePosition);
@@ -3460,6 +3618,46 @@ function makeEnemyRobotVariant(seed,type){
   };
 }
 
+function makeEnemyWalkProfile(seed,type){
+  let heavy=type==="boss" || type==="giant" || type==="guard";
+  let style=Math.floor(enemyVariantValue(seed,21)*5);
+  let profile={
+    style,
+    phaseOffset:enemyVariantValue(seed,22)*Math.PI*2,
+    strideScale:heavy ? 1.12+enemyVariantValue(seed,23)*0.34 : 0.82+enemyVariantValue(seed,23)*0.34,
+    cadenceScale:heavy ? 0.72+enemyVariantValue(seed,24)*0.22 : 0.92+enemyVariantValue(seed,24)*0.38,
+    intensityScale:heavy ? 1.08+enemyVariantValue(seed,25)*0.26 : 1.12+enemyVariantValue(seed,25)*0.34,
+    legSwing:0.9+enemyVariantValue(seed,26)*0.44,
+    armSwing:0.76+enemyVariantValue(seed,27)*0.55,
+    footLift:0.85+enemyVariantValue(seed,28)*0.5,
+    kneeDrive:0.82+enemyVariantValue(seed,29)*0.42,
+    bobScale:heavy ? 0.62+enemyVariantValue(seed,30)*0.22 : 0.88+enemyVariantValue(seed,30)*0.36,
+    torsoSway:0.82+enemyVariantValue(seed,31)*0.38,
+    forwardLean:heavy ? 0.62+enemyVariantValue(seed,32)*0.22 : 0.9+enemyVariantValue(seed,32)*0.34,
+    armLag:(enemyVariantValue(seed,33)-0.5)*0.34
+  };
+
+  if(style===1){
+    profile.legSwing*=1.18;
+    profile.footLift*=1.2;
+    profile.cadenceScale*=1.08;
+  }else if(style===2){
+    profile.strideScale*=1.22;
+    profile.cadenceScale*=0.9;
+    profile.armSwing*=0.85;
+  }else if(style===3){
+    profile.bobScale*=0.72;
+    profile.torsoSway*=1.24;
+    profile.armLag+=0.18;
+  }else if(style===4){
+    profile.strideScale*=0.9;
+    profile.cadenceScale*=1.18;
+    profile.footLift*=0.82;
+  }
+
+  return profile;
+}
+
 function scaleMeshPart(mesh,x=1,y=1,z=1){
   if(mesh) mesh.scale.set(mesh.scale.x*x,mesh.scale.y*y,mesh.scale.z*z);
 }
@@ -3472,6 +3670,14 @@ function applyEnemyRobotVariant(model,seed,type){
   let parts=model && model.userData ? model.userData.walkParts : null;
   if(!parts) return;
   let variant=makeEnemyRobotVariant(seed,type);
+  let style=Math.floor(enemyVariantValue(seed,10)*5);
+
+  function addVariantPart(mesh){
+    mesh.castShadow=true;
+    mesh.receiveShadow=true;
+    model.add(mesh);
+    return mesh;
+  }
 
   scaleMeshPart(parts.pelvis,variant.width*0.92,variant.height*0.78,variant.depth);
   scaleMeshPart(parts.torso,variant.width,variant.height,variant.depth);
@@ -3524,6 +3730,45 @@ function applyEnemyRobotVariant(model,seed,type){
       model.add(backFin);
     }
     scaleMeshPart(core,1.16,1.08,1.12);
+  }
+
+  if(style===0){
+    for(let side of [-1,1]){
+      let antenna=new THREE.Mesh(new THREE.ConeGeometry(0.045,0.9,5),enemyTrimMat.clone());
+      antenna.name=side<0 ? "enemy-left-antenna-fin" : "enemy-right-antenna-fin";
+      antenna.position.set(side*0.34,5.04,-0.08);
+      antenna.rotation.z=-side*0.18;
+      addVariantPart(antenna);
+    }
+  }else if(style===1){
+    for(let side of [-1,1]){
+      let thruster=new THREE.Mesh(new THREE.BoxGeometry(0.36,0.92,0.42),enemyTrimMat.clone());
+      thruster.name=side<0 ? "enemy-left-back-thruster" : "enemy-right-back-thruster";
+      thruster.position.set(side*0.48,3.34,-1.02);
+      thruster.rotation.x=-0.08;
+      addVariantPart(thruster);
+    }
+  }else if(style===2){
+    for(let side of [-1,1]){
+      let shinFin=new THREE.Mesh(new THREE.BoxGeometry(0.16,0.76,0.58),enemyTrimMat.clone());
+      shinFin.name=side<0 ? "enemy-left-shin-fin" : "enemy-right-shin-fin";
+      shinFin.position.set(side*0.72,0.06,-0.42);
+      shinFin.rotation.z=side*0.12;
+      addVariantPart(shinFin);
+    }
+  }else if(style===3){
+    let sensorSide=enemyVariantValue(seed,11)<0.5 ? -1 : 1;
+    let sensor=new THREE.Mesh(new THREE.BoxGeometry(0.28,0.32,0.72),enemyEyeMat.clone());
+    sensor.name=sensorSide<0 ? "enemy-left-shoulder-sensor" : "enemy-right-shoulder-sensor";
+    sensor.position.set(sensorSide*1.74,3.98,0.36);
+    sensor.rotation.z=sensorSide*0.12;
+    addVariantPart(sensor);
+  }else{
+    let crest=new THREE.Mesh(new THREE.BoxGeometry(0.32,0.86,0.18),enemyTrimMat.clone());
+    crest.name="enemy-head-crest";
+    crest.position.set(0,5.08,0.1);
+    crest.rotation.x=-0.12;
+    addVariantPart(crest);
   }
 
   rememberMechBasePose(model);
@@ -4004,7 +4249,7 @@ function setMorphCarModel(car,model){
 }
 
 function makeEnemyMechModel(seed=0,type="mech"){
-  let mech=makeMechModel(seed%2===0 ? 0x9cff2f : 0xff5a2f);
+  let mech=makeMechModel(seed%2===0 ? 0x8f7d5c : 0x6f637d);
   mech.name="enemy-mech";
   mech.scale.set(1.18,0.96,1.1);
 
@@ -4016,11 +4261,11 @@ function makeEnemyMechModel(seed=0,type="mech"){
     }else if(child.name.includes("plate") || child.name.includes("shroud")){
       child.material=enemyTrimMat.clone();
     }else if(child.name.includes("torso") || child.name.includes("shoulder") || child.name.includes("forearm") || child.name.includes("upper-leg") || child.name.includes("foot")){
-      child.material.color.set(seed%2===0 ? 0x25372f : 0x3a2d35);
+      child.material.color.set(seed%2===0 ? 0x263230 : 0x302d36);
       child.material.roughness=0.72;
       child.material.metalness=0.62;
     }else{
-      child.material.color.set(0x111514);
+      child.material.color.set(0x121615);
     }
   });
 
@@ -4034,7 +4279,7 @@ function makeEnemyMechModel(seed=0,type="mech"){
   }
 
   let eye=new THREE.Mesh(new THREE.BoxGeometry(0.92,0.18,0.1),enemyEyeMat.clone());
-  eye.name="enemy-red-eye";
+  eye.name="enemy-amber-eye";
   eye.position.set(0,4.56,0.58);
   addEnemyPart(eye);
 
@@ -4066,14 +4311,14 @@ function makeGuardRobotModel(seed=0){
     child.material=child.material.clone();
     if(child.name.includes("cockpit") || child.name.includes("visor") || child.name.includes("eye")){
       child.material=enemyEyeMat.clone();
-      child.material.emissiveIntensity=1.1;
+      child.material.emissiveIntensity=0.72;
     }else if(child.name.includes("plate") || child.name.includes("shroud")){
-      child.material.color.set(0x7a2f68);
-      child.material.emissive.set(0x260015);
-      child.material.emissiveIntensity=0.24;
+      child.material.color.set(0x665e76);
+      child.material.emissive.set(0x16101e);
+      child.material.emissiveIntensity=0.12;
       child.material.metalness=0.62;
     }else{
-      child.material.color.set(0x151824);
+      child.material.color.set(0x171a22);
       child.material.roughness=0.68;
       child.material.metalness=0.7;
     }
@@ -4248,6 +4493,18 @@ function makeMothershipModel(){
   bridge.receiveShadow=true;
   ship.add(bridge);
 
+  let aura=new THREE.Mesh(new THREE.SphereGeometry(1,32,16),mothershipAuraMat.clone());
+  aura.scale.set(34,8.2,18);
+  aura.renderOrder=4;
+  ship.add(aura);
+
+  let lowerAura=new THREE.Mesh(new THREE.SphereGeometry(1,32,12),mothershipAuraMat.clone());
+  lowerAura.position.y=-3.25;
+  lowerAura.scale.set(24,3.6,13);
+  lowerAura.material.opacity=0.22;
+  lowerAura.renderOrder=5;
+  ship.add(lowerAura);
+
   let bay=new THREE.Mesh(new THREE.CylinderGeometry(4.8,6.2,0.56,32),mothershipGlowMat);
   bay.position.y=-3.9;
   bay.rotation.x=Math.PI/2;
@@ -4290,6 +4547,8 @@ function makeMothershipModel(){
   }
 
   ship.userData.bay=bay;
+  ship.userData.aura=aura;
+  ship.userData.lowerAura=lowerAura;
   return ship;
 }
 
@@ -4321,6 +4580,7 @@ function createEnemyState(index,x,z,type="mech"){
   let hitHeight=isGiant ? 12.5 : isBoss ? 8.5 : isBoat ? 4.6 : isDrone ? 5.2 : isSpider ? 3.6 : 5.2;
   let baseHealth=isGiant ? 420 : isBoss ? 260 : isGuard ? 82 : isBoat ? 72 : isDrone ? 34 : isSpider ? 24 : 36;
   let startY=isBoat ? waterLevel+0.56 : drivingSurfaceHeight(x,z)+(isDrone ? 20 : 0);
+  let walkMaxSpeed=isGiant ? 0.24 : isBoss ? 0.2 : isGuard ? 0.32 : 0.4;
 
   return {
     id:`enemy-${index}`,
@@ -4390,7 +4650,9 @@ function createEnemyState(index,x,z,type="mech"){
     aiStrafe:Math.random()<0.5 ? -1 : 1,
     aiThink:0,
     guardPhase:Math.random()*Math.PI*2,
-    lateralOffset:0
+    lateralOffset:0,
+    walkProfile:(isDrone || isSpider || isBoat) ? null : makeEnemyWalkProfile(index,type),
+    walkMaxSpeed
   };
 }
 
@@ -4486,6 +4748,8 @@ function updateMechAnimation(car){
   });
 
   let speedAbs=Math.abs(car.speed || 0);
+  let walkProfile=car.walkProfile || null;
+  let walkMaxSpeed=car.walkMaxSpeed || mechGroundMaxSpeed;
   let previousWalkX=Number.isFinite(car.lastWalkX) ? car.lastWalkX : car.x;
   let previousWalkZ=Number.isFinite(car.lastWalkZ) ? car.lastWalkZ : car.z;
   let groundDistance=Math.hypot(car.x-previousWalkX,car.z-previousWalkZ);
@@ -4493,10 +4757,11 @@ function updateMechAnimation(car){
   car.lastWalkZ=car.z;
 
   let moving=car.onGround && car.health>0 && !gameOver && groundDistance>0.002 && speedAbs>0.01 && car.morphProgress<0.35;
-  let runAmount=moving ? smoothStep((speedAbs-0.2)/0.34) : 0;
-  let longStrideAmount=moving ? smoothStep((speedAbs-mechGroundMaxSpeed*0.42)/(mechGroundMaxSpeed*0.28)) : 0;
-  let sprintAmount=moving ? smoothStep((speedAbs-mechGroundMaxSpeed*0.62)/(mechGroundMaxSpeed*0.26)) : 0;
-  let intensity=moving ? clamp(groundDistance/mechGroundMaxSpeed,0.16,1.1+runAmount*0.35) : 0;
+  let runAmount=moving ? smoothStep((speedAbs-walkMaxSpeed*0.5)/(walkMaxSpeed*0.85)) : 0;
+  let longStrideAmount=moving ? smoothStep((speedAbs-walkMaxSpeed*0.42)/(walkMaxSpeed*0.28)) : 0;
+  let sprintAmount=moving ? smoothStep((speedAbs-walkMaxSpeed*0.62)/(walkMaxSpeed*0.26)) : 0;
+  let intensity=moving ? clamp(groundDistance/walkMaxSpeed,0.16,1.1+runAmount*0.35) : 0;
+  if(walkProfile) intensity*=walkProfile.intensityScale;
   let direction=car.speed<0 ? -1 : 1;
   let accelKick=clamp((car.speedDelta || 0)*34,-1,1);
   let brakingLoad=clamp(-(car.speedDelta || 0)*48,0,1);
@@ -4512,22 +4777,22 @@ function updateMechAnimation(car){
   car.movementPitch+=(targetPitch-(car.movementPitch || 0))*0.12;
 
   if(moving){
-    let strideLength=mechStrideLength*(1+runAmount*1.38+longStrideAmount*1.35+sprintAmount*0.42);
+    let strideLength=mechStrideLength*(walkProfile ? walkProfile.strideScale : 1)*(1+runAmount*1.38+longStrideAmount*1.35+sprintAmount*0.42);
     let strideDrag=1-brakingLoad*0.18;
-    let cadence=1+runAmount*0.06-longStrideAmount*0.1-sprintAmount*0.04;
+    let cadence=(walkProfile ? walkProfile.cadenceScale : 1)*(1+runAmount*0.06-longStrideAmount*0.1-sprintAmount*0.04);
     car.walkCycle+=direction*groundDistance*(Math.PI*2/strideLength)*cadence*strideDrag;
   }else{
     car.walkCycle*=0.88;
   }
 
-  let phase=car.walkCycle;
+  let phase=car.walkCycle+(walkProfile ? walkProfile.phaseOffset : 0);
   let flightPulse=Math.pow(Math.max(0,Math.sin(phase*2)),2)*runAmount*(1-longStrideAmount*0.32-sprintAmount*0.24);
   let bobScale=1-longStrideAmount*0.26-sprintAmount*0.16;
-  let bob=Math.abs(Math.sin(phase))*0.12*intensity*bobScale+flightPulse*0.16;
-  let torsoSway=Math.sin(phase)*0.04*intensity*(1+runAmount*0.35-longStrideAmount*0.12-sprintAmount*0.08);
+  let bob=(Math.abs(Math.sin(phase))*0.12*intensity*bobScale+flightPulse*0.16)*(walkProfile ? walkProfile.bobScale : 1);
+  let torsoSway=Math.sin(phase)*0.04*intensity*(1+runAmount*0.35-longStrideAmount*0.12-sprintAmount*0.08)*(walkProfile ? walkProfile.torsoSway : 1);
   let torsoTwist=Math.sin(phase)*0.055*intensity*(longStrideAmount*0.65+sprintAmount*0.35)*direction;
   let headCounter=Math.sin(phase)*0.025*intensity*(1+runAmount*0.25-longStrideAmount*0.12-sprintAmount*0.06);
-  let forwardLean=(runAmount*0.08+longStrideAmount*0.035+sprintAmount*0.02)*direction;
+  let forwardLean=(runAmount*0.08+longStrideAmount*0.035+sprintAmount*0.02)*direction*(walkProfile ? walkProfile.forwardLean : 1);
   let compression=car.movementCompression || 0;
   let heavyLean=car.movementLean || 0;
   let heavyPitch=car.movementPitch || 0;
@@ -4559,30 +4824,32 @@ function updateMechAnimation(car){
   for(let sideName of ["left","right"]){
     let side=sideName==="left" ? -1 : 1;
     let sideParts=parts[sideName];
-    let sidePhase=phase+(sideName==="left" ? 0 : Math.PI);
+    let sidePhase=phase+(sideName==="left" ? 0 : Math.PI)+(walkProfile ? walkProfile.armLag*side : 0);
     let swing=Math.sin(sidePhase)*intensity;
     let planted=Math.max(0,Math.cos(sidePhase))*intensity;
     let lifted=Math.max(0,-Math.cos(sidePhase))*intensity;
     let lifted01=smoothStep(lifted/Math.max(0.001,intensity));
     let planted01=smoothStep(planted/Math.max(0.001,intensity));
     let stride=1+runAmount*1.36+longStrideAmount*0.98+sprintAmount*0.28;
-    let lift=1+runAmount*0.56+longStrideAmount*0.18;
-    let kneeDrive=runAmount*lifted01*(1-longStrideAmount*0.12-sprintAmount*0.06);
+    let lift=(1+runAmount*0.56+longStrideAmount*0.18)*(walkProfile ? walkProfile.footLift : 1);
+    let kneeDrive=runAmount*lifted01*(1-longStrideAmount*0.12-sprintAmount*0.06)*(walkProfile ? walkProfile.kneeDrive : 1);
     let footPlant=runAmount*planted01;
     let sideLoad=1+planted01*(0.12+brakingLoad*0.26);
     let turnBrace=turnLoad*side*planted01;
     let sprintDrive=(longStrideAmount*0.82+sprintAmount*0.18)*direction;
     let groundDrive=sprintDrive*planted01;
     let swingDrive=sprintDrive*lifted01;
+    let legSwing=walkProfile ? walkProfile.legSwing : 1;
+    let armSwing=walkProfile ? walkProfile.armSwing : 1;
 
     if(sideParts.upperLeg){
-      sideParts.upperLeg.rotation.x+=swing*0.74*stride+kneeDrive*(0.48+sprintAmount*0.12)-turnBrace*0.12-groundDrive*0.16;
-      sideParts.upperLeg.position.z+=swing*0.3*stride+kneeDrive*0.18-footPlant*0.12-groundDrive*0.18;
+      sideParts.upperLeg.rotation.x+=swing*0.74*stride*legSwing+kneeDrive*(0.48+sprintAmount*0.12)-turnBrace*0.12-groundDrive*0.16;
+      sideParts.upperLeg.position.z+=swing*0.3*stride*legSwing+kneeDrive*0.18-footPlant*0.12-groundDrive*0.18;
       sideParts.upperLeg.position.y-=compression*0.2*sideLoad;
     }
     if(sideParts.shin){
-      sideParts.shin.rotation.x+=(-swing*0.42*stride-lifted*0.22*lift-kneeDrive*(0.58+sprintAmount*0.16)+groundDrive*0.12);
-      sideParts.shin.position.z+=swing*0.24*stride+kneeDrive*0.26-groundDrive*0.14;
+      sideParts.shin.rotation.x+=(-swing*0.42*stride*legSwing-lifted*0.22*lift-kneeDrive*(0.58+sprintAmount*0.16)+groundDrive*0.12);
+      sideParts.shin.position.z+=swing*0.24*stride*legSwing+kneeDrive*0.26-groundDrive*0.14;
     }
     if(sideParts.knee){
       sideParts.knee.position.y+=lifted*0.05+kneeDrive*(0.36+sprintAmount*0.12);
@@ -4594,26 +4861,26 @@ function updateMechAnimation(car){
     }
     if(sideParts.foot){
       sideParts.foot.position.y+=lifted*0.22*lift+kneeDrive*(0.54+sprintAmount*0.1)-compression*0.34*sideLoad;
-      sideParts.foot.position.z+=swing*0.7*stride-planted*0.26*sideLoad+kneeDrive*0.5-footPlant*0.34-groundDrive*0.38+swingDrive*0.16;
-      sideParts.foot.rotation.x+=-swing*0.28*stride+lifted*0.1*lift+kneeDrive*0.36-footPlant*(0.3+sprintAmount*0.18)-brakingLoad*planted01*0.18-groundDrive*0.12;
+      sideParts.foot.position.z+=swing*0.7*stride*legSwing-planted*0.26*sideLoad+kneeDrive*0.5-footPlant*0.34-groundDrive*0.38+swingDrive*0.16;
+      sideParts.foot.rotation.x+=-swing*0.28*stride*legSwing+lifted*0.1*lift+kneeDrive*0.36-footPlant*(0.3+sprintAmount*0.18)-brakingLoad*planted01*0.18-groundDrive*0.12;
       sideParts.foot.rotation.z+=side*turnBrace*0.1;
     }
     if(sideParts.toePlate){
       sideParts.toePlate.position.y+=lifted*0.22*lift+kneeDrive*(0.54+sprintAmount*0.1)-compression*0.34*sideLoad;
-      sideParts.toePlate.position.z+=swing*0.7*stride-planted*0.26*sideLoad+kneeDrive*0.5-footPlant*0.34-groundDrive*0.38+swingDrive*0.16;
-      sideParts.toePlate.rotation.x+=-swing*0.34*stride+lifted*0.14*lift+kneeDrive*0.42-footPlant*(0.38+sprintAmount*0.22)-brakingLoad*planted01*0.22-groundDrive*0.14;
+      sideParts.toePlate.position.z+=swing*0.7*stride*legSwing-planted*0.26*sideLoad+kneeDrive*0.5-footPlant*0.34-groundDrive*0.38+swingDrive*0.16;
+      sideParts.toePlate.rotation.x+=-swing*0.34*stride*legSwing+lifted*0.14*lift+kneeDrive*0.42-footPlant*(0.38+sprintAmount*0.22)-brakingLoad*planted01*0.22-groundDrive*0.14;
       sideParts.toePlate.rotation.z+=side*turnBrace*0.12;
     }
     if(sideParts.upperArm){
-      sideParts.upperArm.rotation.x+=-swing*(0.24+runAmount*0.58+sprintAmount*0.46)+heavyPitch*0.2;
+      sideParts.upperArm.rotation.x+=-swing*(0.24+runAmount*0.58+sprintAmount*0.46)*armSwing+heavyPitch*0.2;
       sideParts.upperArm.rotation.y+=side*(0.04+0.16*sprintAmount)*planted01;
       sideParts.upperArm.rotation.z+=side*0.04*intensity-heavyLean*0.32;
     }
     if(sideParts.forearm){
-      sideParts.forearm.rotation.x+=-swing*(0.16+runAmount*0.36+sprintAmount*0.28)-lifted01*sprintAmount*0.16;
+      sideParts.forearm.rotation.x+=-swing*(0.16+runAmount*0.36+sprintAmount*0.28)*armSwing-lifted01*sprintAmount*0.16;
     }
     if(sideParts.hand){
-      sideParts.hand.position.z+=-swing*(0.06+runAmount*0.18+sprintAmount*0.22);
+      sideParts.hand.position.z+=-swing*(0.06+runAmount*0.18+sprintAmount*0.22)*armSwing;
     }
     if(sideParts.cannon){
       sideParts.cannon.rotation.x+=-swing*(0.06+runAmount*0.14);
@@ -4799,6 +5066,7 @@ function updateCar(car){
   let emitSplash=!jetHovering && !carDisabled && inWater && car.y<=waterLevel+1.1 && Math.abs(car.speed)>0.08;
   car.onGround=!jetHovering && car.y<=surfaceY+0.18;
   if(!jetHovering) wheelTracks.addCarTracks(car,surfaceY,inWater);
+  emitBuggyGroundDust(car,surfaceY);
   if(emitSplash){
     let speedAbs=Math.abs(car.speed);
     let splashAmount=Math.ceil(speedAbs*18);
@@ -5070,27 +5338,85 @@ function findSafeStartZ(lateralOffsets){
   return bestDry.z;
 }
 
+function activeBossBaseDefenders(base){
+  let count=0;
+  for(let enemy of enemies){
+    if(enemy.active && enemy.health>0 && enemy.bossBase===base) count++;
+  }
+  return count;
+}
+
+function bossBaseDefensePoint(base,index,count=10,dist=86){
+  let angle=base.angle+(index/count)*Math.PI*2+Math.PI*0.12;
+  return {
+    x:base.x+Math.sin(angle)*dist,
+    z:base.z+Math.cos(angle)*dist,
+    angle
+  };
+}
+
+function spawnBossBaseDefender(base,point,type="guard",aggressive=true){
+  if(!base || !point) return false;
+  if(waterDepthAt(point.x,point.z)>1.2 || world.collidesWithObstacles(point.x,point.z)) return false;
+
+  let defender=createEnemyState(++enemySpawnSerial,point.x,point.z,type);
+  defender.isPatrol=aggressive;
+  defender.bossBase=base;
+  defender.guardX=point.x;
+  defender.guardZ=point.z;
+  defender.guardPhase=Math.random()*Math.PI*2;
+  defender.angle=Math.atan2(base.x-point.x,base.z-point.z);
+  defender.velAngle=defender.angle;
+  defender.cannonCooldown=Math.min(defender.cannonCooldown || 90,28+Math.floor(Math.random()*46));
+  defender.group.position.set(defender.x,defender.y,defender.z);
+  defender.group.rotation.y=defender.angle;
+  if(defender.shadow) defender.shadow.update({carX:defender.x,carZ:defender.z,carY:defender.y,surfaceY:defender.y,carVelAngle:defender.angle});
+  enemies.push(defender);
+  return true;
+}
+
+function requestBossBaseReinforcements(base,urgency=1){
+  if(!base || !base.active || base.health<=0) return;
+  if((base.reinforcementCooldown || 0)>0) return;
+
+  let activeCount=activeBossBaseDefenders(base);
+  let maxDefenders=gameDifficulty==="hard" ? 15 : gameDifficulty==="easy" ? 9 : 12;
+  if(activeCount>=maxDefenders) return;
+
+  let spawnCount=Math.min(maxDefenders-activeCount,urgency+1);
+  let spawned=0;
+  let startIndex=base.reinforcementIndex || 0;
+  for(let i=0;i<spawnCount*4 && spawned<spawnCount;i++){
+    let index=startIndex+i;
+    let dist=92+(index%3)*18;
+    let point=bossBaseDefensePoint(base,index,12,dist);
+    let roll=(index+spawned)%9;
+    let type=roll===0 && gameDifficulty!=="easy" ? "giant" : roll===3 ? "drone" : "guard";
+    if(spawnBossBaseDefender(base,point,type,true)) spawned++;
+  }
+
+  base.reinforcementIndex=startIndex+spawnCount+3;
+  base.reinforcementCooldown=spawned>0 ? 260-Math.min(120,urgency*38) : 90;
+}
+
 function spawnBossBaseGuards(){
   for(let base of world.bossBases || []){
     if(!base || base.guardsSpawned || !base.active) continue;
-    let points=base.guardPoints || [];
-    for(let i=0;i<Math.min(4,points.length);i++){
+    let initialCount=gameDifficulty==="hard" ? 10 : gameDifficulty==="easy" ? 6 : 8;
+    let points=[...(base.guardPoints || [])];
+    for(let i=points.length;i<initialCount+4;i++){
+      points.push(bossBaseDefensePoint(base,i,initialCount+4,76+(i%3)*15));
+    }
+
+    let spawned=0;
+    for(let i=0;i<points.length && spawned<initialCount;i++){
       let point=points[i];
       if(!point) continue;
-      if(waterDepthAt(point.x,point.z)>1.2 || world.collidesWithObstacles(point.x,point.z)) continue;
-      let guard=createEnemyState(++enemySpawnSerial,point.x,point.z,"guard");
-      guard.isPatrol=true;
-      guard.bossBase=base;
-      guard.guardX=point.x;
-      guard.guardZ=point.z;
-      guard.guardPhase=Math.random()*Math.PI*2;
-      guard.angle=Math.atan2(base.x-point.x,base.z-point.z);
-      guard.velAngle=guard.angle;
-      guard.group.position.set(guard.x,guard.y,guard.z);
-      guard.group.rotation.y=guard.angle;
-      if(guard.shadow) guard.shadow.update({carX:guard.x,carZ:guard.z,carY:guard.y,surfaceY:guard.y,carVelAngle:guard.angle});
-      enemies.push(guard);
+      let type=i===2 && gameDifficulty!=="easy" ? "giant" : i%5===4 ? "drone" : "guard";
+      if(spawnBossBaseDefender(base,point,type,true)) spawned++;
     }
+    base.reinforcementIndex=points.length;
+    base.reinforcementCooldown=180;
     base.guardsSpawned=true;
   }
 }

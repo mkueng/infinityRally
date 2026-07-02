@@ -3,6 +3,12 @@ import { cloudCount } from "./constants.js";
 import { makeCarShadowTexture, makeCloudTexture, makeDustTexture } from "./textures.js?v=smeared-clouds-unclipped";
 import { rand } from "./terrain.js";
 
+function normalizeTrackAngle(angle){
+  while(angle>Math.PI) angle-=Math.PI*2;
+  while(angle<-Math.PI) angle+=Math.PI*2;
+  return angle;
+}
+
 export function createCarShadow(scene){
   let carShadowRoot=new THREE.Group();
   let carShadow=new THREE.Mesh(
@@ -422,6 +428,16 @@ export function createDust(scene){
     });
   }
 
+  function spawnGroundDustParticle(px,py,pz,vx,vz,vy,life,size){
+    spawnParticle(px,py,pz,vx,vz,vy,life,size,{
+      color:Math.random()>0.42 ? 0xbca78b : 0x8f8374,
+      gravity:0.012,
+      growth:2.8,
+      opacity:0.42,
+      fadePower:1.85
+    });
+  }
+
   function spawnThrusterParticle(px,py,pz,vx,vz,vy,life,size){
     spawnParticle(px,py,pz,vx,vz,vy,life,size,{
       color:Math.random()>0.45 ? 0xfff1a8 : 0xff8a2a,
@@ -458,11 +474,11 @@ export function createDust(scene){
     }
   }
 
-  return {spawnSplashParticle,spawnThrusterParticle,update};
+  return {spawnSplashParticle,spawnGroundDustParticle,spawnThrusterParticle,update};
 }
 
 export function createWheelTracks(scene){
-  let maxTracks=900;
+  let maxTracks=1400;
   let tracks=[];
   let lastTrackByCar=new Map();
   let trackGeo=new THREE.PlaneGeometry(0.34,1.18);
@@ -471,7 +487,7 @@ export function createWheelTracks(scene){
     map:trackTexture,
     color:0x1e1a16,
     transparent:true,
-    opacity:0.38,
+    opacity:0.24,
     depthWrite:false,
     depthTest:true,
     polygonOffset:true,
@@ -523,20 +539,60 @@ export function createWheelTracks(scene){
     let last=lastTrackByCar.get(car.id);
     let dx=last ? car.x-last.x : Infinity;
     let dz=last ? car.z-last.z : Infinity;
-    if(dx*dx+dz*dz<0.78*0.78) return;
+    let buggyMode=car.morphProgress>0.68 && car.jetProgress<0.35;
 
     let offroad=Math.max(0,Math.min(1,((car.surfaceDistance || 0)-24)/70));
     let slip=Math.max(0,Math.min(1,car.slipAmount || 0));
-    let opacity=0.24+offroad*0.18+slip*0.14;
-    let length=0.98+Math.min(0.18,speed*0.08)+slip*0.16;
-    let width=0.62+offroad*0.14+slip*0.08;
+    let opacity=(buggyMode ? 0.16 : 0.14)+offroad*0.1+slip*0.08;
+    let length=(buggyMode ? 1.34 : 0.98)+Math.min(0.24,speed*0.1)+slip*0.16;
+    let width=(buggyMode ? 0.48 : 0.62)+offroad*0.14+slip*0.08;
+    let footForward=buggyMode ? -0.28 : 0.12;
+    let modelTrackHalfWidth=car.carModel && car.carModel.userData
+      ? car.carModel.userData.trackHalfWidth
+      : null;
+    let modelWidthScale=car.carModel && car.carModel.userData && car.carModel.userData.baseScale
+      ? car.carModel.scale.x/Math.max(0.001,car.carModel.userData.baseScale.x)
+      : 1;
+    let trackHalfWidth=buggyMode
+      ? (modelTrackHalfWidth || 0.96)*Math.max(0.82,Math.min(1.08,modelWidthScale))
+      : 0.66;
+
+    function addTrackPairAt(x,z,angle){
+      for(let side of [-1,1]){
+        let tx=x+Math.sin(angle)*footForward+Math.cos(angle)*side*trackHalfWidth;
+        let tz=z+Math.cos(angle)*footForward-Math.sin(angle)*side*trackHalfWidth;
+        addTrack(tx,surfaceY,tz,angle,opacity,width,length);
+      }
+    }
+
+    if(buggyMode){
+      let spacing=0.52;
+      let distance=Math.sqrt(dx*dx+dz*dz);
+      if(!last || !Number.isFinite(distance)){
+        addTrackPairAt(car.x,car.z,car.velAngle);
+      }else if(distance>=0.18){
+        let steps=Math.max(1,Math.ceil(distance/spacing));
+        for(let i=1;i<=steps;i++){
+          let t=i/steps;
+          let x=last.x+(car.x-last.x)*t;
+          let z=last.z+(car.z-last.z)*t;
+          let angle=last.angle!==undefined
+            ? last.angle+normalizeTrackAngle(car.velAngle-last.angle)*t
+            : car.velAngle;
+          addTrackPairAt(x,z,angle);
+        }
+      }
+      lastTrackByCar.set(car.id,{x:car.x,z:car.z,side:1,angle:car.velAngle});
+      return;
+    }
+
+    if(dx*dx+dz*dz<0.78*0.78) return;
+
     let side=last && last.side ? -last.side : -1;
-    let footForward=0.12;
-    let trackHalfWidth=0.66;
     let x=car.x+Math.sin(car.velAngle)*footForward+Math.cos(car.velAngle)*side*trackHalfWidth;
     let z=car.z+Math.cos(car.velAngle)*footForward-Math.sin(car.velAngle)*side*trackHalfWidth;
 
-    lastTrackByCar.set(car.id,{x:car.x,z:car.z,side});
+    lastTrackByCar.set(car.id,{x:car.x,z:car.z,side,angle:car.velAngle});
     addTrack(x,surfaceY,z,car.velAngle,opacity,width,length);
   }
 

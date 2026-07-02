@@ -65,7 +65,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getPerfo
       "top:50px",
       `left:calc(${panelOffset(panel)} + 18px)`,
       "width:122px",
-      "height:154px",
+      "height:190px",
       "background:rgba(20,28,34,0.42)",
       "box-shadow:0 4px 14px rgba(0,0,0,0.2)",
       "z-index:10",
@@ -85,16 +85,15 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getPerfo
     let ammoLabel=document.createElement("div");
     ammoLabel.style.cssText=[
       "position:absolute",
-      "left:8px",
-      "right:8px",
-      "bottom:25px",
-      "display:grid",
-      "grid-template-columns:1fr 1fr 1fr",
-      "gap:4px",
-      "font-size:13px",
+      "left:12px",
+      "right:12px",
+      "top:104px",
+      "display:flex",
+      "flex-direction:column",
+      "gap:5px",
+      "font-size:14px",
       "font-weight:900",
       "line-height:1",
-      "text-align:center",
       "color:rgba(245,255,249,0.92)",
       "text-shadow:0 1px 2px rgba(0,0,0,0.72)"
     ].join(";");
@@ -189,16 +188,55 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getPerfo
     ctx.fillText("0",22,66);
     ctx.fillText("120",100,66);
     if(panel.ammoLabel){
+      let ammoRows=[
+        {icon:"rocket",value:state.rocketAmmo ?? 0,color:"#e36b44"},
+        {icon:"cannon",value:state.cannonAmmo ?? 0,color:"#75d7e8"},
+        {icon:"bomb",value:state.clusterBombAmmo ?? 0,color:"#d8aa4c"}
+      ];
       panel.ammoLabel.innerHTML=[
-        `<span>R ${state.rocketAmmo ?? 0}</span>`,
-        `<span>C ${state.cannonAmmo ?? 0}</span>`,
-        `<span>B ${state.clusterBombAmmo ?? 0}</span>`
+        ...ammoRows.map(row=>[
+          `<span style="display:flex;align-items:center;justify-content:space-between;height:18px">`,
+          ammoIcon(row.icon,row.color),
+          `<span>${row.value}</span>`,
+          `</span>`
+        ].join(""))
       ].join("");
     }
     if(panel.boostFill){
       let boostPct=Math.max(0,Math.min(100,state.boostCharge ?? 0));
       panel.boostFill.style.width=boostPct+"%";
     }
+  }
+
+  function ammoIcon(kind,color){
+    if(kind==="rocket"){
+      return [
+        `<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">`,
+        `<path d="M9.8 1.5l4.4 2.6 1.2 3.8-4.9 5.2-5.6-5.4 4.9-6.2z" fill="#26313b"/>`,
+        `<path d="M10.2 3.2l2.6 1.5 0.6 2.1-3.2 3.5-3.1-3 3.1-4.1z" fill="${color}"/>`,
+        `<path d="M4.3 8.2l5.3 5.1-3.1 1.6-3.8-3.7 1.6-3z" fill="#51606c"/>`,
+        `<path d="M2.8 12.2l1.6 1.6-2.4 1.1 0.8-2.7z" fill="#b9f4ff"/>`,
+        `</svg>`
+      ].join("");
+    }
+    if(kind==="cannon"){
+      return [
+        `<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">`,
+        `<path d="M2.2 9.1h8.7l1.2-1.6h3.6v3.1h-3.6l-1.2 1.5H2.2V9.1z" fill="#2b3942"/>`,
+        `<path d="M4.1 9.8h6.3v1.6H4.1V9.8z" fill="${color}"/>`,
+        `<path d="M2.9 12.2h3.1l1.2 2.1H4.1l-1.2-2.1z" fill="#64717a"/>`,
+        `<path d="M13.2 8.3h2.8v1.2h-2.8V8.3z" fill="#d8f8ff"/>`,
+        `</svg>`
+      ].join("");
+    }
+    return [
+      `<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">`,
+      `<path d="M5.2 6.2h6.2l2.4 3.6-1.8 5H4.6l-1.8-5 2.4-3.6z" fill="#2d3338"/>`,
+      `<path d="M6.3 7.4h4.1l1.7 2.6-1.1 3.2H5.7L4.6 10l1.7-2.6z" fill="${color}"/>`,
+      `<path d="M8.2 3.1h3.9v1.7H8.2V3.1z" fill="#6e7a82"/>`,
+      `<path d="M11.4 2.2h3.2v1.1h-3.2V2.2z" fill="#b9f4ff"/>`,
+      `</svg>`
+    ].join("");
   }
 
   function makeMapHud(panel){
