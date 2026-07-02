@@ -6,7 +6,7 @@ export function createMotorAudio(cars){
   let supported=true;
   let backgroundMusic=new Audio("./assets/music/ROSpace.mp3");
   backgroundMusic.loop=true;
-  backgroundMusic.volume=0.23;
+  backgroundMusic.volume=0.2;
   backgroundMusic.preload="auto";
 
   function clamp(value,min,max){
@@ -131,36 +131,64 @@ export function createMotorAudio(cars){
   function makePulse(motor,time,frequency,amount,brightness){
     let osc=context.createOscillator();
     let body=context.createOscillator();
+    let stomp=context.createOscillator();
+    let stompGain=context.createGain();
+    let clack=context.createBufferSource();
+    let clackFilter=context.createBiquadFilter();
+    let clackGain=context.createGain();
     let filter=context.createBiquadFilter();
     let gain=context.createGain();
     let bodyGain=context.createGain();
-    let duration=0.085+amount*0.04;
+    let duration=0.16+amount*0.06;
+
+    clack.buffer=noiseBuffer || createNoiseBuffer();
+    clackFilter.type="bandpass";
+    clackFilter.frequency.setValueAtTime(brightness*1.15,time);
+    clackFilter.Q.setValueAtTime(5.8,time);
+    clackGain.gain.setValueAtTime(0.0001,time);
+    clackGain.gain.exponentialRampToValueAtTime(0.095*amount,time+0.003);
+    clackGain.gain.exponentialRampToValueAtTime(0.0001,time+0.09);
 
     osc.type="triangle";
     body.type="sine";
+    stomp.type="sine";
     filter.type="bandpass";
     filter.frequency.setValueAtTime(brightness,time);
-    filter.Q.setValueAtTime(4.8,time);
+    filter.Q.setValueAtTime(3.2,time);
     osc.frequency.setValueAtTime(frequency,time);
-    body.frequency.setValueAtTime(frequency*0.56,time);
+    body.frequency.setValueAtTime(frequency*0.42,time);
+    stomp.frequency.setValueAtTime(32,time);
+    stomp.frequency.exponentialRampToValueAtTime(18,time+0.18);
 
     gain.gain.setValueAtTime(0.0001,time);
-    gain.gain.exponentialRampToValueAtTime(0.11*amount,time+0.008);
+    gain.gain.exponentialRampToValueAtTime(0.14*amount,time+0.012);
     gain.gain.exponentialRampToValueAtTime(0.0001,time+duration);
     bodyGain.gain.setValueAtTime(0.0001,time);
-    bodyGain.gain.exponentialRampToValueAtTime(0.065*amount,time+0.004);
+    bodyGain.gain.exponentialRampToValueAtTime(0.3*amount,time+0.012);
     bodyGain.gain.exponentialRampToValueAtTime(0.0001,time+duration*1.4);
+    stompGain.gain.setValueAtTime(0.0001,time);
+    stompGain.gain.exponentialRampToValueAtTime(0.22*amount,time+0.01);
+    stompGain.gain.exponentialRampToValueAtTime(0.0001,time+0.34);
 
     osc.connect(filter);
     filter.connect(gain);
     body.connect(bodyGain);
+    stomp.connect(stompGain);
+    clack.connect(clackFilter);
+    clackFilter.connect(clackGain);
     gain.connect(motor.pan || motor.output);
     bodyGain.connect(motor.pan || motor.output);
+    stompGain.connect(motor.pan || motor.output);
+    clackGain.connect(motor.pan || motor.output);
 
     osc.start(time);
     body.start(time);
+    stomp.start(time);
+    clack.start(time);
     osc.stop(time+duration+0.02);
     body.stop(time+duration*1.5);
+    stomp.stop(time+0.36);
+    clack.stop(time+0.1);
   }
 
   function update(){
@@ -175,27 +203,28 @@ export function createMotorAudio(cars){
       let disabled=car.health<=0;
       let onGround=car.onGround!==false;
       let airborne=car.airborne===true;
+      let mechMode=(car.morphProgress || 0)<0.35 && (car.jetProgress || 0)<0.35;
       let offroad=clamp(((car.surfaceDistance || 0)-34)/72,0,1);
       let slip=clamp(car.slipAmount || 0,0,1);
-      let walking=onGround && !disabled && speedRatio>0.04;
+      let walking=mechMode && onGround && !disabled && speedRatio>0.04;
       let targetAirRev=airborne && !disabled ? 1 : 0;
       motor.airRev+=(targetAirRev-motor.airRev)*(targetAirRev>motor.airRev ? 0.055 : 0.022);
 
-      let stepRate=0.58+speedRatio*0.95+throttle*0.16-reverse*0.08;
+      let stepRate=0.9+speedRatio*1.18+throttle*0.18-reverse*0.1;
       let pulseInterval=1/Math.max(0.55,stepRate);
       let idleFrequency=disabled ? 26 : 32+speedRatio*18+throttle*8+motor.airRev*58;
-      let idleGain=disabled ? 0.004 : 0.016+speedRatio*0.016+throttle*0.012+motor.airRev*0.014;
-      let brightness=180+speedRatio*380+offroad*160+motor.airRev*420;
-      let amount=disabled ? 0 : 0.65+speedRatio*0.48+offroad*0.25;
+      let idleGain=disabled ? 0.004 : mechMode ? 0.003 : 0.016+speedRatio*0.016+throttle*0.012+motor.airRev*0.014;
+      let brightness=170+speedRatio*360+offroad*170+motor.airRev*260;
+      let amount=disabled ? 0 : 1.25+speedRatio*0.95+offroad*0.45;
 
       motor.idleOsc.frequency.setTargetAtTime(idleFrequency,now,0.07);
       motor.idleFilter.frequency.setTargetAtTime(130+speedRatio*170+throttle*80+motor.airRev*180,now,0.08);
       motor.idleGain.gain.setTargetAtTime(idleGain,now,0.08);
       motor.roadFilter.frequency.setTargetAtTime(130+speedRatio*260+offroad*180,now,0.12);
       motor.roadFilter.Q.setTargetAtTime(0.55+offroad*0.35,now,0.12);
-      motor.roadGain.gain.setTargetAtTime(walking ? speedRatio*(0.018+offroad*0.045) : 0,now,0.12);
+      motor.roadGain.gain.setTargetAtTime(!mechMode && onGround && !disabled ? speedRatio*(0.018+offroad*0.045) : 0,now,0.12);
       motor.skidFilter.frequency.setTargetAtTime(620+speedRatio*620+offroad*240,now,0.08);
-      motor.skidGain.gain.setTargetAtTime(walking ? Math.pow(slip,1.35)*speedRatio*(0.018+offroad*0.018) : 0,now,0.07);
+      motor.skidGain.gain.setTargetAtTime(!mechMode && onGround && !disabled ? Math.pow(slip,1.35)*speedRatio*(0.018+offroad*0.018) : 0,now,0.07);
 
       if(disabled) continue;
       if(motor.nextPulseTime<now) motor.nextPulseTime=now;
@@ -207,7 +236,7 @@ export function createMotorAudio(cars){
       let scheduleUntil=now+0.08;
       while(motor.nextPulseTime<scheduleUntil){
         let jitter=Math.sin(motor.nextPulseTime*37+car.gamepadIndex)*0.0016;
-        let pulseFrequency=44+speedRatio*54+offroad*18+motor.airRev*70;
+        let pulseFrequency=34+speedRatio*42+offroad*16+motor.airRev*42;
         makePulse(motor,motor.nextPulseTime+jitter,pulseFrequency,amount,brightness);
         motor.nextPulseTime+=pulseInterval;
       }

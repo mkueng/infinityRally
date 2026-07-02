@@ -252,13 +252,38 @@
     const startScreen = document.getElementById("startScreen");
     if (!cursor || !startScreen) return;
 
+    let cursorX = innerWidth * 0.5;
+    let cursorY = innerHeight * 0.5;
+    let lastFire = false;
+
     function menuVisible() {
       return startScreen.style.display !== "none";
     }
 
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function axis(value, deadzone = 0.18) {
+      if (Math.abs(value) < deadzone) return 0;
+      const sign = Math.sign(value);
+      return sign * ((Math.abs(value) - deadzone) / (1 - deadzone));
+    }
+
+    function buttonValue(button) {
+      if (!button) return 0;
+      return typeof button === "number" ? button : button.value;
+    }
+
+    function setCursorPosition(x, y) {
+      cursorX = clamp(x, 0, innerWidth - 1);
+      cursorY = clamp(y, 0, innerHeight - 1);
+      cursor.style.transform = `translate3d(${cursorX - 17}px, ${cursorY - 21}px, 0)`;
+    }
+
     window.addEventListener("pointermove", event => {
       if (!menuVisible()) return;
-      cursor.style.transform = `translate3d(${event.clientX - 17}px, ${event.clientY - 21}px, 0)`;
+      setCursorPosition(event.clientX, event.clientY);
     });
 
     window.addEventListener("pointerdown", () => {
@@ -268,6 +293,38 @@
     window.addEventListener("pointerup", () => {
       cursor.classList.remove("is-pressing");
     });
+
+    function updateControllerCursor() {
+      requestAnimationFrame(updateControllerCursor);
+      if (!menuVisible()) {
+        cursor.classList.remove("is-pressing");
+        lastFire = false;
+        return;
+      }
+
+      const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+      const pad = Array.from(pads).find(item => item && item.connected);
+      if (!pad) return;
+
+      const moveX = axis(pad.axes[0] || 0);
+      const moveY = axis(pad.axes[1] || 0);
+      const speed = 9;
+      if (moveX || moveY) {
+        setCursorPosition(cursorX + moveX * speed, cursorY + moveY * speed);
+      }
+
+      const fire = buttonValue(pad.buttons[7]) > 0.35;
+      cursor.classList.toggle("is-pressing", fire);
+      if (fire && !lastFire) {
+        const target = document.elementFromPoint(cursorX, cursorY);
+        const button = target && target.closest("button");
+        if (button && startScreen.contains(button)) button.click();
+      }
+      lastFire = fire;
+    }
+
+    setCursorPosition(cursorX, cursorY);
+    updateControllerCursor();
 
     startScreen.addEventListener("click", event => {
       const button = event.target.closest("[data-difficulty]");

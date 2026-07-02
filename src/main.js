@@ -5,7 +5,7 @@ import { createInput } from "./input.js";
 import { createHud } from "./hud.js?v=robot-ammo-icons";
 import { createBirds, createCarShadow, createClouds, createDust, createRain, createWheelTracks } from "./effects.js?v=continuous-buggy-tracks";
 import { createWorld } from "./world.js?v=planet-boss-bases";
-import { createMotorAudio } from "./audio.js?v=alien-planet-world";
+import { createMotorAudio } from "./audio.js?v=mech-walk-audio";
 import { loadCarModel, loadJetModel, makeMechModel } from "./models.js?v=jet-assets";
 import { makeSkyTexture } from "./textures.js?v=alien-planet";
 
