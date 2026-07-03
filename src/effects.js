@@ -377,6 +377,107 @@ export function createRain(scene,getCarPosition,getRainIntensity=()=>0){
   return {update};
 }
 
+export function createAmbientMotes(scene,getCarPosition,getRainIntensity=()=>0){
+  let maxMotes=86;
+  let motes=[];
+  let texture=makeDustTexture();
+  let moteTime=0;
+  let spawnTimer=0;
+
+  for(let i=0;i<maxMotes;i++){
+    let material=new THREE.SpriteMaterial({
+      map:texture,
+      color:Math.random()>0.35 ? 0xf2dc9a : 0xd9f4ff,
+      transparent:true,
+      opacity:0,
+      depthWrite:false,
+      depthTest:true,
+      blending:THREE.AdditiveBlending,
+      fog:false
+    });
+    let sprite=new THREE.Sprite(material);
+    sprite.frustumCulled=false;
+    sprite.userData={
+      active:false,
+      life:0,
+      age:0,
+      vx:0,
+      vy:0,
+      vz:0,
+      phase:Math.random()*Math.PI*2,
+      size:0.12+Math.pow(Math.random(),1.8)*0.55,
+      opacity:0.22+Math.random()*0.12
+    };
+    sprite.visible=false;
+    scene.add(sprite);
+    motes.push(sprite);
+  }
+
+  function spawnMote(center){
+    let mote=motes.find(item=>!item.userData.active);
+    if(!mote) return;
+
+    let data=mote.userData;
+    let side=Math.random()>0.5 ? 1 : -1;
+    let forward=24+Math.random()*58;
+    let lateral=side*(24+Math.random()*34);
+    let height=(Math.random()-0.5)*22;
+    let driftAngle=Math.random()*Math.PI*2;
+
+    mote.position.set(
+      center.carX+lateral,
+      (center.carY ?? 20)+height,
+      center.carZ+forward
+    );
+    data.vx=Math.cos(driftAngle)*0.28;
+    data.vy=(Math.random()-0.5)*0.18;
+    data.vz=Math.sin(driftAngle)*0.28;
+    data.life=5.2+Math.random()*4.2;
+    data.age=0;
+    data.active=true;
+    data.phase=Math.random()*Math.PI*2;
+    data.size=0.12+Math.pow(Math.random(),1.8)*0.55;
+    data.opacity=0.22+Math.random()*0.12;
+    mote.scale.set(data.size,data.size,data.size);
+    mote.visible=true;
+  }
+
+  function update(){
+    let center=getCarPosition();
+    let rain=Math.max(0,Math.min(1,getRainIntensity()));
+    moteTime+=0.016;
+    spawnTimer-=0.016;
+
+    if(spawnTimer<=0){
+      let spawnCount=3+(Math.random()>0.48 ? 1 : 0);
+      for(let i=0;i<spawnCount;i++) spawnMote(center);
+      spawnTimer=0.28+Math.random()*0.72+rain*0.62;
+    }
+
+    for(let mote of motes){
+      let data=mote.userData;
+      if(!data.active) continue;
+
+      data.age+=0.016;
+      mote.position.x+=data.vx*0.016+Math.sin(moteTime*0.9+data.phase)*0.006;
+      mote.position.y+=data.vy*0.016+Math.sin(moteTime*0.7+data.phase)*0.005;
+      mote.position.z+=data.vz*0.016;
+
+      let t=data.age/data.life;
+      let fade=t<0.22 ? t/0.22 : Math.max(0,(1-t)/0.78);
+      let shimmer=0.72+Math.sin(moteTime*1.6+data.phase)*0.28;
+      mote.material.opacity=data.opacity*(1-rain*0.42)*fade*shimmer;
+
+      if(data.age>=data.life){
+        data.active=false;
+        mote.visible=false;
+      }
+    }
+  }
+
+  return {update};
+}
+
 export function createDust(scene){
   let maxDustParticles=650;
   let dustParticles=[];

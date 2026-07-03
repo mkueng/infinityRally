@@ -3,8 +3,8 @@ import { gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize, mothershipDr
 import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=no-ramps";
 import { createInput } from "./input.js";
 import { createHud } from "./hud.js?v=robot-ammo-icons";
-import { createBirds, createCarShadow, createClouds, createDust, createRain, createWheelTracks } from "./effects.js?v=continuous-buggy-tracks";
-import { createWorld } from "./world.js?v=planet-boss-bases";
+import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createWheelTracks } from "./effects.js?v=ambient-motes-varied";
+import { createWorld } from "./world.js?v=no-caves";
 import { createMotorAudio } from "./audio.js?v=mech-walk-audio";
 import { loadCarModel, loadJetModel, makeMechModel } from "./models.js?v=jet-assets";
 import { makeSkyTexture } from "./textures.js?v=alien-planet";
@@ -779,6 +779,7 @@ let world=createWorld(scene,{getDifficulty:()=>gameDifficulty,getEnvironment:()=
 let clouds=createClouds(scene,()=>({carX:playerCar.x,carZ:playerCar.z}));
 let birds=createBirds(scene,()=>({carX:playerCar.x,carZ:playerCar.z}));
 let rain=createRain(scene,()=>({carX:px,carZ:pz}),()=>rainIntensity);
+let ambientMotes=createAmbientMotes(scene,()=>({carX:px,carY:py,carZ:pz}),()=>rainIntensity);
 let dust=createDust(scene);
 let wheelTracks=createWheelTracks(scene);
 let motorAudio=createMotorAudio(cars);
@@ -2971,7 +2972,7 @@ function spawnMothership(){
 
   let center=playerCenter();
   let angle=Math.random()*Math.PI*2;
-  let startDistance=mothershipHoverDistance+360;
+  let startDistance=mothershipHoverDistance+1450;
   let x=center.x+Math.cos(angle)*startDistance;
   let z=center.z+Math.sin(angle)*startDistance;
   let hoverX=center.x+Math.cos(angle)*mothershipHoverDistance;
@@ -2983,7 +2984,7 @@ function spawnMothership(){
   let dx=targetX-x;
   let dz=targetZ-z;
   let len=Math.max(0.001,Math.hypot(dx,dz));
-  let speed=1.05;
+  let speed=2.45;
   let group=makeMothershipModel();
   let y=drivingSurfaceHeight(hoverX,hoverZ)+38+Math.random()*12;
 
@@ -3007,7 +3008,7 @@ function spawnMothership(){
     hitFlash:0,
     hasReachedHover:false,
     hoverFrames:0,
-    life:mothershipHoverFrames+760,
+    life:mothershipHoverFrames+1280,
     dropTimer:70,
     dropsRemaining:mothershipDropCount,
     dropsDone:0,
@@ -3091,7 +3092,7 @@ function updateMothership(){
     let dx=targetX-mothership.x;
     let dz=targetZ-mothership.z;
     let len=Math.max(0.001,Math.hypot(dx,dz));
-    let speed=mothership.hoverFrames>=mothershipHoverFrames ? 1.12 : 1.05;
+    let speed=mothership.hoverFrames>=mothershipHoverFrames ? 1.12 : 2.45;
     mothership.vx=(dx/len)*speed;
     mothership.vz=(dz/len)*speed;
     mothership.x+=mothership.vx;
@@ -5483,6 +5484,7 @@ function loop(){
     for(let car of cars) updateVehicleHeadlights(car);
     clouds.update();
     birds.update();
+    ambientMotes.update();
     rain.update();
     renderGame();
     return;
@@ -5520,6 +5522,7 @@ function loop(){
 
   clouds.update();
   birds.update();
+  ambientMotes.update();
   rain.update();
   hud.updateSpeedHud();
   hud.updateMapHud();
