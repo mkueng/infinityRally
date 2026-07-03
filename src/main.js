@@ -4,7 +4,7 @@ import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed
 import { createInput } from "./input.js";
 import { createHud } from "./hud.js?v=robot-ammo-icons";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createWheelTracks } from "./effects.js?v=ambient-motes-varied";
-import { createWorld } from "./world.js?v=no-caves";
+import { createWorld } from "./world.js?v=city-districts";
 import { createMotorAudio } from "./audio.js?v=mech-walk-audio";
 import { loadCarModel, loadJetModel, makeMechModel } from "./models.js?v=jet-assets";
 import { makeSkyTexture } from "./textures.js?v=alien-planet";
@@ -137,6 +137,23 @@ const worldEnvironments=[
     rainChance:0.32,
     rainIntensity:[0.16,0.48],
     vegetation:{treeClusters:2,treesPerCluster:7,treeClusterRadius:31,crownsPerTree:6,podsPerTree:6,trunkHeightBase:0.92,trunkHeightVariance:0.34,trunkWidthBase:0.82,trunkWidthVariance:0.38,leanAmount:0.3,crownBaseScale:1.18,crownScaleStep:0.075,crownSpreadBase:1.55,crownSpreadVariance:2.5,crownLiftBase:8.2,crownLiftStep:0.34,crownWidthScale:1.25,crownFlatness:0.82,crownDepthScale:1.18,podScaleBase:0.38,podScaleVariance:0.32,podLiftBase:6.8,podLiftVariance:1.9,podElongation:1.05,grassClusters:15,grassPerCluster:260,grassClusterRadius:14}
+  },
+  {
+    name:"neon city",
+    city:true,
+    terrain:{heightScale:0.42,hillScale:0.55,mountainScale:0.18,baseHeight:-1.4,roadWave1:95,roadWave2:48,roadWave3:18,roadFrequencyScale:0.72},
+    sky:["#050812","#101a2c","#203858","#57728a","#d6c2a2"],
+    fog:0x26384c,
+    colors:{
+      underwater:0x111a24,shore:0x58606a,low:0x303842,mid:0x3e4650,high:0x555d66,
+      water:0x4dc7ff,waterEmissive:0x0a5270,bark:0x1c2025,barkEmissive:0x05070a,
+      leaf:0x607060,leafEmissive:0x121c10,pod:0x86dfff,podEmissive:0x1d8fb8,
+      grass:0x5f705e,grassEmissive:0x101b12,rock:0x343a42,wall:0x4b5563,roof:0x202733,trim:0x8aa0b8,brick:0x333b45,street:0x171b20
+    },
+    groundTexture:{base:"#343b43",dark:[25,30,36],bright:[88,96,104],streak:"90,185,255"},
+    rainChance:0.52,
+    rainIntensity:[0.18,0.58],
+    vegetation:{treeClusters:0,treesPerCluster:1,treeClusterRadius:16,crownsPerTree:1,podsPerTree:0,trunkHeightBase:0.8,trunkHeightVariance:0.1,trunkWidthBase:0.5,trunkWidthVariance:0.1,leanAmount:0.04,crownBaseScale:0.8,crownScaleStep:0.02,crownSpreadBase:0.4,crownSpreadVariance:0.5,crownLiftBase:5.2,crownLiftStep:0.1,crownWidthScale:0.65,crownFlatness:1.2,crownDepthScale:0.65,podScaleBase:0.2,podScaleVariance:0.1,podLiftBase:4.5,podLiftVariance:0.8,podElongation:1,grassClusters:2,grassPerCluster:60,grassClusterRadius:7}
   }
 ];
 let currentEnvironment=worldEnvironments[Math.floor(Math.random()*worldEnvironments.length)];
@@ -514,6 +531,27 @@ let explosionRingMat=new THREE.MeshBasicMaterial({
   depthTest:true,
   blending:THREE.AdditiveBlending
 });
+let teleportEffects=[];
+let teleportBeamGeo=new THREE.CylinderGeometry(1,1,1,96,1,true);
+let teleportRingGeo=new THREE.TorusGeometry(1,0.032,18,128);
+let teleportBeamMat=new THREE.MeshBasicMaterial({
+  color:0xffe1a6,
+  transparent:true,
+  opacity:0.24,
+  depthWrite:false,
+  depthTest:true,
+  side:THREE.DoubleSide,
+  blending:THREE.AdditiveBlending
+});
+let teleportSparkMat=new THREE.PointsMaterial({
+  color:0xfff1c8,
+  size:0.16,
+  transparent:true,
+  opacity:0.95,
+  depthWrite:false,
+  depthTest:true,
+  blending:THREE.AdditiveBlending
+});
 let rockDebris=[];
 let rockDebrisGeo=new THREE.DodecahedronGeometry(1,0);
 let rockDebrisMat=new THREE.MeshStandardMaterial({color:0x4c3a5b,roughness:0.96,metalness:0.08});
@@ -846,6 +884,29 @@ function destroyWorldObstacle(obstacle){
   return true;
 }
 
+function obstacleMaxHealth(obstacle){
+  if(!obstacle || obstacle.type!=="building") return 1;
+
+  let height=obstacle.visualHeight || obstacle.height || 8;
+  if(!obstacle.cityBuilding) return 30;
+
+  let radius=obstacle.visualRadius || obstacle.r || 6;
+  return Math.max(95,Math.ceil(height*1.85+radius*2.4));
+}
+
+function damageWorldObstacle(obstacle,amount=1){
+  if(!obstacle || obstacle.destroyed) return false;
+  if(obstacle.type!=="building") return destroyWorldObstacle(obstacle);
+
+  if(!Number.isFinite(obstacle.maxHealth)) obstacle.maxHealth=obstacleMaxHealth(obstacle);
+  if(!Number.isFinite(obstacle.health)) obstacle.health=obstacle.maxHealth;
+
+  obstacle.health=Math.max(0,obstacle.health-amount);
+  if(obstacle.health>0) return false;
+
+  return destroyWorldObstacle(obstacle);
+}
+
 function spawnBossBaseImpact(base,x,y,z,amount=1){
   let baseX=base ? base.x : 0;
   let baseY=base ? base.y : 0;
@@ -953,6 +1014,71 @@ function damageBossBaseObstacle(obstacle,x,y,z,amount){
   }
 
   return true;
+}
+
+function spawnBuildingAmmoImpact(obstacle,x,y,z,amount=1){
+  if(!obstacle || (obstacle.type!=="building" && obstacle.type!=="wall")) return;
+
+  let baseY=Number.isFinite(obstacle.baseY) ? obstacle.baseY : groundHeight(obstacle.x,obstacle.z);
+  let hitX=Number.isFinite(x) ? x : obstacle.x;
+  let hitY=Number.isFinite(y) ? y : baseY+Math.max(2,(obstacle.visualHeight || obstacle.height || 8)*0.45);
+  let hitZ=Number.isFinite(z) ? z : obstacle.z;
+  let dx=hitX-obstacle.x;
+  let dz=hitZ-obstacle.z;
+  let dist=Math.hypot(dx,dz);
+  if(dist>0.001){
+    let shellRadius=Math.max(2.6,(obstacle.visualRadius || obstacle.r || 5)*0.92);
+    hitX=obstacle.x+(dx/dist)*shellRadius;
+    hitZ=obstacle.z+(dz/dist)*shellRadius;
+  }
+  let maxY=baseY+(obstacle.visualHeight || obstacle.height || Math.max(5,obstacle.r || 5));
+  hitY=clamp(hitY,baseY+1.2,maxY+0.8);
+  let strength=Math.max(0.7,Math.min(1.8,amount/12));
+
+  let flash=new THREE.Mesh(explosionFlashGeo,explosionFlashMat.clone());
+  flash.position.set(hitX,hitY,hitZ);
+  flash.scale.setScalar(0.24*strength);
+  flash.material.color.set(0xffd09a);
+  flash.material.depthTest=false;
+  flash.renderOrder=26;
+  scene.add(flash);
+
+  let ring=new THREE.Mesh(teleportRingGeo,explosionRingMat.clone());
+  ring.position.set(hitX,hitY+0.05,hitZ);
+  ring.rotation.x=Math.PI/2;
+  ring.scale.setScalar(0.62*strength);
+  ring.material.color.set(0x9fd8ff);
+  ring.material.depthTest=false;
+  ring.renderOrder=27;
+  scene.add(ring);
+
+  explosionBursts.push({
+    flash,
+    ring,
+    age:0,
+    life:0.28+0.05*strength,
+    startFlashScale:0.24*strength,
+    endFlashScale:1.35*strength,
+    startRingScale:0.62*strength,
+    endRingScale:3.2*strength,
+    flashOpacity:0.72,
+    ringOpacity:0.58
+  });
+
+  for(let i=0;i<9+Math.floor(strength*5);i++){
+    let angle=Math.random()*Math.PI*2;
+    let speed=1.1+Math.random()*3.4;
+    dust.spawnThrusterParticle(
+      hitX,
+      hitY,
+      hitZ,
+      Math.cos(angle)*speed,
+      Math.sin(angle)*speed,
+      0.45+Math.random()*2.4,
+      0.14+Math.random()*0.12,
+      0.045+Math.random()*0.055
+    );
+  }
 }
 
 function damageEnemy(enemy,amount){
@@ -1194,6 +1320,175 @@ function clearExplosions(){
   explosionBursts=[];
 }
 
+function spawnEnemyTeleportEffect(enemy){
+  if(!enemy || enemy.isBoat) return;
+
+  let surfaceY=drivingSurfaceHeight(enemy.x,enemy.z);
+  let spawnLift=Math.max(0,enemy.y-surfaceY);
+  let height=Math.max(7,spawnLift+enemy.hitHeight+4);
+  let radius=Math.max(2.8,enemy.collisionRadius*1.25);
+  let beam=new THREE.Mesh(teleportBeamGeo,teleportBeamMat.clone());
+  beam.position.set(enemy.x,surfaceY+height*0.5,enemy.z);
+  beam.scale.set(radius,height,radius);
+  beam.renderOrder=22;
+  scene.add(beam);
+
+  let columns=new THREE.Group();
+  let columnMat=teleportBeamMat.clone();
+  columnMat.opacity=0.46;
+  let columnCount=7;
+  for(let i=0;i<columnCount;i++){
+    let angle=(i/columnCount)*Math.PI*2+(i%2)*0.18;
+    let columnRadius=i===0 ? 0 : radius*(0.22+(i%3)*0.11);
+    let column=new THREE.Mesh(teleportBeamGeo,columnMat);
+    column.position.set(Math.cos(angle)*columnRadius,0,Math.sin(angle)*columnRadius);
+    column.scale.set(i===0 ? 0.035 : 0.018,height*(0.84+Math.random()*0.16),i===0 ? 0.035 : 0.018);
+    columns.add(column);
+  }
+  columns.position.set(enemy.x,surfaceY+height*0.5,enemy.z);
+  columns.renderOrder=24;
+  scene.add(columns);
+
+  let ring=new THREE.Mesh(teleportRingGeo,explosionRingMat.clone());
+  ring.position.set(enemy.x,surfaceY+0.12,enemy.z);
+  ring.rotation.x=Math.PI/2;
+  ring.scale.setScalar(radius*0.42);
+  ring.renderOrder=23;
+  scene.add(ring);
+
+  let sparkCount=Math.min(140,Math.max(70,Math.ceil(height*5+radius*8)));
+  let sparkPositions=new Float32Array(sparkCount*3);
+  let sparkData=[];
+  for(let i=0;i<sparkCount;i++){
+    let angle=Math.random()*Math.PI*2;
+    let ringBias=Math.pow(Math.random(),0.55);
+    let r=radius*(0.08+ringBias*0.82);
+    sparkPositions[i*3]=Math.cos(angle)*r;
+    sparkPositions[i*3+1]=Math.random()*height-height*0.5;
+    sparkPositions[i*3+2]=Math.sin(angle)*r;
+    sparkData.push({
+      angle,
+      radius:r,
+      phase:Math.random()*Math.PI*2,
+      speed:0.55+Math.random()*1.35,
+      lift:0.35+Math.random()*1.0
+    });
+  }
+  let sparkGeo=new THREE.BufferGeometry();
+  sparkGeo.setAttribute("position",new THREE.BufferAttribute(sparkPositions,3));
+  let sparks=new THREE.Points(sparkGeo,teleportSparkMat.clone());
+  sparks.position.set(enemy.x,surfaceY+height*0.5,enemy.z);
+  sparks.renderOrder=25;
+  scene.add(sparks);
+
+  teleportEffects.push({
+    beam,
+    columns,
+    columnMat,
+    ring,
+    sparks,
+    sparkPositions,
+    sparkData,
+    enemy,
+    age:0,
+    life:1.05,
+    radius,
+    height
+  });
+
+  enemy.spawnMaterialize=0;
+  enemy.group.scale.setScalar(0.04);
+
+  for(let i=0;i<10;i++){
+    let angle=Math.random()*Math.PI*2;
+    let speed=0.7+Math.random()*2.8;
+    dust.spawnThrusterParticle(
+      enemy.x+Math.cos(angle)*radius*(0.15+Math.random()*0.35),
+      surfaceY+Math.random()*height,
+      enemy.z+Math.sin(angle)*radius*(0.15+Math.random()*0.35),
+      Math.cos(angle)*speed,
+      Math.sin(angle)*speed,
+      0.6+Math.random()*2.2,
+      0.08+Math.random()*0.11,
+      0.08+Math.random()*0.1
+    );
+  }
+}
+
+function clearTeleportEffects(){
+  for(let effect of teleportEffects){
+    scene.remove(effect.beam,effect.columns,effect.ring,effect.sparks);
+    effect.beam.material.dispose();
+    if(effect.columnMat) effect.columnMat.dispose();
+    effect.ring.material.dispose();
+    if(effect.sparks){
+      effect.sparks.geometry.dispose();
+      effect.sparks.material.dispose();
+    }
+  }
+  teleportEffects=[];
+}
+
+function updateTeleportEffects(){
+  for(let i=teleportEffects.length-1;i>=0;i--){
+    let effect=teleportEffects[i];
+    effect.age+=0.016;
+    let t=Math.min(1,effect.age/effect.life);
+    let fade=Math.pow(1-t,1.55);
+    let smooth=t*t*(3-2*t);
+    let pulse=1+Math.sin(t*Math.PI*5)*0.025;
+
+    effect.beam.scale.set(
+      effect.radius*(0.95-smooth*0.48)*pulse,
+      effect.height*(1+Math.sin(t*Math.PI)*0.04),
+      effect.radius*(0.95-smooth*0.48)*pulse
+    );
+    effect.beam.material.opacity=0.18*fade;
+    if(effect.columns){
+      effect.columns.rotation.y+=0.012;
+      effect.columns.scale.setScalar(1+Math.sin(t*Math.PI)*0.08);
+    }
+    if(effect.columnMat) effect.columnMat.opacity=0.46*fade;
+    effect.ring.scale.setScalar(effect.radius*(0.34+smooth*1.45));
+    effect.ring.material.color.set(0xffe7b8);
+    effect.ring.material.opacity=0.42*fade;
+    if(effect.sparks && effect.sparkPositions && effect.sparkData){
+      for(let s=0;s<effect.sparkData.length;s++){
+        let data=effect.sparkData[s];
+        let drift=t*effect.height*data.lift;
+        let y=((data.phase+drift)%(effect.height))-effect.height*0.5;
+        let angle=data.angle+t*data.speed*1.7+Math.sin(t*10+data.phase)*0.08;
+        let shimmer=0.74+Math.sin(t*34+data.phase)*0.26;
+        effect.sparkPositions[s*3]=Math.cos(angle)*data.radius*shimmer;
+        effect.sparkPositions[s*3+1]=y;
+        effect.sparkPositions[s*3+2]=Math.sin(angle)*data.radius*shimmer;
+      }
+      effect.sparks.geometry.attributes.position.needsUpdate=true;
+      effect.sparks.material.opacity=(0.18+Math.sin(t*Math.PI)*0.72)*fade;
+      effect.sparks.material.size=0.1+Math.sin(t*Math.PI)*0.14;
+    }
+
+    if(effect.enemy && effect.enemy.active && effect.enemy.group){
+      effect.enemy.spawnMaterialize=t;
+      let bodyScale=0.04+smooth*0.96;
+      effect.enemy.group.scale.setScalar(bodyScale);
+    }
+
+    if(t>=1){
+      if(effect.enemy && effect.enemy.group) effect.enemy.group.scale.setScalar(1);
+      scene.remove(effect.beam,effect.columns,effect.ring,effect.sparks);
+      effect.beam.material.dispose();
+      if(effect.columnMat) effect.columnMat.dispose();
+      effect.ring.material.dispose();
+      if(effect.sparks){
+        effect.sparks.geometry.dispose();
+        effect.sparks.material.dispose();
+      }
+      teleportEffects.splice(i,1);
+    }
+  }
+}
+
 function updateExplosions(){
   for(let i=explosionBursts.length-1;i>=0;i--){
     let burst=explosionBursts[i];
@@ -1222,10 +1517,22 @@ function updateExplosions(){
 
 function spawnRockDebris(x,y,z,obstacle){
   let building=obstacle.type==="building" || obstacle.type==="wall";
-  let count=building ? 22 : (obstacle.type==="smallRock" ? 7 : 13);
+  let buildingHeight=building ? (obstacle.visualHeight || obstacle.height || Math.max(8,(obstacle.r || 5)*1.4)) : 0;
+  let buildingRadius=building ? (obstacle.visualRadius || obstacle.r || 5) : 0;
+  let skyscraper=building && obstacle.cityBuilding;
+  let count=building
+    ? skyscraper
+      ? Math.min(78,Math.max(34,Math.ceil(buildingHeight*0.42+buildingRadius*2.2)))
+      : 22
+    : (obstacle.type==="smallRock" ? 7 : 13);
   let baseScale=building
-    ? Math.max(0.75,Math.min(2.1,(obstacle.r || 5)*0.16))
+    ? skyscraper
+      ? Math.max(1.05,Math.min(4.2,buildingRadius*0.23+buildingHeight*0.018))
+      : Math.max(0.75,Math.min(2.1,(obstacle.r || 5)*0.16))
     : Math.max(0.22,Math.min(0.82,(obstacle.r || 3)*0.14));
+  let buildingBaseY=building && Number.isFinite(obstacle.baseY)
+    ? obstacle.baseY
+    : y;
 
   for(let i=0;i<count;i++){
     let piece=new THREE.Mesh(
@@ -1233,19 +1540,35 @@ function spawnRockDebris(x,y,z,obstacle){
       (building ? buildingDebrisMat : rockDebrisMat).clone()
     );
     let angle=(i/count)*Math.PI*2+Math.random()*0.55;
-    let speed=building ? 0.2+Math.random()*0.42 : 0.16+Math.random()*0.28;
-    let scale=baseScale*(0.45+Math.random()*0.8);
+    let heightT=building ? Math.random() : 0;
+    let heightBand=skyscraper ? Math.floor(i/Math.max(1,Math.ceil(count/6)))/5 : heightT;
+    let fragmentY=skyscraper
+      ? buildingBaseY+1.2+Math.min(1,Math.max(0,heightBand*0.62+heightT*0.38))*buildingHeight
+      : y+0.3+Math.random()*3.2;
+    let outward=skyscraper ? 0.35+heightT*0.7 : 1;
+    let speed=building
+      ? skyscraper
+        ? 0.34+Math.random()*0.78+outward*0.18
+        : 0.2+Math.random()*0.42
+      : 0.16+Math.random()*0.28;
+    let scale=baseScale*(skyscraper ? 0.34+Math.random()*1.18 : 0.45+Math.random()*0.8);
+    let scatter=building
+      ? skyscraper
+        ? buildingRadius*(0.35+Math.random()*1.35)
+        : 4.8
+      : 0.8;
+    let flat=building && Math.random()<0.68;
 
     piece.position.set(
-      x+(Math.random()-0.5)*(building ? 4.8 : 0.8),
-      y+0.3+Math.random()*(building ? 3.2 : 0.9),
-      z+(Math.random()-0.5)*(building ? 4.8 : 0.8)
+      x+Math.cos(angle)*scatter*(skyscraper ? 0.45+Math.random()*0.55 : Math.random()-0.5),
+      building ? fragmentY : y+0.3+Math.random()*0.9,
+      z+Math.sin(angle)*scatter*(skyscraper ? 0.45+Math.random()*0.55 : Math.random()-0.5)
     );
     piece.rotation.set(Math.random()*Math.PI,Math.random()*Math.PI,Math.random()*Math.PI);
     piece.scale.set(
-      scale*(building ? 0.8+Math.random()*1.4 : 1),
-      scale*(building ? 0.45+Math.random()*1.0 : 0.65+Math.random()*0.6),
-      scale*(building ? 0.8+Math.random()*1.4 : 1)
+      scale*(building ? (flat ? 1.7+Math.random()*2.4 : 0.8+Math.random()*1.4) : 1),
+      scale*(building ? (flat ? 0.18+Math.random()*0.34 : 0.45+Math.random()*1.0) : 0.65+Math.random()*0.6),
+      scale*(building ? (flat ? 0.75+Math.random()*1.65 : 0.8+Math.random()*1.4) : 1)
     );
     piece.castShadow=true;
     piece.receiveShadow=true;
@@ -1255,12 +1578,12 @@ function spawnRockDebris(x,y,z,obstacle){
       piece,
       vx:Math.cos(angle)*speed,
       vz:Math.sin(angle)*speed,
-      vy:(building ? 0.34 : 0.2)+Math.random()*(building ? 0.54 : 0.34),
-      rx:(Math.random()-0.5)*0.18,
-      ry:(Math.random()-0.5)*0.18,
-      rz:(Math.random()-0.5)*0.18,
+      vy:(building ? skyscraper ? 0.45+heightT*0.55 : 0.34 : 0.2)+Math.random()*(building ? skyscraper ? 0.95 : 0.54 : 0.34),
+      rx:(Math.random()-0.5)*(skyscraper ? 0.24 : 0.18),
+      ry:(Math.random()-0.5)*(skyscraper ? 0.24 : 0.18),
+      rz:(Math.random()-0.5)*(skyscraper ? 0.24 : 0.18),
       age:0,
-      life:(building ? 2.2 : 1.5)+Math.random()*(building ? 0.75 : 0.55)
+      life:(building ? skyscraper ? 3.0 : 2.2 : 1.5)+Math.random()*(building ? skyscraper ? 1.35 : 0.75 : 0.55)
     });
   }
 }
@@ -1898,9 +2221,9 @@ function fireRocket(car){
   let aimZ=aimPoint.z-startZ;
   let aimLen=Math.max(0.001,Math.hypot(aimX,aimY,aimZ));
   let rocketLife=targetActor
-    ? Math.min(300,Math.max(115,Math.ceil(aimLen/rocketSpeed)+80))
-    : Math.min(360,Math.max(115,Math.ceil(aimLen/rocketSpeed)+45));
-  let targetDistance=targetActor ? 180 : Math.max(180,aimLen);
+    ? Math.min(420,Math.max(150,Math.ceil(aimLen/rocketSpeed)+110))
+    : Math.min(620,Math.max(180,Math.ceil(aimLen/rocketSpeed)+90));
+  let targetDistance=targetActor ? 260 : Math.max(280,aimLen);
   let target={
     x:startX+(aimX/aimLen)*targetDistance,
     y:startY+(aimY/aimLen)*targetDistance,
@@ -2326,6 +2649,7 @@ function clearRockets(){
   clusterBombs=[];
   clearExplosions();
   clearRockDebris();
+  clearTeleportEffects();
   clearBossLaserBeams();
 }
 
@@ -2446,8 +2770,10 @@ function updateRockets(){
           if(hitObstacle.type==="bossBase"){
             damageBossBaseObstacle(hitObstacle,rocket.x,rocket.y,rocket.z,34);
           }else if(hitObstacle.type==="rock" || hitObstacle.type==="smallRock" || hitObstacle.type==="building" || hitObstacle.type==="wall" || hitObstacle.type==="turret"){
-            spawnRockDebris(hitObstacle.x,explosionY,hitObstacle.z,hitObstacle);
-            destroyWorldObstacle(hitObstacle);
+            if(hitObstacle.type==="building" || hitObstacle.type==="wall") spawnBuildingAmmoImpact(hitObstacle,rocket.x,rocket.y,rocket.z,34);
+            if(damageWorldObstacle(hitObstacle,34)){
+              spawnRockDebris(hitObstacle.x,explosionY,hitObstacle.z,hitObstacle);
+            }
           }else{
             destroyWorldObstacle(hitObstacle);
           }
@@ -2544,8 +2870,10 @@ function updateCannonBolts(){
           if(hitObstacle.type==="bossBase"){
             damageBossBaseObstacle(hitObstacle,bolt.x,bolt.y,bolt.z,13);
           }else if(hitObstacle.type==="rock" || hitObstacle.type==="smallRock" || hitObstacle.type==="building" || hitObstacle.type==="wall" || hitObstacle.type==="turret"){
-            spawnRockDebris(hitObstacle.x,explosionY,hitObstacle.z,hitObstacle);
-            destroyWorldObstacle(hitObstacle);
+            if(hitObstacle.type==="building" || hitObstacle.type==="wall") spawnBuildingAmmoImpact(hitObstacle,bolt.x,bolt.y,bolt.z,13);
+            if(damageWorldObstacle(hitObstacle,13)){
+              spawnRockDebris(hitObstacle.x,explosionY,hitObstacle.z,hitObstacle);
+            }
           }else{
             destroyWorldObstacle(hitObstacle);
           }
@@ -2851,6 +3179,7 @@ function spawnEnemyWave(){
     enemy.group.rotation.y=enemy.angle;
     if(enemy.shadow) enemy.shadow.update({carX:enemy.x,carZ:enemy.z,carY:enemy.y,surfaceY:enemy.y,carVelAngle:enemy.angle});
     enemies.push(enemy);
+    spawnEnemyTeleportEffect(enemy);
     village.enemyRemaining=Math.max(0,(village.enemyRemaining ?? 0)-1);
   }
   return true;
@@ -2873,6 +3202,7 @@ function spawnEnemyPatrol(){
     enemy.group.rotation.y=enemy.angle;
     if(enemy.shadow) enemy.shadow.update({carX:enemy.x,carZ:enemy.z,carY:enemy.y,surfaceY:enemy.y,carVelAngle:enemy.angle});
     enemies.push(enemy);
+    spawnEnemyTeleportEffect(enemy);
   }
   return true;
 }
@@ -3049,6 +3379,7 @@ function dropSpiderFromMothership(){
   spider.velAngle=spider.angle;
   if(spider.shadow) spider.shadow.update({carX:spider.x,carZ:spider.z,carY:spider.y,surfaceY:drivingSurfaceHeight(x,z),carVelAngle:spider.angle});
   enemies.push(spider);
+  spawnEnemyTeleportEffect(spider);
 
   for(let i=0;i<10;i++){
     dust.spawnThrusterParticle(
@@ -5505,6 +5836,7 @@ function loop(){
 
   dust.update();
   updateExplosions();
+  updateTeleportEffects();
   updateRockDebris();
   updateBossLaserBeams();
   updateWeather();
@@ -5728,6 +6060,7 @@ function spawnBossBaseDefender(base,point,type="guard",aggressive=true){
   defender.group.rotation.y=defender.angle;
   if(defender.shadow) defender.shadow.update({carX:defender.x,carZ:defender.z,carY:defender.y,surfaceY:defender.y,carVelAngle:defender.angle});
   enemies.push(defender);
+  spawnEnemyTeleportEffect(defender);
   return true;
 }
 
