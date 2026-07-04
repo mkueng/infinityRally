@@ -6,7 +6,7 @@ import { createHud } from "./hud.js?v=robot-ammo-icons";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createWheelTracks } from "./effects.js?v=ambient-motes-varied";
 import { createWorld } from "./world.js?v=city-districts";
 import { createMotorAudio } from "./audio.js?v=mech-walk-audio";
-import { loadCarModel, loadJetModel, makeMechModel } from "./models.js?v=jet-assets";
+import { loadCarModel, loadJetModel, loadPlanetaryStationModel, makeMechModel } from "./models.js?v=station-assets";
 import { makeSkyTexture } from "./textures.js?v=alien-planet";
 
 const worldEnvironments=[
@@ -318,6 +318,7 @@ updateDayNight(performance.now(),true);
 let input=createInput();
 let px=0,py=20,pz=0;
 let gameOver=false;
+let gameWon=false;
 let healthDamageCooldown=0;
 let cameraFollowDistance=18;
 let cameraFollowHeight=7.5;
@@ -367,6 +368,10 @@ let enemySpawnSerial=0;
 let enemyBudgetRun=0;
 let mothership=null;
 let mothershipDelay=mothershipMinDelay+Math.floor(Math.random()*mothershipRandomDelay);
+let planetaryStationModel=null;
+let planetaryStation=null;
+let currentStartInfo=null;
+let planetaryStationDefenseCooldown=0;
 let jetUnlocked=false;
 let score=0;
 let enemyScoreAmount=100;
@@ -394,6 +399,7 @@ let rocketSupplyAmount=6;
 let cannonSupplyAmount=40;
 let healthSupplyAmount=35;
 let boostSupplyAmount=45;
+let clusterBombSupplyAmount=20;
 let rockets=[];
 let supplyBoxes=[];
 let supplySpawnKeys=new Set();
@@ -845,6 +851,10 @@ let hud=createHud({
     z:enemy.z,
     health:enemy.health
   })),
+  getStationState:()=>planetaryStation ? ({
+    x:planetaryStation.position.x,
+    z:planetaryStation.position.z
+  }) : null,
   getChunks:()=>world.chunks
 });
 
@@ -857,6 +867,18 @@ function showGameOver(){
   }
   hud.updateHealthHud();
   hud.showGameOverOverlay();
+}
+
+function showGameWon(){
+  if(gameOver) return;
+  gameOver=true;
+  gameWon=true;
+  for(let car of activeCars()){
+    car.speed=0;
+    car.vy=0;
+  }
+  hud.updateHealthHud();
+  hud.showGameOverOverlay("You Won");
 }
 
 function damageCar(car,amount){
@@ -1011,6 +1033,7 @@ function damageBossBaseObstacle(obstacle,x,y,z,amount){
       );
     }
     addScore(bossScoreAmount);
+    showGameWon();
   }
 
   return true;
@@ -1688,8 +1711,8 @@ function hash01(a,b){
 
 function makeSupplyBox(type){
   let group=new THREE.Group();
-  let baseMat=type==="rocket" ? rocketSupplyMat : type==="health" ? healthSupplyMat : type==="boost" ? boostSupplyMat : type==="jet" ? jetSupplyMat : cannonSupplyMat;
-  let bandMat=type==="rocket" ? rocketSupplyBandMat : type==="health" ? healthSupplyBandMat : type==="boost" ? boostSupplyBandMat : type==="jet" ? jetSupplyBandMat : cannonSupplyBandMat;
+  let baseMat=type==="rocket" ? rocketSupplyMat : type==="health" ? healthSupplyMat : type==="boost" ? boostSupplyMat : type==="jet" ? jetSupplyMat : type==="bomb" ? clusterBombBodyMat : cannonSupplyMat;
+  let bandMat=type==="rocket" ? rocketSupplyBandMat : type==="health" ? healthSupplyBandMat : type==="boost" ? boostSupplyBandMat : type==="jet" ? jetSupplyBandMat : type==="bomb" ? clusterBombBandMat : cannonSupplyBandMat;
   let body=new THREE.Mesh(supplyBoxGeo,baseMat);
   let lid=new THREE.Mesh(supplyLidGeo,supplyLidMat);
   let bandA=new THREE.Mesh(supplyBandGeo,bandMat);
@@ -1726,6 +1749,19 @@ function makeSupplyBox(type){
     jetTail.position.y=-0.44;
     logoRoot.add(jetBody,jetNose,jetWing,jetTail);
     group.add(logoRoot);
+  }else if(type==="bomb"){
+    let logoRoot=new THREE.Group();
+    logoRoot.position.set(0,0.88,0);
+    logoRoot.rotation.x=-Math.PI/2;
+
+    let bombBody=new THREE.Mesh(new THREE.SphereGeometry(0.26,12,8),clusterBombBandMat);
+    let bombFin=new THREE.Mesh(new THREE.BoxGeometry(0.16,0.36,0.08),clusterBombBandMat);
+    let bombGlow=new THREE.Mesh(new THREE.RingGeometry(0.34,0.48,24),clusterBombGlowMat.clone());
+
+    bombFin.position.y=-0.34;
+    bombGlow.position.z=0.04;
+    logoRoot.add(bombBody,bombFin,bombGlow);
+    group.add(logoRoot);
   }
 
   group.userData.type=type;
@@ -1739,7 +1775,7 @@ function supplyKeyForVillage(village,type){
 
 function supplyPointForVillage(village,type,index){
   let baseA=Math.round(village.x*0.37+index*19);
-  let typeOffset=type==="rocket" ? 7 : type==="health" ? 31 : type==="boost" ? 47 : type==="jet" ? 67 : 23;
+  let typeOffset=type==="rocket" ? 7 : type==="health" ? 31 : type==="boost" ? 47 : type==="jet" ? 67 : type==="bomb" ? 83 : 23;
   let baseB=Math.round(village.z*0.41+typeOffset);
   let villageRadius=village.r || 32;
 
@@ -1760,7 +1796,7 @@ function supplyPointForVillage(village,type,index){
     }
   }
 
-  let fallbackAngle=(type==="rocket" ? 0.3 : type==="health" ? 0.72 : type==="boost" ? 0.95 : type==="jet" ? 1.32 : 1.15)*Math.PI;
+  let fallbackAngle=(type==="rocket" ? 0.3 : type==="health" ? 0.72 : type==="boost" ? 0.95 : type==="jet" ? 1.32 : type==="bomb" ? 1.55 : 1.15)*Math.PI;
   let x=village.x+Math.cos(fallbackAngle)*villageRadius*0.22;
   let z=village.z+Math.sin(fallbackAngle)*villageRadius*0.22;
   return {x,y:drivingSurfaceHeight(x,z),z,angle:fallbackAngle};
@@ -1813,6 +1849,13 @@ function spawnVillageSupplyBoxes(){
           let typeIndex=type==="rocket" ? 0 : type==="cannon" ? 1 : type==="health" ? 2 : 3;
           spawnSupplyBoxForVillage(village,type,typeIndex+set*4,key);
         }
+
+        if(village.city){
+          let key=supplyKeyForVillage(village,`bomb-${set}`);
+          if(!supplySpawnKeys.has(key)){
+            spawnSupplyBoxForVillage(village,"bomb",8+set,key);
+          }
+        }
       }
     }
   }
@@ -1839,6 +1882,8 @@ function collectSupplyBox(box,car){
   }else if(type==="jet"){
     if(jetUnlocked) return false;
     jetUnlocked=true;
+  }else if(type==="bomb"){
+    car.clusterBombAmmo+=clusterBombSupplyAmount;
   }else{
     if(car.health>=100) return false;
     car.health=Math.min(100,car.health+healthSupplyAmount);
@@ -2837,6 +2882,7 @@ function updateCannonBolts(){
     if(bolt.age>2){
       for(let actor of combatActors()){
         if(actor===bolt.owner) continue;
+        if(bolt.owner.isStationDefense && !actor.isEnemy) continue;
         if(bolt.owner.isEnemy && actor.isEnemy) continue;
         let hitRadius=actor.collisionRadius ? Math.max(3.6,actor.collisionRadius+0.6) : 3.6;
         let hitHeight=actor.hitHeight || 4.0;
@@ -2852,7 +2898,9 @@ function updateCannonBolts(){
       }
     }
 
-    let hitObstacle=world.obstacleAlongSegment3D(prevX,prevY,prevZ,bolt.x,bolt.y,bolt.z,0.9);
+    let hitObstacle=bolt.ignoreObstacleFrames && bolt.age<=bolt.ignoreObstacleFrames
+      ? null
+      : world.obstacleAlongSegment3D(prevX,prevY,prevZ,bolt.x,bolt.y,bolt.z,0.9);
     let hit=bolt.y<=surfaceY+0.22 || hitObstacle || hitActor || mothershipHit;
 
     if(hit || bolt.age>bolt.life){
@@ -2879,7 +2927,7 @@ function updateCannonBolts(){
           }
         }
         if(hitActor){
-          damageActor(hitActor,9);
+          damageActor(hitActor,bolt.damage || 9);
           rattleActor(hitActor,0.72);
         }
       }
@@ -5555,7 +5603,7 @@ function updateCar(car){
       let highSpeedCalm=1-clamp((speedAbs-0.32)/0.32,0,0.18);
       let robotTurnBoost=1+0.42*(1-smoothStep(car.morphProgress/0.65));
       let steeringResponse=(0.52+movingSteer*0.54)*highSpeedCalm*robotTurnBoost;
-      let jetYawScale=jetMovement ? 0.36 : 1;
+      let jetYawScale=jetMovement ? 0.24 : 1;
       car.angle+=turn*reverseSteer*0.031*steeringResponse*jetYawScale;
       car.velAngle=car.angle;
     }
@@ -5592,13 +5640,14 @@ function updateCar(car){
   let flying=updateFlightThrust(car,surfaceY);
   if(flying) emitFlightExhaust(car);
   let jetHovering=car.jetMode || car.jetProgress>0.65;
+  let jetAltitudeMax=154;
   if(jetHovering && !gameOver && !carDisabled){
     let climbInput=Math.max(0,car.liftInput || 0);
     car.speed=clamp(car.speed+climbInput*0.027,-mechGroundMaxSpeed*0.42,jetMaxSpeed);
     if(!Number.isFinite(car.jetAltitudeTarget)){
       car.jetAltitudeTarget=Math.max(car.y,surfaceY+8);
     }
-    car.jetAltitudeTarget=clamp(car.jetAltitudeTarget+(car.liftInput || 0)*0.224,waterLevel+5,154);
+    car.jetAltitudeTarget=clamp(car.jetAltitudeTarget+(car.liftInput || 0)*0.224,waterLevel+5,jetAltitudeMax);
     let hoverTarget=car.jetAltitudeTarget+Math.sin(performance.now()*0.004)*0.22;
     let lift=(hoverTarget-car.y)*0.045-car.vy*0.2;
     car.vy=clamp(car.vy+lift,-0.42,0.78);
@@ -5696,11 +5745,13 @@ function updateCar(car){
   let backZ=car.z-Math.cos(car.angle)*pitchSampleDist;
   let frontY=drivingSurfaceHeight(frontX,frontZ);
   let backY=drivingSurfaceHeight(backX,backZ);
-  let jetPitch=clamp(-(car.liftInput || 0)*0.18-Math.max(0,car.speed)*0.025,-0.3,0.12);
+  let ceilingPitchRelease=jetHovering && (car.jetAltitudeTarget || 0)>=jetAltitudeMax-0.4;
+  let jetLiftPitch=ceilingPitchRelease ? 0 : (car.liftInput || 0);
+  let jetPitch=clamp(-jetLiftPitch*0.18-Math.max(0,car.speed)*0.025,-0.3,0.12);
   let targetPitch=jetHovering ? jetPitch : -Math.atan2(frontY-backY,pitchSampleDist*2);
   car.pitch+=(targetPitch-car.pitch)*0.18;
-  let jetBankTarget=jetHovering ? clamp((car.turnInputEase || 0)*-0.46+(car.turnVelocity || 0)*-5.5,-0.58,0.58) : 0;
-  car.jetBank+=(jetBankTarget-(car.jetBank || 0))*(jetHovering ? 0.12 : 0.18);
+  let jetBankTarget=jetHovering ? clamp((car.turnInputEase || 0)*-0.32+(car.turnVelocity || 0)*-3.6,-0.42,0.42) : 0;
+  car.jetBank+=(jetBankTarget-(car.jetBank || 0))*(jetHovering ? 0.07 : 0.18);
 
   car.group.position.set(car.x,car.y,car.z);
   car.group.rotation.y=car.angle+car.trickYaw;
@@ -5830,6 +5881,8 @@ function loop(){
   updateBossBaseDefenses();
   updateSupplyBoxes();
   updateRockets();
+  updatePlanetaryStationDefense();
+  updatePlanetaryStationRepair();
   updateCannonBolts();
   updateClusterBombs();
   if(healthDamageCooldown>0) healthDamageCooldown--;
@@ -6122,6 +6175,8 @@ function startGame(mode,difficulty="medium"){
   clearEnemies();
   clearSupplyBoxes();
   jetUnlocked=false;
+  gameOver=false;
+  gameWon=false;
   score=0;
   scoredVillages=new WeakSet();
   playerCar.lateralOffset=mode==="single" ? 0 : -4.2;
@@ -6129,6 +6184,7 @@ function startGame(mode,difficulty="medium"){
   let startInfo=findSafeFieldStart(mode==="double" ? [playerCar.lateralOffset,secondCar.lateralOffset] : [playerCar.lateralOffset]);
   placeCarOnOpenField(playerCar,startInfo);
   placeCarOnOpenField(secondCar,startInfo);
+  placePlanetaryStationNearStart(startInfo);
   world.placeTestBossBaseNearStart(playerCar.x,playerCar.z,playerCar.angle);
   spawnBossBaseGuards();
   setCarActive(playerCar,true);
@@ -6188,6 +6244,15 @@ loadJetModel(0x2f66d8)
   })
   .catch(error=>{
     console.error("Failed to load second jet model:",error);
+  });
+
+loadPlanetaryStationModel()
+  .then(model=>{
+    planetaryStationModel=model;
+    placePlanetaryStationNearStart(currentStartInfo);
+  })
+  .catch(error=>{
+    console.error("Failed to load planetary station model:",error);
   });
 
 function placeCarOnOpenField(car,startInfo){
@@ -6261,10 +6326,221 @@ function placeCarOnOpenField(car,startInfo){
   updateMorphVisual(car);
 }
 
+function clearPlanetaryStation(){
+  if(!planetaryStation) return;
+  scene.remove(planetaryStation);
+  planetaryStation=null;
+}
+
+function mixedPlanetColor(a,b,amount){
+  return new THREE.Color(a).lerp(new THREE.Color(b),Math.max(0,Math.min(1,amount)));
+}
+
+function tintPlanetaryStationForEnvironment(station){
+  let colors=currentEnvironment.colors || {};
+  let hull=mixedPlanetColor(colors.wall || 0x5a526d,colors.rock || 0x3f334b,0.34);
+  let bright=mixedPlanetColor(colors.trim || 0xa78fbd,colors.wall || 0x5a526d,0.18);
+  let dark=mixedPlanetColor(colors.roof || 0x322b45,colors.rock || 0x3f334b,0.45);
+  let accent=new THREE.Color(colors.podEmissive || colors.waterEmissive || colors.pod || colors.water || 0x8dfff2);
+  let pale=mixedPlanetColor(colors.trim || 0xa78fbd,colors.water || 0x8dfff2,0.22);
+
+  station.traverse(child=>{
+    if(!child.isMesh || !child.material) return;
+
+    let materials=Array.isArray(child.material) ? child.material : [child.material];
+    let tinted=materials.map(material=>{
+      let clone=material.clone();
+      if(clone.name==="color_6383466") clone.color.copy(hull);
+      else if(clone.name==="color_14541540") clone.color.copy(bright);
+      else if(clone.name==="color_2829873") clone.color.copy(dark);
+      else if(clone.name==="color_4634441"){
+        clone.color.copy(accent);
+        if(clone.emissive){
+          clone.emissive.copy(accent);
+          clone.emissiveIntensity=0.36;
+        }
+      }else if(clone.name==="color_16448250") clone.color.copy(pale);
+      return clone;
+    });
+
+    child.material=Array.isArray(child.material) ? tinted : tinted[0];
+  });
+}
+
+function planetaryStationDefenseSettings(){
+  if(gameDifficulty==="hard") return {range:210,damage:14,cooldown:20};
+  if(gameDifficulty==="easy") return {range:135,damage:7,cooldown:38};
+  return {range:170,damage:10,cooldown:28};
+}
+
+function stationDefenseTarget(){
+  if(!planetaryStation) return null;
+
+  let {range}=planetaryStationDefenseSettings();
+  let best=null;
+  let bestDistSq=range*range;
+  for(let enemy of activeEnemies()){
+    if(!enemy.active || enemy.health<=0 || enemy.isBoat) continue;
+    let dx=enemy.x-planetaryStation.position.x;
+    let dz=enemy.z-planetaryStation.position.z;
+    let distSq=dx*dx+dz*dz;
+    if(distSq<bestDistSq){
+      best=enemy;
+      bestDistSq=distSq;
+    }
+  }
+  return best;
+}
+
+function firePlanetaryStationCannon(target){
+  if(!planetaryStation || !target) return false;
+  let settings=planetaryStationDefenseSettings();
+
+  let mounts=planetaryStation.userData.cannonMounts || [];
+  if(!mounts.length) return false;
+
+  let mountIndex=planetaryStation.userData.nextCannonMount || 0;
+  let mount=mounts[mountIndex%mounts.length];
+  planetaryStation.userData.nextCannonMount=mountIndex+1;
+  let yaw=planetaryStation.rotation.y;
+  let sinYaw=Math.sin(yaw);
+  let cosYaw=Math.cos(yaw);
+
+  let startX=planetaryStation.position.x+mount.x*cosYaw+mount.z*sinYaw;
+  let startY=planetaryStation.position.y+mount.y;
+  let startZ=planetaryStation.position.z-mount.x*sinYaw+mount.z*cosYaw;
+  let aimX=target.x-startX;
+  let aimY=target.y+(target.hitHeight || 4)*0.45-startY;
+  let aimZ=target.z-startZ;
+  let aimLen=Math.max(0.001,Math.hypot(aimX,aimY,aimZ));
+  let mesh=makeCannonBoltMesh();
+  mesh.position.set(startX,startY,startZ);
+  mesh.rotation.y=Math.atan2(aimX,aimZ);
+  mesh.rotation.x=-Math.asin(clamp(aimY/aimLen,-1,1));
+  scene.add(mesh);
+
+  cannonBolts.push({
+    owner:{isEnemy:false,isStationDefense:true},
+    mesh,
+    x:startX,
+    y:startY,
+    z:startZ,
+    vx:(aimX/aimLen)*cannonSpeed,
+    vy:(aimY/aimLen)*cannonSpeed,
+    vz:(aimZ/aimLen)*cannonSpeed,
+    age:0,
+    life:Math.min(120,Math.max(52,Math.ceil(aimLen/cannonSpeed)+10)),
+    damage:settings.damage,
+    ignoreObstacleFrames:5
+  });
+
+  for(let i=0;i<6;i++){
+    dust.spawnThrusterParticle(
+      startX,
+      startY,
+      startZ,
+      -(aimX/aimLen)*(1.0+Math.random()*1.6)+(Math.random()-0.5)*0.55,
+      -(aimZ/aimLen)*(1.0+Math.random()*1.6)+(Math.random()-0.5)*0.55,
+      (Math.random()-0.5)*0.75,
+      0.12,
+      0.05+Math.random()*0.03
+    );
+  }
+
+  return true;
+}
+
+function updatePlanetaryStationDefense(){
+  if(!planetaryStation || gameOver) return;
+  if(planetaryStationDefenseCooldown>0){
+    planetaryStationDefenseCooldown--;
+    return;
+  }
+
+  let target=stationDefenseTarget();
+  if(target && firePlanetaryStationCannon(target)){
+    planetaryStationDefenseCooldown=planetaryStationDefenseSettings().cooldown;
+  }
+}
+
+function updatePlanetaryStationRepair(){
+  if(!planetaryStation || gameOver) return;
+
+  let repairRadius=92;
+  let repaired=false;
+  for(let car of activeCars()){
+    if(!car.group.visible || car.health<=0 || car.health>=100) continue;
+
+    let dx=car.x-planetaryStation.position.x;
+    let dz=car.z-planetaryStation.position.z;
+    if(dx*dx+dz*dz>repairRadius*repairRadius) continue;
+
+    car.health=100;
+    repaired=true;
+  }
+
+  if(repaired) hud.updateHealthHud();
+}
+
+function placePlanetaryStationNearStart(startInfo){
+  if(startInfo) currentStartInfo=startInfo;
+  if(!planetaryStationModel || !currentStartInfo) return;
+
+  clearPlanetaryStation();
+
+  startInfo=currentStartInfo;
+  let basePoint=roadPointForOffset(startInfo.z,startInfo.fieldOffset);
+  let angle=startInfo.angle;
+  let forwardX=Math.sin(angle);
+  let forwardZ=Math.cos(angle);
+  let rightX=Math.cos(angle);
+  let rightZ=-Math.sin(angle);
+  let offsets=[
+    {forward:62,right:76},
+    {forward:78,right:-76},
+    {forward:-62,right:82},
+    {forward:96,right:0},
+    {forward:-82,right:-68}
+  ];
+  let chosen=null;
+
+  for(let offset of offsets){
+    let x=basePoint.x+forwardX*offset.forward+rightX*offset.right;
+    let z=basePoint.z+forwardZ*offset.forward+rightZ*offset.right;
+    if(waterDepthAt(x,z)>0.35) continue;
+    if(roadDistance(x,z)<24) continue;
+    if(world.collidesWithObstacles(x,z,16)) continue;
+    chosen={x,z};
+    break;
+  }
+
+  if(!chosen){
+    chosen={
+      x:basePoint.x+rightX*76+forwardX*62,
+      z:basePoint.z+rightZ*76+forwardZ*62
+    };
+  }
+
+  planetaryStation=planetaryStationModel.clone(true);
+  tintPlanetaryStationForEnvironment(planetaryStation);
+  planetaryStation.position.set(chosen.x,drivingSurfaceHeight(chosen.x,chosen.z),chosen.z);
+  planetaryStation.rotation.y=angle+Math.PI;
+  planetaryStation.userData.cannonMounts=[
+    {x:0,y:10,z:36},
+    {x:31,y:8,z:18},
+    {x:-31,y:8,z:18},
+    {x:0,y:9,z:-34}
+  ];
+  planetaryStation.userData.nextCannonMount=0;
+  planetaryStationDefenseCooldown=24;
+  scene.add(planetaryStation);
+}
+
 setWorldSeed(Math.random()*100000,currentEnvironment.terrain || {});
 let initialStartInfo=findSafeFieldStart([playerCar.lateralOffset,0,secondCar.lateralOffset]);
 placeCarOnOpenField(playerCar,initialStartInfo);
 placeCarOnOpenField(secondCar,initialStartInfo);
+placePlanetaryStationNearStart(initialStartInfo);
 world.placeTestBossBaseNearStart(playerCar.x,playerCar.z,playerCar.angle);
 playerCar.cameraYaw=playerCar.angle;
 secondCar.cameraYaw=secondCar.angle;

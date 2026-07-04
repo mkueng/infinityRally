@@ -1,7 +1,7 @@
 import { chunkSize } from "./constants.js";
 import { carSurfaceHeight } from "./terrain.js?v=no-ramps";
 
-export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getPerformanceMode=()=>"full",getEnvironment=()=>({})}){
+export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStationState=()=>null,getPerformanceMode=()=>"full",getEnvironment=()=>({})}){
   let panels=[];
   let gameOverOverlay;
   let mapUpdateFrame=0;
@@ -344,6 +344,8 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getPerfo
       villageStroke:rgba(colors.trim || colors.shore,0.82,0xffe26f),
       bossFill:rgba(colors.pod || colors.trim,0.28,0xff5c36),
       bossStroke:rgba(colors.podEmissive || colors.pod,0.92,0xff6a42),
+      stationFill:rgba(colors.trim || colors.water,0.36,0x8dfff2),
+      stationStroke:rgba(colors.water || colors.trim,0.96,0xb9f4ff),
       clearedFill:rgba(colors.grass || colors.leaf,0.18,0x7cff78),
       clearedStroke:rgba(colors.grass || colors.leaf,0.72,0x7cff78)
     };
@@ -381,6 +383,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getPerfo
     mapCtx.strokeRect(0.5,0.5,size-1,size-1);
 
     drawVillages(mapCtx,centerX,centerZ,radius,size,palette);
+    drawStationMarker(mapCtx,getStationState(),centerX,centerZ,radius,size,palette);
     drawEnemyDots(mapCtx,enemies,centerX,centerZ,radius,size);
     drawOtherCars(mapCtx,state,states,centerX,centerZ,radius,size,palette);
 
@@ -425,6 +428,42 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getPerfo
         mapCtx.fillRect(p.x-2.5,p.y-2.5,5,5);
       }
     }
+  }
+
+  function drawStationMarker(mapCtx,station,centerX,centerZ,radius,size,palette){
+    if(!station) return;
+
+    let p=mapToCanvas(station.x,station.z,centerX,centerZ,radius,size);
+    if(p.x<-14 || p.x>size+14 || p.y<-14 || p.y>size+14) return;
+
+    let pulse=0.5+0.5*Math.sin(performance.now()*0.004);
+    let outer=7.5+pulse*1.6;
+    mapCtx.save();
+    mapCtx.translate(p.x,p.y);
+    mapCtx.strokeStyle=palette.stationStroke;
+    mapCtx.fillStyle=palette.stationFill;
+    mapCtx.lineWidth=1.8;
+    mapCtx.beginPath();
+    mapCtx.arc(0,0,outer,0,Math.PI*2);
+    mapCtx.fill();
+    mapCtx.stroke();
+
+    mapCtx.strokeStyle=`rgba(245,255,249,${0.58+pulse*0.3})`;
+    mapCtx.lineWidth=1.4;
+    mapCtx.beginPath();
+    mapCtx.moveTo(-outer-3,0);
+    mapCtx.lineTo(-3,0);
+    mapCtx.moveTo(3,0);
+    mapCtx.lineTo(outer+3,0);
+    mapCtx.moveTo(0,-outer-3);
+    mapCtx.lineTo(0,-3);
+    mapCtx.moveTo(0,3);
+    mapCtx.lineTo(0,outer+3);
+    mapCtx.stroke();
+
+    mapCtx.fillStyle=palette.stationStroke;
+    mapCtx.fillRect(-2.5,-2.5,5,5);
+    mapCtx.restore();
   }
 
   function drawOtherCars(mapCtx,state,states,centerX,centerZ,radius,size,palette){
@@ -475,6 +514,57 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getPerfo
     return angle;
   }
 
+  function drawCompassStationMarker(ctx,state,cx,cy,radius,arcHalf,viewHalf,palette){
+    let station=getStationState();
+    if(!station) return;
+
+    let dx=station.x-state.carX;
+    let dz=station.z-state.carZ;
+    if(dx*dx+dz*dz<1) return;
+
+    let heading=state.carVelAngle || 0;
+    let stationAngle=Math.atan2(dx,dz);
+    let delta=normalizeAngle(stationAngle-heading);
+    let inView=Math.abs(delta)<=viewHalf;
+    let t=Math.max(-1,Math.min(1,delta/viewHalf));
+    let theta=-Math.PI/2+t*arcHalf;
+    let markerRadius=radius-42;
+    let x=cx+Math.cos(theta)*markerRadius;
+    let y=cy+Math.sin(theta)*markerRadius;
+    let pulse=0.5+0.5*Math.sin(performance.now()*0.006);
+    let alpha=inView ? 0.76+pulse*0.22 : 0.42+pulse*0.18;
+    let outer=inView ? 6.2+pulse*1.2 : 6.2;
+
+    ctx.save();
+    ctx.translate(x,y);
+    ctx.strokeStyle=palette.stationStroke;
+    ctx.fillStyle=inView ? palette.stationFill : `rgba(245,255,249,${alpha*0.22})`;
+    ctx.lineWidth=1.8;
+
+    ctx.beginPath();
+    ctx.arc(0,0,outer,0,Math.PI*2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.strokeStyle=`rgba(245,255,249,${alpha})`;
+    ctx.lineWidth=1.35;
+    ctx.beginPath();
+    ctx.moveTo(-outer-3,0);
+    ctx.lineTo(-3,0);
+    ctx.moveTo(3,0);
+    ctx.lineTo(outer+3,0);
+    ctx.moveTo(0,-outer-3);
+    ctx.lineTo(0,-3);
+    ctx.moveTo(0,3);
+    ctx.lineTo(0,outer+3);
+    ctx.stroke();
+
+    ctx.fillStyle=palette.stationStroke;
+    ctx.fillRect(-2.2,-2.2,4.4,4.4);
+
+    ctx.restore();
+  }
+
   function drawCompassHud(panel,state){
     if(!panel.compassCtx || !state) return;
 
@@ -488,6 +578,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getPerfo
     let arcHalf=Math.PI*0.36;
     let viewHalf=Math.PI*0.82;
     let heading=state.carVelAngle || 0;
+    let palette=mapPalette();
 
     ctx.clearRect(0,0,width,height);
 
@@ -553,6 +644,8 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getPerfo
       ctx.fillText(dir.label,x,y);
     }
 
+    drawCompassStationMarker(ctx,state,cx,cy,radius,arcHalf,viewHalf,palette);
+
     ctx.strokeStyle="rgba(255,255,255,0.92)";
     ctx.fillStyle="rgba(255,255,255,0.92)";
     ctx.lineWidth=1.4;
@@ -570,7 +663,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getPerfo
 
   function makeGameOverOverlay(){
     gameOverOverlay=document.createElement("div");
-    gameOverOverlay.textContent="GAME OVER";
+    gameOverOverlay.textContent="Game Over";
     gameOverOverlay.style.cssText=[
       "position:fixed",
       "inset:0",
@@ -633,8 +726,9 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getPerfo
     }
   }
 
-  function showGameOverOverlay(){
+  function showGameOverOverlay(label="Game Over"){
     if(gameOverOverlay){
+      gameOverOverlay.textContent=label;
       gameOverOverlay.style.display="flex";
     }
   }

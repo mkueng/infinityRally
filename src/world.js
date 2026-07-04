@@ -471,17 +471,18 @@ function clearBossBases(){
 function placeTestBossBaseNearStart(startX,startZ,startAngle=0){
   clearBossBases();
 
+  let minBossBaseStartDistance=3000;
   let forwardX=Math.sin(startAngle);
   let forwardZ=Math.cos(startAngle);
   let rightX=Math.cos(startAngle);
   let rightZ=-Math.sin(startAngle);
   let best=null;
   let offsets=[
-    {forward:1800,side:650},
-    {forward:2400,side:-780},
     {forward:3100,side:920},
     {forward:3800,side:-1050},
-    {forward:4500,side:600}
+    {forward:4500,side:600},
+    {forward:5200,side:-1250},
+    {forward:5900,side:950}
   ];
 
   for(let offset of offsets){
@@ -489,6 +490,7 @@ function placeTestBossBaseNearStart(startX,startZ,startAngle=0){
       let side=offset.side*sideSign;
       let x=startX+forwardX*offset.forward+rightX*side;
       let z=startZ+forwardZ*offset.forward+rightZ*side;
+      if(Math.hypot(x-startX,z-startZ)<minBossBaseStartDistance) continue;
       let y=groundHeight(x,z);
       if(y<waterLevel+3 || y>38) continue;
       if(roadDistance(x,z)<70) continue;
@@ -501,8 +503,8 @@ function placeTestBossBaseNearStart(startX,startZ,startAngle=0){
 
   if(!best){
     best={
-      x:startX+forwardX*2200+rightX*650,
-      z:startZ+forwardZ*2200+rightZ*650
+      x:startX+forwardX*3600+rightX*900,
+      z:startZ+forwardZ*3600+rightZ*900
     };
   }
 
@@ -1115,7 +1117,7 @@ function makeChunk(cx,cz){
     let bossVillage=largeTown && r01(cx*1741+v*71,cz*927-v*37)>0.42;
     let enemyBudget=(cityMode ? 8 : 5)+Math.floor(r01(cx*811+v*31,cz*337-v*13)*(cityMode ? 10 : 7))+(bossVillage ? 5 : largeTown ? 2 : 0);
     let turretCount=getDifficulty()==="easy" ? 0 : bossVillage ? 3 : largeTown ? 1 : 0;
-    let village={x:centerX,z:centerZ,y:centerY,r:villageRadius,buildings:[],turrets:[],enemyBudget,enemyRemaining:enemyBudget,bossVillage,bossSpawned:false};
+    let village={x:centerX,z:centerZ,y:centerY,r:villageRadius,buildings:[],turrets:[],enemyBudget,enemyRemaining:enemyBudget,bossVillage,bossSpawned:false,city:cityMode};
     villageCenters.push(village);
     let housesInVillage=cityMode
       ? 70
