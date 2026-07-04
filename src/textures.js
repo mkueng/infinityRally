@@ -121,11 +121,32 @@ export function makeGroundTexture(environment={}){
   ctx.fillStyle=ground.base || "#6f2d46";
   ctx.fillRect(0,0,1024,1024);
 
+  let dark=ground.dark || [55,20,70];
+  let bright=ground.bright || [150,70,55];
+
+  for(let i=0;i<9000;i++){
+    let size=0.7+Math.random()*2.8;
+    let useBright=Math.random()>0.55;
+    let source=useBright ? bright : dark;
+    let spread=useBright ? 38 : 30;
+    let r=randomChannel(source[0],spread);
+    let g=randomChannel(source[1],spread*0.72);
+    let b=randomChannel(source[2],spread);
+
+    ctx.fillStyle=`rgba(${r},${g},${b},${0.08+Math.random()*0.16})`;
+    ctx.fillRect(
+      Math.random()*1024,
+      Math.random()*1024,
+      size,
+      size
+    );
+  }
+
   for(let i=0;i<800;i++){
     let size=Math.random()*60+30;
-    let r=randomChannel((ground.dark || [55,20,70])[0],45);
-    let g=randomChannel((ground.dark || [55,20,70])[1],24);
-    let b=randomChannel((ground.dark || [55,20,70])[2],55);
+    let r=randomChannel(dark[0],45);
+    let g=randomChannel(dark[1],24);
+    let b=randomChannel(dark[2],55);
 
     ctx.fillStyle=`rgba(${r},${g},${b},0.12)`;
     ctx.fillRect(
@@ -138,9 +159,9 @@ export function makeGroundTexture(environment={}){
 
   for(let i=0;i<600;i++){
     let size=Math.random()*50+25;
-    let r=randomChannel((ground.bright || [150,70,55])[0],65);
-    let g=randomChannel((ground.bright || [150,70,55])[1],45);
-    let b=randomChannel((ground.bright || [150,70,55])[2],40);
+    let r=randomChannel(bright[0],65);
+    let g=randomChannel(bright[1],45);
+    let b=randomChannel(bright[2],40);
 
     ctx.fillStyle=`rgba(${r},${g},${b},0.08)`;
     ctx.fillRect(
@@ -163,10 +184,23 @@ export function makeGroundTexture(environment={}){
     ctx.stroke();
   }
 
+  for(let i=0;i<420;i++){
+    let x=Math.random()*1024;
+    let y=Math.random()*1024;
+    let length=8+Math.random()*36;
+    let angle=Math.random()*Math.PI*2;
+    ctx.strokeStyle=`rgba(${ground.streak || "104,255,213"},${0.025+Math.random()*0.055})`;
+    ctx.lineWidth=0.7+Math.random()*1.6;
+    ctx.beginPath();
+    ctx.moveTo(x,y);
+    ctx.lineTo(x+Math.cos(angle)*length,y+Math.sin(angle)*length);
+    ctx.stroke();
+  }
+
   let tex=new THREE.CanvasTexture(canvas);
   tex.wrapS=THREE.RepeatWrapping;
   tex.wrapT=THREE.RepeatWrapping;
-  tex.repeat.set(4,4);
+  tex.repeat.set(7,7);
 
   return tex;
 }

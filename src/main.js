@@ -5848,6 +5848,10 @@ function renderGame(){
 }
 
 let lastChunkSignature="";
+let fixedStepMs=1000/60;
+let maxFixedStepsPerFrame=5;
+let fixedAccumulator=0;
+let lastLoopTime=null;
 
 function chunkSignatureForCars(){
   return activeCars()
@@ -5855,23 +5859,7 @@ function chunkSignatureForCars(){
     .join("|");
 }
 
-function loop(){
-  requestAnimationFrame(loop);
-
-  if(!gameStarted){
-    updateCameras();
-    world.processChunkQueue(4,true);
-    updateWeather();
-    world.updateWind(performance.now(),rainIntensity);
-    for(let car of cars) updateVehicleHeadlights(car);
-    clouds.update();
-    birds.update();
-    ambientMotes.update();
-    rain.update();
-    renderGame();
-    return;
-  }
-
+function fixedUpdateGame(){
   for(let car of activeCars()){
     updateCar(car);
   }
@@ -5903,6 +5891,42 @@ function loop(){
   if(chunkSignature!==lastChunkSignature){
     lastChunkSignature=chunkSignature;
     world.updateChunksForCenters(activeCars().map(car=>({x:car.x,z:car.z})));
+  }
+}
+
+function loop(timestamp=performance.now()){
+  requestAnimationFrame(loop);
+
+  if(lastLoopTime==null) lastLoopTime=timestamp;
+  let frameMs=Math.min(250,Math.max(0,timestamp-lastLoopTime));
+  lastLoopTime=timestamp;
+
+  if(!gameStarted){
+    fixedAccumulator=0;
+    updateCameras();
+    world.processChunkQueue(4,true);
+    updateWeather();
+    world.updateWind(timestamp,rainIntensity);
+    for(let car of cars) updateVehicleHeadlights(car);
+    clouds.update();
+    birds.update();
+    ambientMotes.update();
+    rain.update();
+    renderGame();
+    return;
+  }
+
+  fixedAccumulator+=frameMs;
+
+  let steps=0;
+  while(fixedAccumulator>=fixedStepMs && steps<maxFixedStepsPerFrame){
+    fixedUpdateGame();
+    fixedAccumulator-=fixedStepMs;
+    steps++;
+  }
+
+  if(steps>=maxFixedStepsPerFrame && fixedAccumulator>=fixedStepMs){
+    fixedAccumulator=fixedStepMs-0.001;
   }
 
   clouds.update();
@@ -6177,6 +6201,8 @@ function startGame(mode,difficulty="medium"){
   jetUnlocked=false;
   gameOver=false;
   gameWon=false;
+  fixedAccumulator=0;
+  lastLoopTime=null;
   score=0;
   scoredVillages=new WeakSet();
   playerCar.lateralOffset=mode==="single" ? 0 : -4.2;

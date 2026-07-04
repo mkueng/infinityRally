@@ -129,6 +129,7 @@ grassMat.onBeforeCompile=shader=>{
   );
 };
 let rockMat=new THREE.MeshStandardMaterial({color:0x3f334b,roughness:1,metalness:0.12});
+let gravelMat=new THREE.MeshStandardMaterial({color:0x5a5164,roughness:1,metalness:0.02});
 let buildingWallMat=new THREE.MeshStandardMaterial({color:0x5a526d,roughness:0.9,metalness:0.16});
 let buildingRoofMat=new THREE.MeshStandardMaterial({color:0x322b45,roughness:0.92,metalness:0.18});
 let windowMat=new THREE.MeshStandardMaterial({color:0x8dfff2,emissive:0x0bd1c4,emissiveIntensity:0.72,roughness:0.18});
@@ -146,6 +147,7 @@ let crownGeo=new THREE.IcosahedronGeometry(2.35,1);
 let podGeo=new THREE.SphereGeometry(.72,8,6);
 let grassGeo=new THREE.ConeGeometry(.04,1.2,2);
 let rockGeo=new THREE.DodecahedronGeometry(1,0);
+let gravelGeo=new THREE.DodecahedronGeometry(1,0);
 let buildingGeo=new THREE.BoxGeometry(1,1,1);
 let buildingRoofGeo=new THREE.CylinderGeometry(1.05,1.25,1,4);
 let windowGeo=new THREE.BoxGeometry(1,1,1);
@@ -204,6 +206,7 @@ function applyEnvironment(environment={}){
   setMaterialColor(podMat,colors.pod,colors.podEmissive);
   setMaterialColor(grassMat,colors.grass,colors.grassEmissive);
   setMaterialColor(rockMat,colors.rock);
+  setMaterialColor(gravelMat,mixHexColor(colors.rock,colors.shore,0.36));
   setMaterialColor(buildingWallMat,colors.wall);
   setMaterialColor(buildingRoofMat,colors.roof);
   setMaterialColor(chimneyMat,colors.roof);
@@ -1071,6 +1074,43 @@ function makeChunk(cx,cz){
   freezeStaticObject(rocks);
   scene.add(rocks);
 
+  let gravelCount=Math.max(0,Math.floor((cityMode ? 55 : 120)*detail.grassDensity));
+  let gravel=new THREE.InstancedMesh(gravelGeo,gravelMat,gravelCount);
+  let gravelUsed=0;
+
+  for(let i=0;i<gravelCount;i++){
+    let rx=rand(cx*712+i*13,cz*991-i*5);
+    let rz=rand(cx*407-i*7,cz*533+i*17);
+    let wx=cx*chunkSize+(rx-.5)*chunkSize;
+    let wz=cz*chunkSize+(rz-.5)*chunkSize;
+    let wy=groundHeight(wx,wz);
+    let roadDist=roadDistance(wx,wz);
+
+    if(wy<waterLevel+1.2 || wy>38) continue;
+    if(roadDist<28) continue;
+    if(cityMode && roadDist<76) continue;
+
+    let scale=0.16+rand(i*5+11,cx-cz)*0.38;
+    let flatness=0.035+rand(cx+i*3,cz-i*2)*0.055;
+
+    dummy.position.set(wx,wy+0.035,wz);
+    dummy.rotation.set(
+      rand(i,cx+5)*0.24,
+      rand(i*9,cz-3)*Math.PI*2,
+      rand(cx-7,cz+i)*0.24
+    );
+    dummy.scale.set(scale*(0.9+rand(i+1,cx)*0.6),flatness,scale*(0.7+rand(i+2,cz)*0.8));
+    dummy.updateMatrix();
+
+    gravel.setMatrixAt(gravelUsed,dummy.matrix);
+    gravelUsed++;
+  }
+
+  gravel.count=gravelUsed;
+  gravel.instanceMatrix.needsUpdate=true;
+  freezeStaticObject(gravel);
+  scene.add(gravel);
+
   let maxBuildings=cityMode ? 70 : 120;
   let maxWindowInstances=maxBuildings*(cityMode ? 48 : 8);
   let buildingBodies=new THREE.InstancedMesh(buildingGeo,buildingWallMat,maxBuildings);
@@ -1481,7 +1521,7 @@ function makeChunk(cx,cz){
   freezeStaticObject(cityStreets);
   scene.add(buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,cityStreets);
 
-  return {land,road,water,trunks,crowns,pods,grasses,rocks,buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,cityStreets,villageCenters,colliders};
+  return {land,road,water,trunks,crowns,pods,grasses,rocks,gravel,buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,cityStreets,villageCenters,colliders};
 }
 
 function updateChunksForCenters(centers){
@@ -1581,6 +1621,7 @@ function disposeChunk(chunk){
     chunk.pods,
     chunk.grasses,
     chunk.rocks,
+    chunk.gravel,
     chunk.buildingBodies,
     chunk.buildingRoofs,
     chunk.buildingWindows,
@@ -1601,6 +1642,7 @@ function disposeChunk(chunk){
   chunk.pods.dispose();
   chunk.grasses.dispose();
   chunk.rocks.dispose();
+  if(chunk.gravel) chunk.gravel.dispose();
   chunk.buildingBodies.dispose();
   chunk.buildingRoofs.dispose();
   chunk.buildingWindows.dispose();
