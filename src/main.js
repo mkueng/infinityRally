@@ -337,6 +337,7 @@ let difficultySettings={
     villageBudget:0.42,
     hardFlight:false,
     rocketAmmo:70,
+    carRocketAmmo:20,
     cannonAmmo:500
   },
   medium:{
@@ -348,6 +349,7 @@ let difficultySettings={
     villageBudget:1,
     hardFlight:false,
     rocketAmmo:50,
+    carRocketAmmo:14,
     cannonAmmo:300
   },
   hard:{
@@ -359,6 +361,7 @@ let difficultySettings={
     villageBudget:1.45,
     hardFlight:true,
     rocketAmmo:30,
+    carRocketAmmo:10,
     cannonAmmo:200
   }
 };
@@ -398,6 +401,7 @@ let aimOffsetYMax=13;
 let initialClusterBombAmmo=10;
 let maxBoostCharge=100;
 let rocketSupplyAmount=6;
+let carRocketSupplyAmount=3;
 let cannonSupplyAmount=40;
 let healthSupplyAmount=35;
 let boostSupplyAmount=45;
@@ -727,6 +731,10 @@ function maxRocketAmmo(){
   return currentDifficulty().rocketAmmo || difficultySettings.medium.rocketAmmo;
 }
 
+function maxCarRocketAmmo(){
+  return currentDifficulty().carRocketAmmo || difficultySettings.medium.carRocketAmmo;
+}
+
 function scaledDelay(frames,scale){
   return Math.max(1,Math.round(frames*scale));
 }
@@ -800,6 +808,7 @@ function createCarState(id,lateralOffset,controls,camera,gamepadIndex){
     rocketLauncherSide:1,
     rocketCooldown:0,
     rocketAmmo:maxRocketAmmo(),
+    carRocketAmmo:maxCarRocketAmmo(),
     lastCannonButton:false,
     cannonCooldown:0,
     cannonAmmo:maxCannonAmmo(),
@@ -1017,6 +1026,7 @@ let hud=createHud({
     carSpeed:car.speed,
     carHealth:car.health,
     rocketAmmo:car.rocketAmmo,
+    carRocketAmmo:car.carRocketAmmo,
     cannonAmmo:car.cannonAmmo,
     clusterBombAmmo:car.clusterBombAmmo,
     boostCharge:car.boostCharge,
@@ -2064,8 +2074,10 @@ function collectSupplyBox(box,car){
 
   if(type==="rocket"){
     let rocketAmmoCap=maxRocketAmmo();
-    if(car.rocketAmmo>=rocketAmmoCap) return false;
+    let carRocketAmmoCap=maxCarRocketAmmo();
+    if(car.rocketAmmo>=rocketAmmoCap && car.carRocketAmmo>=carRocketAmmoCap) return false;
     car.rocketAmmo=Math.min(rocketAmmoCap,car.rocketAmmo+rocketSupplyAmount);
+    car.carRocketAmmo=Math.min(carRocketAmmoCap,car.carRocketAmmo+carRocketSupplyAmount);
   }else if(type==="cannon"){
     let cannonAmmoCap=maxCannonAmmo();
     if(car.cannonAmmo>=cannonAmmoCap) return false;
@@ -2472,12 +2484,12 @@ function rocketTargetPoint(target){
 function fireRocket(car){
   if(gameOver || car.health<=0 || car.rocketCooldown>0) return;
   if(car.jetMode || car.jetProgress>0.35) return;
-  if(!car.isEnemy && car.rocketAmmo<=0) return;
 
   let mesh=makeRocketMesh();
   let carRocketMode=car.morphed && car.morphProgress>=0.72;
   let robotRocketMode=!car.morphed && car.morphProgress<0.35;
   if(!carRocketMode && !robotRocketMode) return;
+  if(!car.isEnemy && (carRocketMode ? car.carRocketAmmo<=0 : car.rocketAmmo<=0)) return;
   if(carRocketMode) mesh.scale.setScalar(1.22);
   let launchPoint=carRocketMode ? rocketLaunchPointForCar(car) : rocketLaunchPointForRobot(car);
   let startX=launchPoint.x;
@@ -2599,7 +2611,7 @@ function fireRocket(car){
 
   motorAudio.playRocketLaunch(car);
   car.rocketCooldown=rocketCooldownFrames;
-  if(!car.isEnemy) car.rocketAmmo=Math.max(0,car.rocketAmmo-1);
+  if(!car.isEnemy) car.carRocketAmmo=Math.max(0,car.carRocketAmmo-1);
 }
 
 function fireBoatMissile(boat,target){
@@ -6653,6 +6665,7 @@ function placeCarOnOpenField(car,startInfo){
   car.rocketLauncherSide=1;
   car.rocketCooldown=0;
   car.rocketAmmo=maxRocketAmmo();
+  car.carRocketAmmo=maxCarRocketAmmo();
   car.lastCannonButton=false;
   car.cannonCooldown=0;
   car.cannonAmmo=maxCannonAmmo();

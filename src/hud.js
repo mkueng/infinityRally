@@ -65,7 +65,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "top:50px",
       `left:calc(${panelOffset(panel)} + 18px)`,
       "width:122px",
-      "height:190px",
+      "height:214px",
       "background:rgba(20,28,34,0.42)",
       "box-shadow:0 4px 14px rgba(0,0,0,0.2)",
       "z-index:10",
@@ -191,7 +191,8 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       let ammoRows=[
         {icon:"rocket",value:state.rocketAmmo ?? 0,color:"#e36b44"},
         {icon:"cannon",value:state.cannonAmmo ?? 0,color:"#75d7e8"},
-        {icon:"bomb",value:state.clusterBombAmmo ?? 0,color:"#d8aa4c"}
+        {icon:"bomb",value:state.clusterBombAmmo ?? 0,color:"#d8aa4c"},
+        {icon:"carRocket",value:state.carRocketAmmo ?? 0,color:"#ff9a4d"}
       ];
       panel.ammoLabel.innerHTML=[
         ...ammoRows.map(row=>[
@@ -226,6 +227,19 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
         `<path d="M4.1 9.8h6.3v1.6H4.1V9.8z" fill="${color}"/>`,
         `<path d="M2.9 12.2h3.1l1.2 2.1H4.1l-1.2-2.1z" fill="#64717a"/>`,
         `<path d="M13.2 8.3h2.8v1.2h-2.8V8.3z" fill="#d8f8ff"/>`,
+        `</svg>`
+      ].join("");
+    }
+    if(kind==="carRocket"){
+      return [
+        `<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">`,
+        `<path d="M2.2 12.3h13.6v2H2.2v-2z" fill="#30383f"/>`,
+        `<path d="M4.1 10.1h9.8l1.2 2.2H2.9l1.2-2.2z" fill="#4c5961"/>`,
+        `<path d="M5.4 6.7h2.2v3.7H5.4V6.7z" fill="#26313b"/>`,
+        `<path d="M10.4 6.7h2.2v3.7h-2.2V6.7z" fill="#26313b"/>`,
+        `<path d="M6.5 2.3l1.5 1.3 0.3 2.9H4.8l0.3-2.9 1.4-1.3z" fill="${color}"/>`,
+        `<path d="M11.5 2.3l1.5 1.3 0.3 2.9H9.8l0.3-2.9 1.4-1.3z" fill="${color}"/>`,
+        `<path d="M5.6 7.5h1.8v1.3H5.6V7.5zM10.6 7.5h1.8v1.3h-1.8V7.5z" fill="#d8f8ff"/>`,
         `</svg>`
       ].join("");
     }
