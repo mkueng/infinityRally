@@ -200,6 +200,34 @@ export function normalizeCarModel(car){
   model.userData.baseScale=model.scale.clone();
   model.userData.trackHalfWidth=Math.max(0.92,Math.min(1.18,size.x*0.43));
 
+  let launcherMat=new THREE.MeshStandardMaterial({
+    color:0x262d32,
+    roughness:0.5,
+    metalness:0.58
+  });
+  let launcherBandMat=new THREE.MeshStandardMaterial({
+    color:0xff7a32,
+    emissive:0x4a1606,
+    emissiveIntensity:0.34,
+    roughness:0.42,
+    metalness:0.32
+  });
+  for(let side of [-1,1]){
+    let tube=new THREE.Mesh(new THREE.CylinderGeometry(0.13,0.16,1.24,12),launcherMat);
+    tube.position.set(side*0.86,1.08,0.22);
+    tube.rotation.x=Math.PI/2;
+    tube.castShadow=true;
+    tube.receiveShadow=true;
+    model.add(tube);
+
+    let band=new THREE.Mesh(new THREE.CylinderGeometry(0.17,0.17,0.12,12),launcherBandMat);
+    band.position.set(side*0.86,1.08,0.75);
+    band.rotation.x=Math.PI/2;
+    band.castShadow=true;
+    band.receiveShadow=true;
+    model.add(band);
+  }
+
   return model;
 }
 

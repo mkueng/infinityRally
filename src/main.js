@@ -389,6 +389,7 @@ let jetTransitionRate=0.075;
 let jetMaxSpeed=2.4;
 let mechStrideLength=2.35;
 let rocketSpeed=1.75;
+let longRangeRocketSpeed=2.85;
 let rocketCooldownFrames=34;
 let rocketTurnRate=0.075;
 let rocketAimYOffset=-4.2;
@@ -796,6 +797,7 @@ function createCarState(id,lateralOffset,controls,camera,gamepadIndex){
     mouseAimWorldZ:0,
     lastAimMouseVersion:-1,
     lastRocketButton:false,
+    rocketLauncherSide:1,
     rocketCooldown:0,
     rocketAmmo:maxRocketAmmo(),
     lastCannonButton:false,
@@ -2398,6 +2400,33 @@ function rocketLaunchPointForCar(car){
   let forwardZ=Math.cos(car.angle);
   let rightX=Math.cos(car.angle);
   let rightZ=-Math.sin(car.angle);
+  let side=car.rocketLauncherSide || 1;
+  car.rocketLauncherSide=-side;
+
+  if(car.carModel){
+    car.group.position.set(car.x,car.y,car.z);
+    car.group.rotation.y=car.angle+car.trickYaw;
+    car.group.rotation.x=car.pitch+car.trickPitch;
+    car.group.rotation.z=car.trickRoll+(car.jetBank || 0);
+    car.group.updateMatrixWorld(true);
+
+    let launcherPoint=new THREE.Vector3(side*0.86,1.08,0.92);
+    car.carModel.localToWorld(launcherPoint);
+    return launcherPoint;
+  }
+
+  return new THREE.Vector3(
+    car.x+forwardX*0.55+rightX*side*0.86,
+    car.y+1.65,
+    car.z+forwardZ*0.55+rightZ*side*0.86
+  );
+}
+
+function rocketLaunchPointForRobot(car){
+  let forwardX=Math.sin(car.angle);
+  let forwardZ=Math.cos(car.angle);
+  let rightX=Math.cos(car.angle);
+  let rightZ=-Math.sin(car.angle);
 
   return new THREE.Vector3(
     car.x+forwardX*2.6+rightX*1.75,
@@ -2442,12 +2471,15 @@ function rocketTargetPoint(target){
 
 function fireRocket(car){
   if(gameOver || car.health<=0 || car.rocketCooldown>0) return;
-  if(car.morphed || car.morphProgress>0.22) return;
   if(car.jetMode || car.jetProgress>0.35) return;
   if(!car.isEnemy && car.rocketAmmo<=0) return;
 
   let mesh=makeRocketMesh();
-  let launchPoint=rocketLaunchPointForCar(car);
+  let carRocketMode=car.morphed && car.morphProgress>=0.72;
+  let robotRocketMode=!car.morphed && car.morphProgress<0.35;
+  if(!carRocketMode && !robotRocketMode) return;
+  if(carRocketMode) mesh.scale.setScalar(1.22);
+  let launchPoint=carRocketMode ? rocketLaunchPointForCar(car) : rocketLaunchPointForRobot(car);
   let startX=launchPoint.x;
   let startY=launchPoint.y;
   let startZ=launchPoint.z;
@@ -2457,18 +2489,72 @@ function fireRocket(car){
   let aimY=aimPoint.y-startY;
   let aimZ=aimPoint.z-startZ;
   let aimLen=Math.max(0.001,Math.hypot(aimX,aimY,aimZ));
-  let rocketLife=targetActor
-    ? Math.min(420,Math.max(150,Math.ceil(aimLen/rocketSpeed)+110))
-    : Math.min(620,Math.max(180,Math.ceil(aimLen/rocketSpeed)+90));
-  let targetDistance=targetActor ? 260 : Math.max(280,aimLen);
+
+  if(!carRocketMode){
+    let rocketLife=targetActor
+      ? Math.min(420,Math.max(150,Math.ceil(aimLen/rocketSpeed)+110))
+      : Math.min(620,Math.max(180,Math.ceil(aimLen/rocketSpeed)+90));
+    let targetDistance=targetActor ? 260 : Math.max(280,aimLen);
+    let target={
+      x:startX+(aimX/aimLen)*targetDistance,
+      y:startY+(aimY/aimLen)*targetDistance,
+      z:startZ+(aimZ/aimLen)*targetDistance
+    };
+    mesh.position.set(startX,startY,startZ);
+    mesh.rotation.y=Math.atan2(aimX,aimZ);
+    mesh.rotation.x=-Math.asin(clamp(aimY/aimLen,-1,1));
+    scene.add(mesh);
+
+    rockets.push({
+      owner:car,
+      mesh,
+      x:startX,
+      y:startY,
+      z:startZ,
+      angle:Math.atan2(aimX,aimZ),
+      targetX:target.x,
+      targetY:target.y,
+      targetZ:target.z,
+      targetActor,
+      vx:(aimX/aimLen)*rocketSpeed,
+      vz:(aimZ/aimLen)*rocketSpeed,
+      vy:(aimY/aimLen)*rocketSpeed,
+      age:0,
+      life:rocketLife
+    });
+
+    motorAudio.playRocketLaunch(car);
+    car.rocketCooldown=rocketCooldownFrames;
+    if(!car.isEnemy) car.rocketAmmo=Math.max(0,car.rocketAmmo-1);
+    return;
+  }
+
+  let projectileSpeed=longRangeRocketSpeed;
+  let targetDistance=targetActor ? Math.max(420,aimLen+90) : Math.max(620,Math.min(aimLen,620));
   let target={
     x:startX+(aimX/aimLen)*targetDistance,
     y:startY+(aimY/aimLen)*targetDistance,
     z:startZ+(aimZ/aimLen)*targetDistance
   };
+  if(targetActor){
+    target.x=aimPoint.x;
+    target.y=aimPoint.y;
+    target.z=aimPoint.z;
+  }else{
+    target.y=Math.max(drivingSurfaceHeight(target.x,target.z)+1.2,target.y);
+  }
+  let targetDx=target.x-startX;
+  let targetDz=target.z-startZ;
+  let horizontalDistance=Math.max(1,Math.hypot(targetDx,targetDz));
+  let gravity=0.0075;
+  let flightTime=clamp(horizontalDistance/(projectileSpeed*1.55),55,160);
+  let vx=targetDx/flightTime;
+  let vz=targetDz/flightTime;
+  let vy=(target.y-startY+0.5*gravity*flightTime*flightTime)/flightTime;
+  let rocketLife=Math.ceil(flightTime)+45;
   mesh.position.set(startX,startY,startZ);
-  mesh.rotation.y=Math.atan2(aimX,aimZ);
-  mesh.rotation.x=-Math.asin(clamp(aimY/aimLen,-1,1));
+  mesh.rotation.y=Math.atan2(vx,vz);
+  mesh.rotation.x=-Math.atan2(vy,Math.max(0.001,Math.hypot(vx,vz)));
   scene.add(mesh);
 
   rockets.push({
@@ -2482,12 +2568,34 @@ function fireRocket(car){
     targetY:target.y,
     targetZ:target.z,
     targetActor,
-    vx:(aimX/aimLen)*rocketSpeed,
-    vz:(aimZ/aimLen)*rocketSpeed,
-    vy:(aimY/aimLen)*rocketSpeed,
+    vx,
+    vz,
+    vy,
+    speed:projectileSpeed,
+    longRange:true,
+    trailEvery:1,
+    trailScale:1.55,
     age:0,
-    life:rocketLife
+    life:rocketLife,
+    impactAge:Math.ceil(flightTime),
+    ballistic:true,
+    gravity,
+    damage:24,
+    blastRadius:18
   });
+
+  for(let i=0;i<12;i++){
+    dust.spawnThrusterParticle(
+      startX,
+      startY,
+      startZ,
+      -(aimX/aimLen)*(2.3+Math.random()*2.8)+(Math.random()-0.5)*1.2,
+      -(aimZ/aimLen)*(2.3+Math.random()*2.8)+(Math.random()-0.5)*1.2,
+      -(aimY/aimLen)*(1.0+Math.random()*1.6)+(Math.random()-0.5)*0.9,
+      0.22+Math.random()*0.12,
+      0.1+Math.random()*0.06
+    );
+  }
 
   motorAudio.playRocketLaunch(car);
   car.rocketCooldown=rocketCooldownFrames;
@@ -2919,16 +3027,17 @@ function updateRockets(){
       let dy=rocket.targetY-rocket.y;
       let dz=rocket.targetZ-rocket.z;
       let desiredLen=Math.max(0.001,Math.hypot(dx,dy,dz));
-      let desiredVx=(dx/desiredLen)*rocketSpeed;
-      let desiredVy=(dy/desiredLen)*rocketSpeed;
-      let desiredVz=(dz/desiredLen)*rocketSpeed;
+      let rocketTravelSpeed=rocket.speed || rocketSpeed;
+      let desiredVx=(dx/desiredLen)*rocketTravelSpeed;
+      let desiredVy=(dy/desiredLen)*rocketTravelSpeed;
+      let desiredVz=(dz/desiredLen)*rocketTravelSpeed;
       rocket.vx+=(desiredVx-rocket.vx)*rocketTurnRate;
       rocket.vy+=(desiredVy-rocket.vy)*rocketTurnRate;
       rocket.vz+=(desiredVz-rocket.vz)*rocketTurnRate;
       let velocityLen=Math.max(0.001,Math.hypot(rocket.vx,rocket.vy,rocket.vz));
-      rocket.vx=(rocket.vx/velocityLen)*rocketSpeed;
-      rocket.vy=(rocket.vy/velocityLen)*rocketSpeed;
-      rocket.vz=(rocket.vz/velocityLen)*rocketSpeed;
+      rocket.vx=(rocket.vx/velocityLen)*rocketTravelSpeed;
+      rocket.vy=(rocket.vy/velocityLen)*rocketTravelSpeed;
+      rocket.vz=(rocket.vz/velocityLen)*rocketTravelSpeed;
     }
     rocket.angle=Math.atan2(rocket.vx,rocket.vz);
 
@@ -2944,17 +3053,23 @@ function updateRockets(){
     rocket.mesh.rotation.x=-Math.asin(clamp(rocket.vy/rocketVelocity,-1,1));
     rocket.mesh.rotation.z=Math.sin(rocket.age*0.45)*0.05;
 
-    if(rocket.age%2===0){
-      dust.spawnThrusterParticle(
-        rocket.x-Math.sin(rocket.angle)*0.62,
-        rocket.y,
-        rocket.z-Math.cos(rocket.angle)*0.62,
-        -Math.sin(rocket.angle)*2.4+(Math.random()-0.5)*0.8,
-        -Math.cos(rocket.angle)*2.4+(Math.random()-0.5)*0.8,
-        (Math.random()-0.5)*0.8,
-        0.18,
-        0.07+Math.random()*0.04
-      );
+    let trailEvery=rocket.trailEvery || 2;
+    if(rocket.age%trailEvery===0){
+      let trailScale=rocket.trailScale || 1;
+      let trailCount=rocket.longRange ? 2 : 1;
+      for(let t=0;t<trailCount;t++){
+        let offset=-0.62-(rocket.longRange ? t*0.42 : 0);
+        dust.spawnThrusterParticle(
+          rocket.x-Math.sin(rocket.angle)*Math.abs(offset),
+          rocket.y+(Math.random()-0.5)*0.16*trailScale,
+          rocket.z-Math.cos(rocket.angle)*Math.abs(offset),
+          -Math.sin(rocket.angle)*(2.4+trailScale*0.75)+(Math.random()-0.5)*0.8*trailScale,
+          -Math.cos(rocket.angle)*(2.4+trailScale*0.75)+(Math.random()-0.5)*0.8*trailScale,
+          (Math.random()-0.5)*0.8*trailScale,
+          0.18*trailScale,
+          0.07+Math.random()*0.04+rocket.longRange*0.035
+        );
+      }
     }
 
     let surfaceY=drivingSurfaceHeight(rocket.x,rocket.z);
@@ -5999,7 +6114,8 @@ function updateCameras(){
 }
 
 function aimCrossVisibleFor(car){
-  return car.aimCross && car.morphProgress<0.35 && car.jetProgress<0.35 && car.health>0 && !gameOver && car.group.visible;
+  let groundWeaponMode=car.morphProgress<0.35 || car.morphProgress>0.72;
+  return car.aimCross && groundWeaponMode && car.jetProgress<0.35 && car.health>0 && !gameOver && car.group.visible;
 }
 
 function setAimCrossForRender(focusedCar){
@@ -6534,6 +6650,7 @@ function placeCarOnOpenField(car,startInfo){
   car.lastAimMouseVersion=input.mouse.version;
   if(car.aimCross) car.aimCross.position.set(0,3.15,32);
   car.lastRocketButton=false;
+  car.rocketLauncherSide=1;
   car.rocketCooldown=0;
   car.rocketAmmo=maxRocketAmmo();
   car.lastCannonButton=false;
