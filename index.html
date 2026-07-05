@@ -251,13 +251,22 @@
     const cursor = document.getElementById("menuRobotCursor");
     const startScreen = document.getElementById("startScreen");
     if (!cursor || !startScreen) return;
+    document.body.appendChild(cursor);
 
     let cursorX = innerWidth * 0.5;
     let cursorY = innerHeight * 0.5;
     let lastFire = false;
 
     function menuVisible() {
-      return startScreen.style.display !== "none";
+      const pauseMenu = document.getElementById("pauseMenuOverlay");
+      return startScreen.style.display !== "none"
+        || (pauseMenu && pauseMenu.style.display !== "none");
+    }
+
+    function activeMenuRoot() {
+      const pauseMenu = document.getElementById("pauseMenuOverlay");
+      if (pauseMenu && pauseMenu.style.display !== "none") return pauseMenu;
+      return startScreen.style.display !== "none" ? startScreen : null;
     }
 
     function clamp(value, min, max) {
@@ -281,9 +290,14 @@
       cursor.style.transform = `translate3d(${cursorX - 17}px, ${cursorY - 21}px, 0)`;
     }
 
+    function updateCursorVisibility() {
+      cursor.style.display = menuVisible() ? "block" : "none";
+    }
+
     window.addEventListener("pointermove", event => {
       if (!menuVisible()) return;
       setCursorPosition(event.clientX, event.clientY);
+      updateCursorVisibility();
     });
 
     window.addEventListener("pointerdown", () => {
@@ -297,10 +311,12 @@
     function updateControllerCursor() {
       requestAnimationFrame(updateControllerCursor);
       if (!menuVisible()) {
+        updateCursorVisibility();
         cursor.classList.remove("is-pressing");
         lastFire = false;
         return;
       }
+      updateCursorVisibility();
 
       const pads = navigator.getGamepads ? navigator.getGamepads() : [];
       const pad = Array.from(pads).find(item => item && item.connected);
@@ -318,12 +334,14 @@
       if (fire && !lastFire) {
         const target = document.elementFromPoint(cursorX, cursorY);
         const button = target && target.closest("button");
-        if (button && startScreen.contains(button)) button.click();
+        const menuRoot = activeMenuRoot();
+        if (button && menuRoot && menuRoot.contains(button)) button.click();
       }
       lastFire = fire;
     }
 
     setCursorPosition(cursorX, cursorY);
+    updateCursorVisibility();
     updateControllerCursor();
 
     startScreen.addEventListener("click", event => {

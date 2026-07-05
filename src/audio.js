@@ -4,9 +4,12 @@ export function createMotorAudio(cars){
   let motors=[];
   let noiseBuffer=null;
   let supported=true;
+  let sfxVolume=1;
+  let musicVolume=0.2;
+  let paused=false;
   let backgroundMusic=new Audio("./assets/music/ROSpace.mp3");
   backgroundMusic.loop=true;
-  backgroundMusic.volume=0.2;
+  backgroundMusic.volume=musicVolume;
   backgroundMusic.preload="auto";
 
   function clamp(value,min,max){
@@ -24,7 +27,7 @@ export function createMotorAudio(cars){
 
     context=new AudioContextClass();
     master=context.createGain();
-    master.gain.value=0.26;
+    master.gain.value=paused ? 0 : 0.26*sfxVolume;
     master.connect(context.destination);
     noiseBuffer=createNoiseBuffer();
 
@@ -98,6 +101,33 @@ export function createMotorAudio(cars){
         airRev:0
       };
     });
+  }
+
+  function applyVolumes(){
+    backgroundMusic.volume=musicVolume;
+    if(master) master.gain.value=paused ? 0 : 0.26*sfxVolume;
+  }
+
+  function setMusicVolume(value){
+    musicVolume=clamp(Number(value) || 0,0,1);
+    applyVolumes();
+  }
+
+  function setSfxVolume(value){
+    sfxVolume=clamp(Number(value) || 0,0,1);
+    applyVolumes();
+  }
+
+  function setPaused(value){
+    paused=!!value;
+    applyVolumes();
+  }
+
+  function getVolumeSettings(){
+    return {
+      music:musicVolume,
+      sfx:sfxVolume
+    };
   }
 
   function createNoiseBuffer(){
@@ -519,6 +549,10 @@ export function createMotorAudio(cars){
   return {
     resume,
     update,
+    setMusicVolume,
+    setSfxVolume,
+    setPaused,
+    getVolumeSettings,
     playRocketLaunch,
     playCannonFire,
     playExplosion,

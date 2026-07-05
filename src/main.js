@@ -324,6 +324,7 @@ let cameraFollowDistance=18;
 let cameraFollowHeight=7.5;
 let cars=[];
 let gameStarted=false;
+let gamePaused=false;
 let gameMode="single";
 let gameDifficulty="medium";
 let difficultySettings={
@@ -827,6 +828,180 @@ let ambientMotes=createAmbientMotes(scene,()=>({carX:px,carY:py,carZ:pz}),()=>ra
 let dust=createDust(scene);
 let wheelTracks=createWheelTracks(scene);
 let motorAudio=createMotorAudio(cars);
+
+function createPauseMenu(audio){
+  let overlay=document.createElement("div");
+  overlay.id="pauseMenuOverlay";
+  overlay.style.cssText=[
+    "position:fixed",
+    "inset:0",
+    "display:none",
+    "z-index:30",
+    "background:rgba(4,8,12,0.58)",
+    "backdrop-filter:blur(3px)",
+    "font-family:Arial,sans-serif",
+    "color:white",
+    "pointer-events:auto"
+  ].join(";");
+
+  let modelPanel=document.createElement("div");
+  modelPanel.style.cssText=[
+    "position:absolute",
+    "left:28px",
+    "top:26px",
+    "width:min(340px,34vw)",
+    "height:min(430px,56vh)",
+    "min-width:220px",
+    "min-height:300px"
+  ].join(";");
+
+  let controls=document.createElement("div");
+  controls.style.cssText=[
+    "position:absolute",
+    "right:32px",
+    "top:34px",
+    "width:min(360px,38vw)",
+    "min-width:250px",
+    "background:rgba(18,24,30,0.68)",
+    "border:1px solid rgba(185,244,255,0.22)",
+    "box-shadow:0 12px 34px rgba(0,0,0,0.36)",
+    "padding:22px",
+    "box-sizing:border-box"
+  ].join(";");
+
+  let title=document.createElement("div");
+  title.textContent="Paused";
+  title.style.cssText=[
+    "font-size:28px",
+    "font-weight:900",
+    "letter-spacing:0",
+    "margin-bottom:20px",
+    "text-transform:uppercase",
+    "text-shadow:0 2px 14px rgba(0,0,0,0.55)"
+  ].join(";");
+  controls.appendChild(title);
+
+  function addSlider(label,setter,value){
+    let row=document.createElement("label");
+    row.style.cssText=[
+      "display:block",
+      "margin:18px 0",
+      "font-size:13px",
+      "font-weight:800",
+      "letter-spacing:0.08em",
+      "text-transform:uppercase",
+      "color:rgba(245,255,249,0.9)"
+    ].join(";");
+
+    let text=document.createElement("div");
+    text.textContent=label;
+    text.style.cssText="margin-bottom:9px";
+
+    let input=document.createElement("input");
+    input.type="range";
+    input.min="0";
+    input.max="1";
+    input.step="0.01";
+    input.value=String(value);
+    input.style.cssText=[
+      "width:100%",
+      "accent-color:#8dfff2",
+      "cursor:pointer"
+    ].join(";");
+    input.addEventListener("input",()=>setter(Number(input.value)));
+    for(let eventName of ["pointerdown","mousedown","click"]){
+      input.addEventListener(eventName,event=>event.stopPropagation());
+    }
+
+    row.appendChild(text);
+    row.appendChild(input);
+    controls.appendChild(row);
+  }
+
+  let volumes=audio.getVolumeSettings ? audio.getVolumeSettings() : {music:0.2,sfx:1};
+  addSlider("Music",value=>audio.setMusicVolume(value),volumes.music);
+  addSlider("SFX",value=>audio.setSfxVolume(value),volumes.sfx);
+
+  overlay.appendChild(modelPanel);
+  overlay.appendChild(controls);
+  document.body.appendChild(overlay);
+
+  let previewScene=new THREE.Scene();
+  let previewCamera=new THREE.PerspectiveCamera(31,1,0.1,100);
+  previewCamera.position.set(0,3.15,14.2);
+  previewCamera.lookAt(0,2.55,0);
+  let previewRenderer=new THREE.WebGLRenderer({alpha:true,antialias:true,powerPreference:"low-power"});
+  previewRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1,1.5));
+  previewRenderer.setClearColor(0x000000,0);
+  previewRenderer.domElement.style.cssText="width:100%;height:100%;display:block";
+  modelPanel.appendChild(previewRenderer.domElement);
+
+  let previewRobotPivot=new THREE.Group();
+  let previewRobot=makeMechModel(0x8dfff2);
+  previewRobot.scale.set(1.22,1.38,1.22);
+  previewRobotPivot.add(previewRobot);
+  previewScene.add(previewRobotPivot);
+
+  let previewBox=new THREE.Box3();
+  let previewCenter=new THREE.Vector3();
+  let previewSize=new THREE.Vector3();
+
+  function framePreviewRobot(){
+    previewRobot.rotation.set(0,0,0);
+    previewRobot.updateMatrixWorld(true);
+    previewBox.setFromObject(previewRobot);
+    previewBox.getCenter(previewCenter);
+    previewBox.getSize(previewSize);
+    previewRobot.position.sub(previewCenter);
+    previewRobot.updateMatrixWorld(true);
+    previewBox.setFromObject(previewRobot);
+    previewBox.getSize(previewSize);
+
+    let verticalSize=Math.max(1,previewSize.y);
+    let horizontalSize=Math.max(1,previewSize.x,previewSize.z);
+    let verticalDistance=(verticalSize*0.68)/Math.tan(THREE.MathUtils.degToRad(previewCamera.fov*0.5));
+    let horizontalDistance=(horizontalSize*0.72)/Math.tan(THREE.MathUtils.degToRad(previewCamera.fov*0.5))*Math.max(1,1/previewCamera.aspect);
+    let distance=Math.max(verticalDistance,horizontalDistance,10);
+    previewCamera.position.set(0,verticalSize*0.06,distance);
+    previewCamera.lookAt(0,0,0);
+  }
+
+  let previewHemi=new THREE.HemisphereLight(0xcafcff,0x18212b,1.65);
+  let previewKey=new THREE.DirectionalLight(0xffffff,2.2);
+  previewKey.position.set(4,7,6);
+  previewScene.add(previewHemi,previewKey);
+
+  function resizePreview(){
+    let rect=modelPanel.getBoundingClientRect();
+    let width=Math.max(1,Math.floor(rect.width));
+    let height=Math.max(1,Math.floor(rect.height));
+    previewRenderer.setSize(width,height,false);
+    previewCamera.aspect=width/height;
+    previewCamera.updateProjectionMatrix();
+    framePreviewRobot();
+  }
+
+  function setVisible(visible){
+    overlay.style.display=visible ? "block" : "none";
+    if(visible) resizePreview();
+  }
+
+  function update(time){
+    if(overlay.style.display==="none") return;
+    previewRobotPivot.rotation.y=time*0.00042;
+    previewRobotPivot.rotation.x=Math.sin(time*0.0012)*0.035;
+    previewRenderer.render(previewScene,previewCamera);
+  }
+
+  window.addEventListener("resize",resizePreview);
+
+  return {
+    setVisible,
+    update
+  };
+}
+
+let pauseMenu=createPauseMenu(motorAudio);
 let hud=createHud({
   getPerformanceMode:()=>gameMode==="double" ? "split" : "full",
   getEnvironment:()=>currentEnvironment,
@@ -880,6 +1055,23 @@ function showGameWon(){
   hud.updateHealthHud();
   hud.showGameOverOverlay("You Won");
 }
+
+function setGamePaused(paused){
+  if(!gameStarted || gameOver) paused=false;
+  if(gamePaused===paused) return;
+  gamePaused=paused;
+  fixedAccumulator=0;
+  lastLoopTime=null;
+  motorAudio.setPaused(gamePaused);
+  pauseMenu.setVisible(gamePaused);
+}
+
+window.addEventListener("keydown",event=>{
+  if(event.key!=="Escape") return;
+  event.preventDefault();
+  if(!gameStarted || gameOver) return;
+  setGamePaused(!gamePaused);
+});
 
 function damageCar(car,amount){
   if(healthDamageCooldown>0 || car.health<=0) return;
@@ -5916,6 +6108,14 @@ function loop(timestamp=performance.now()){
     return;
   }
 
+  if(gamePaused){
+    fixedAccumulator=0;
+    updateCameras();
+    pauseMenu.update(timestamp);
+    renderGame();
+    return;
+  }
+
   fixedAccumulator+=frameMs;
 
   let steps=0;
@@ -5937,6 +6137,7 @@ function loop(timestamp=performance.now()){
   hud.updateMapHud();
   hud.updateCompassHud();
   world.processChunkQueue();
+  pauseMenu.update(timestamp);
   renderGame();
 }
 
@@ -6201,6 +6402,9 @@ function startGame(mode,difficulty="medium"){
   jetUnlocked=false;
   gameOver=false;
   gameWon=false;
+  gamePaused=false;
+  motorAudio.setPaused(false);
+  pauseMenu.setVisible(false);
   fixedAccumulator=0;
   lastLoopTime=null;
   score=0;
