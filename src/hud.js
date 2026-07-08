@@ -65,7 +65,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "top:50px",
       `left:calc(${panelOffset(panel)} + 18px)`,
       "width:122px",
-      "height:214px",
+      "height:228px",
       "background:rgba(20,28,34,0.42)",
       "box-shadow:0 4px 14px rgba(0,0,0,0.2)",
       "z-index:10",
@@ -103,7 +103,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "position:absolute",
       "left:10px",
       "right:10px",
-      "bottom:8px",
+      "bottom:22px",
       "height:8px",
       "background:rgba(255,255,255,0.16)",
       "overflow:hidden"
@@ -118,14 +118,35 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     ].join(";");
     boostTrack.appendChild(boostFill);
 
+    let fuelTrack=document.createElement("div");
+    fuelTrack.style.cssText=[
+      "position:absolute",
+      "left:10px",
+      "right:10px",
+      "bottom:8px",
+      "height:8px",
+      "background:rgba(255,255,255,0.16)",
+      "overflow:hidden"
+    ].join(";");
+
+    let fuelFill=document.createElement("div");
+    fuelFill.style.cssText=[
+      "height:100%",
+      "width:100%",
+      "background:linear-gradient(90deg,#2fd36b,#7ff8ff)",
+      "transition:width 100ms linear"
+    ].join(";");
+    fuelTrack.appendChild(fuelFill);
     speedHud.appendChild(speedCanvas);
     speedHud.appendChild(ammoLabel);
     speedHud.appendChild(boostTrack);
+    speedHud.appendChild(fuelTrack);
     document.body.appendChild(speedHud);
     panel.speedCanvas=speedCanvas;
     panel.speedCtx=speedCtx;
     panel.ammoLabel=ammoLabel;
     panel.boostFill=boostFill;
+    panel.fuelFill=fuelFill;
   }
 
   function drawSpeedHud(panel,state){
@@ -206,6 +227,10 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     if(panel.boostFill){
       let boostPct=Math.max(0,Math.min(100,state.boostCharge ?? 0));
       panel.boostFill.style.width=boostPct+"%";
+    }
+    if(panel.fuelFill){
+      let fuelPct=Math.max(0,Math.min(100,state.fuel ?? 100));
+      panel.fuelFill.style.width=fuelPct+"%";
     }
   }
 

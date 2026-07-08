@@ -742,7 +742,11 @@ export function createWheelTracks(scene){
 
   function addCarTracks(car,surfaceY,inWater){
     let speed=Math.abs(car.speed || 0);
-    if(inWater || !car.onGround || speed<0.08 || car.health<=0) return;
+    if(inWater || !car.onGround || car.jetMode || car.jetProgress>0.35 || car.health<=0){
+      lastTrackByCar.delete(car.id);
+      return;
+    }
+    if(speed<0.08) return;
 
     let last=lastTrackByCar.get(car.id);
     let dx=last ? car.x-last.x : Infinity;
@@ -804,5 +808,9 @@ export function createWheelTracks(scene){
     addTrack(x,surfaceY,z,car.velAngle,opacity,width,length);
   }
 
-  return {addCarTracks};
+  function resetCarTracks(car){
+    if(car && car.id!==undefined) lastTrackByCar.delete(car.id);
+  }
+
+  return {addCarTracks,resetCarTracks};
 }

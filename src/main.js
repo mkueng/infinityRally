@@ -402,7 +402,7 @@ let planetaryStationModel=null;
 let planetaryStation=null;
 let currentStartInfo=null;
 let planetaryStationDefenseCooldown=0;
-let jetUnlocked=true;
+let jetUnlocked=false;
 let score=0;
 let enemyScoreAmount=100;
 let giantScoreAmount=350;
@@ -427,6 +427,9 @@ let aimOffsetYMin=-9;
 let aimOffsetYMax=13;
 let initialClusterBombAmmo=10;
 let maxBoostCharge=100;
+let maxFuel=100;
+let carFuelDrainRate=0.003;
+let jetFuelDrainRate=carFuelDrainRate*2;
 let rocketSupplyAmount=6;
 let carRocketSupplyAmount=3;
 let cannonSupplyAmount=40;
@@ -749,6 +752,17 @@ function displayCars(){
   return gameMode==="single" ? [playerCar] : [secondCar,playerCar];
 }
 
+function rainRenderingSuspendedByJet(){
+  if(!gameStarted) return false;
+
+  for(let car of activeCars()){
+    if(!car || car.health<=0 || !car.group.visible) continue;
+    if(car.jetMode || car.jetProgress>0.35) return true;
+  }
+
+  return false;
+}
+
 function activeEnemies(){
   return enemies.filter(enemy=>enemy.active && enemy.health>0);
 }
@@ -855,6 +869,7 @@ function createCarState(id,lateralOffset,controls,camera,gamepadIndex){
     clusterBombCooldown:0,
     clusterBombAmmo:initialClusterBombAmmo,
     boostCharge:maxBoostCharge,
+    fuel:maxFuel,
     hitRattle:0,
     hitRattleSeed:0,
     walkCycle:0,
@@ -874,7 +889,7 @@ secondCar.shadow.setVisible(false);
 let world=createWorld(scene,{getDifficulty:()=>gameDifficulty,getEnvironment:()=>currentEnvironment});
 let clouds=createClouds(scene,()=>({carX:playerCar.x,carZ:playerCar.z}));
 let birds=createBirds(scene,()=>({carX:playerCar.x,carZ:playerCar.z}));
-let rain=createRain(scene,()=>({carX:px,carY:py,carZ:pz}),()=>rainIntensity,()=>rainQualityScale());
+let rain=createRain(scene,()=>({carX:px,carY:py,carZ:pz}),()=>rainRenderingSuspendedByJet() ? 0 : rainIntensity,()=>rainQualityScale());
 let ambientMotes=createAmbientMotes(scene,()=>({carX:px,carY:py,carZ:pz}),()=>rainIntensity);
 let dust=createDust(scene);
 let wheelTracks=createWheelTracks(scene);
@@ -1070,6 +1085,7 @@ let hud=createHud({
     cannonAmmo:car.cannonAmmo,
     clusterBombAmmo:car.clusterBombAmmo,
     boostCharge:car.boostCharge,
+    fuel:car.fuel,
     score
   })),
   getEnemyStates:()=>activeEnemies().map(enemy=>({
@@ -4357,6 +4373,7 @@ function updateMorphInput(car){
   let pressedMorph=morphButton && !car.lastMorphButton;
   let pressedJet=jetUnlocked && jetButton && !car.lastJetButton;
   let exitingJet=car.jetMode || car.jetProgress>0.35;
+  let fuelEmpty=(car.fuel ?? maxFuel)<=0.001;
   let surfaceY=drivingSurfaceHeight(car.x,car.z);
   let nearGroundForJetExit=car.y-surfaceY<=jetExitGroundClearance;
 
@@ -4370,6 +4387,11 @@ function updateMorphInput(car){
     if(car.morphed) car.jetMode=false;
   }
   if(pressedJet && !gameOver && car.health>0){
+    if(!car.jetMode && fuelEmpty){
+      car.lastMorphButton=morphButton;
+      car.lastJetButton=jetButton;
+      return;
+    }
     if(car.jetMode && !nearGroundForJetExit){
       car.lastMorphButton=morphButton;
       car.lastJetButton=jetButton;
@@ -4389,6 +4411,7 @@ function updateFlightThrust(car,surfaceY){
   let buttons=input.getGamepadFaceButtons(car.gamepadIndex);
   let keyboardFlight=gameMode==="single" && car===playerCar && input.keys[" "];
   if(!(buttons.x || keyboardFlight) || gameOver || car.health<=0) return false;
+  if((car.fuel ?? maxFuel)<=0.001) return false;
   if(car.morphed || car.morphProgress>0.35) return false;
   if(car.boostCharge<=0) return false;
 
@@ -4403,6 +4426,24 @@ function updateFlightThrust(car,surfaceY){
   car.vy=clamp(car.vy+altitudeLift,-0.08,0.62);
   car.onGround=false;
   return true;
+}
+
+function updateFuelForCar(car,jetHovering){
+  if(gameOver || car.health<=0) return;
+  if(!Number.isFinite(car.fuel)) car.fuel=maxFuel;
+
+  let drain=0;
+
+  if(jetHovering){
+    let speedUse=clamp(Math.abs(car.speed || 0)/Math.max(0.001,jetMaxSpeed),0,1);
+    let climbUse=Math.max(0,car.liftInput || 0);
+    drain=jetFuelDrainRate*(0.75+speedUse*0.55+climbUse*0.35);
+  }else if(car.morphProgress>0.65 && car.onGround && (Math.abs(car.throttleInput || 0)>0.05 || Math.abs(car.speed || 0)>0.05)){
+    let speedUse=clamp(Math.abs(car.speed || 0)/Math.max(0.001,mechGroundMaxSpeed),0,2.5);
+    drain=carFuelDrainRate*(0.45+speedUse*0.55);
+  }
+
+  if(drain>0) car.fuel=Math.max(0,car.fuel-drain);
 }
 
 function emitFlightExhaust(car){
@@ -5895,6 +5936,13 @@ function updateCar(car){
   let previousSpeed=car.speed || 0;
   let {forward,turn,lift}=controlsFor(car);
   updateMorphInput(car);
+  if(!Number.isFinite(car.fuel)) car.fuel=maxFuel;
+  let fuelEmpty=car.fuel<=0.001;
+  let fuelBlocksMovement=fuelEmpty && (car.jetMode || car.jetProgress>0.35 || car.morphProgress>0.65);
+  if(fuelBlocksMovement){
+    forward=0;
+    lift=0;
+  }
   updateAimCross(car);
   updateRocketInput(car);
   car.throttleInput=forward;
@@ -5960,6 +6008,11 @@ function updateCar(car){
       }
     }
 
+    if(fuelBlocksMovement){
+      car.throttleEase=0;
+      car.speed=approach(car.speed,0,jetMovement ? 0.024 : 0.012);
+    }
+
     car.speed=clamp(car.speed,jetMovement ? 0 : -localMaxSpeed*0.42,forwardMaxSpeed);
 
     speedAbs=Math.abs(car.speed);
@@ -6011,7 +6064,7 @@ function updateCar(car){
   jetMovement=car.jetMode || car.jetProgress>0.65;
   airborneMovement=car.airborne || !car.onGround;
   car.speed=Math.max(
-    -localMaxSpeed*0.42,
+    jetMovement ? 0 : -localMaxSpeed*0.42,
     Math.min(jetMovement ? jetMaxSpeed : (airborneMovement ? mechAirMaxSpeed : localMaxSpeed)*morphSpeedMultiplier,car.speed)
   );
 
@@ -6032,18 +6085,20 @@ function updateCar(car){
   if(flying) emitFlightExhaust(car);
   let jetHovering=car.jetMode || car.jetProgress>0.65;
   let autoLanding=jetHovering && landingSurface && car.jetProgress>0.82 && !(car.landingReleaseFrames>0);
+  let fuelAutoLanding=jetHovering && fuelEmpty && !autoLanding;
+  let fuelAutoLanded=false;
   let autoLandingApproachY=autoLanding ? landingSurface.y+12 : null;
   let autoLandingDeckY=null;
   let jetAltitudeMax=154;
   if(jetHovering && !gameOver && !carDisabled){
-    let climbInput=autoLanding ? 0 : Math.max(0,car.liftInput || 0);
+    let climbInput=(autoLanding || fuelAutoLanding) ? 0 : Math.max(0,car.liftInput || 0);
     car.speed=clamp(car.speed+climbInput*0.027,0,jetMaxSpeed);
     if(!Number.isFinite(car.jetAltitudeTarget)){
       car.jetAltitudeTarget=Math.max(car.y,surfaceY+8);
     }
     if(autoLanding){
-      let targetX=Number.isFinite(landingSurface.touchdownX) ? landingSurface.touchdownX : landingSurface.x;
-      let targetZ=Number.isFinite(landingSurface.touchdownZ) ? landingSurface.touchdownZ : landingSurface.z;
+      let targetX=landingSurface.x;
+      let targetZ=landingSurface.z;
       let dx=targetX-car.x;
       let dz=targetZ-car.z;
       let padRadius=Math.max(1,landingSurface.r || 24);
@@ -6057,13 +6112,16 @@ function updateCar(car){
       car.speed*=0.82+0.08*(1-padCentering);
       autoLandingDeckY=centeredOnPad ? landingSurface.y+2.4 : autoLandingApproachY;
       car.jetAltitudeTarget=approach(car.jetAltitudeTarget,autoLandingDeckY,centeredOnPad ? 0.72 : 0.48);
+    }else if(fuelAutoLanding){
+      car.speed=approach(car.speed,0,0.02);
+      car.jetAltitudeTarget=approach(car.jetAltitudeTarget,surfaceY+1.1,0.62);
     }else{
       let liftInput=car.liftInput || 0;
       let altitudeAdjust=liftInput*(liftInput<0 ? 0.36 : 0.224);
       car.jetAltitudeTarget=clamp(car.jetAltitudeTarget+altitudeAdjust,waterLevel+5,jetAltitudeMax);
     }
     let hoverTarget=car.jetAltitudeTarget+Math.sin(performance.now()*0.004)*0.22;
-    if(autoLanding) hoverTarget=car.jetAltitudeTarget;
+    if(autoLanding || fuelAutoLanding) hoverTarget=car.jetAltitudeTarget;
     let lift=(hoverTarget-car.y)*0.045-car.vy*0.2;
     car.vy=clamp(car.vy+lift,-0.62,0.78);
     emitJetHoverExhaust(car);
@@ -6079,7 +6137,7 @@ function updateCar(car){
   let landingVy=car.vy;
   car.y+=car.vy;
 
-  if(!gameOver && !carDisabled && jetHovering && !autoLanding){
+  if(!gameOver && !carDisabled && jetHovering && !autoLanding && !fuelAutoLanding){
     let terrainCollision=terrainCollisionAlongSegment(prevX,prevY,prevZ,car.x,car.y,car.z,1.15);
     if(terrainCollision.hit){
       car.x=terrainCollision.safeX;
@@ -6094,6 +6152,17 @@ function updateCar(car){
     }
   }
 
+  if(!gameOver && !carDisabled && fuelAutoLanding && car.y<=surfaceY+1.12){
+    car.y=surfaceY;
+    car.vy=0;
+    car.speed=0;
+    car.jetMode=false;
+    car.jetAltitudeTarget=surfaceY+8;
+    car.landingReleaseFrames=0;
+    car.landedOnPad=false;
+    fuelAutoLanded=true;
+  }
+
   if(!gameOver && !carDisabled && autoLanding){
     landingPadSurface=landingPadSurfaceAt(car.x,car.z);
     let landingDeckY=landingPadSurface ? landingPadSurface.y+2.4 : null;
@@ -6104,8 +6173,8 @@ function updateCar(car){
       car.jetAltitudeTarget=autoLandingApproachY;
     }
     if(Number.isFinite(landingDeckY) && car.y<=landingDeckY+0.08){
-      car.x=Number.isFinite(landingPadSurface.touchdownX) ? landingPadSurface.touchdownX : landingPadSurface.x;
-      car.z=Number.isFinite(landingPadSurface.touchdownZ) ? landingPadSurface.touchdownZ : landingPadSurface.z;
+      car.x=landingPadSurface.x;
+      car.z=landingPadSurface.z;
       car.y=landingDeckY;
       car.vy=0;
       car.speed*=0.82;
@@ -6142,8 +6211,15 @@ function updateCar(car){
   let waterDepth=waterDepthAt(car.x,car.z);
   let inWater=!jetHovering && waterDepth>0.15 && car.y<=waterLevel+1.1;
   let emitSplash=!jetHovering && !carDisabled && inWater && car.y<=waterLevel+1.1 && Math.abs(car.speed)>0.08;
-  car.onGround=(!jetHovering || autoLanding) && car.y<=surfaceY+0.18;
-  if(!jetHovering) wheelTracks.addCarTracks(car,surfaceY,inWater);
+  car.onGround=(!jetHovering || autoLanding || fuelAutoLanded) && car.y<=surfaceY+0.18;
+  updateFuelForCar(car,jetHovering && !fuelAutoLanded);
+  if(car.onGround){
+    let refuelSurface=landingPadSurfaceAt(car.x,car.z);
+    if(refuelSurface && car.y<=refuelSurface.y+2.72) car.fuel=maxFuel;
+  }
+  let wheelTrackReady=!jetHovering && !car.jetMode && car.jetProgress<0.35;
+  if(wheelTrackReady) wheelTracks.addCarTracks(car,surfaceY,inWater);
+  else if(wheelTracks.resetCarTracks) wheelTracks.resetCarTracks(car);
   if(!jetHovering) emitBuggyGroundDust(car,surfaceY);
   if(emitSplash){
     let speedAbs=Math.abs(car.speed);
@@ -6704,7 +6780,7 @@ function startGame(mode,difficulty="medium"){
   clearRockets();
   clearEnemies();
   clearSupplyBoxes();
-  jetUnlocked=true;
+  jetUnlocked=false;
   gameOver=false;
   gameWon=false;
   gamePaused=false;
@@ -6860,6 +6936,7 @@ function placeCarOnOpenField(car,startInfo){
   car.clusterBombCooldown=0;
   car.clusterBombAmmo=initialClusterBombAmmo;
   car.boostCharge=maxBoostCharge;
+  car.fuel=maxFuel;
   car.hitRattle=0;
   car.hitRattleSeed=0;
   car.walkCycle=0;
