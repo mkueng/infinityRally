@@ -7019,11 +7019,43 @@ function updateCameraForCar(car){
   camY+=screenShakeOffset.y;
   camZ+=rightZ*screenShakeOffset.x;
 
+  let lookX=car.x+Math.sin(car.cameraYaw)*lookAhead;
+  let lookY=car.y+3.8;
+  let lookZ=car.z+Math.cos(car.cameraYaw)*lookAhead;
+  let canPitchToAim=car.aimCross
+    && car.health>0
+    && car.group.visible
+    && car.jetProgress<0.35
+    && car.morphProgress<0.72
+    && (car.hasMouseAimPoint || car.hasGamepadAimPoint);
+  let targetPitchOffset=0;
+
+  if(canPitchToAim){
+    if(gameMode==="single" && car===playerCar && car.hasMouseAimPoint && input.mouse.hasPosition){
+      let normalized=((innerHeight*0.5)-input.mouse.y)/Math.max(1,innerHeight*0.5);
+      let deadZone=0.12;
+      let amount=Math.max(0,(Math.abs(normalized)-deadZone)/(1-deadZone));
+      targetPitchOffset=Math.sign(normalized)*amount*5.2;
+    }else{
+      targetPitchOffset=clamp((car.controllerAimOffsetY || 0)*0.34,-4.6,5.2);
+    }
+  }
+
+  if(!Number.isFinite(car.cameraPitchOffset)) car.cameraPitchOffset=0;
+  car.cameraPitchOffset+=(targetPitchOffset-car.cameraPitchOffset)*0.035;
+  lookY+=car.cameraPitchOffset;
+
+  if(!Number.isFinite(car.cameraLookY)){
+    car.cameraLookY=lookY;
+  }else{
+    car.cameraLookY+=(lookY-car.cameraLookY)*0.055;
+  }
+
   car.camera.position.set(camX,camY,camZ);
   car.camera.lookAt(
-    car.x+Math.sin(car.cameraYaw)*lookAhead,
-    car.y+3.8,
-    car.z+Math.cos(car.cameraYaw)*lookAhead
+    lookX,
+    car.cameraLookY,
+    lookZ
   );
 }
 
@@ -7661,6 +7693,8 @@ function placeCarOnOpenField(car,startInfo){
   car.mouseAimWorldX=0;
   car.mouseAimWorldY=0;
   car.mouseAimWorldZ=0;
+  car.cameraLookY=NaN;
+  car.cameraPitchOffset=0;
   car.lastAimMouseVersion=input.mouse.version;
   if(car.aimCross) car.aimCross.position.set(0,3.15,32);
   car.lastRocketButton=false;
