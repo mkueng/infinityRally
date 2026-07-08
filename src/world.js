@@ -12,6 +12,7 @@ export function createWorld(scene,options={}){
   let bossBases=[];
   let bossBaseColliders=[];
   let landingSpaceModel=null;
+  let activeChunkBuild=null;
   let lastChunkBuildTime=0;
   let getDifficulty=typeof options.getDifficulty==="function" ? options.getDifficulty : ()=>"medium";
   let defaultEnvironment={
@@ -233,6 +234,23 @@ applyEnvironment(currentEnvironment);
 
 function chunkKey(cx,cz){
   return cx+","+cz;
+}
+
+function cloneChunkDetail(detail){
+  return detail
+    ? {
+      treeDensity:detail.treeDensity,
+      partDensity:detail.partDensity,
+      grassDensity:detail.grassDensity
+    }
+    : null;
+}
+
+function sameChunkDetail(a,b){
+  return !!a && !!b
+    && a.treeDensity===b.treeDensity
+    && a.partDensity===b.partDensity
+    && a.grassDensity===b.grassDensity;
 }
 
 function roadYawAt(z){
@@ -872,13 +890,13 @@ function applyLandingSpacePalette(landingSpace){
   });
 }
 
-function makeLandingSpace(point){
+function makeLandingSpace(point,parent=scene){
   let landingSpace=landingSpaceModel.clone(true);
   applyLandingSpacePalette(landingSpace);
   landingSpace.position.set(point.x,point.y+0.04,point.z);
   landingSpace.rotation.y=point.yaw;
   freezeStaticObject(landingSpace);
-  scene.add(landingSpace);
+  parent.add(landingSpace);
   return landingSpace;
 }
 
@@ -914,7 +932,7 @@ function makeLandingSurface(point){
   };
 }
 
-function makeLandingRing(surface){
+function makeLandingRing(surface,parent=scene){
   let colors=environmentColors();
   let glow=colors.waterEmissive || colors.water || colors.podEmissive || colors.pod || colors.trim;
   let material=new THREE.MeshBasicMaterial({
@@ -934,11 +952,12 @@ function makeLandingRing(surface){
   ring.userData.baseScale=baseScale;
   ring.userData.phase=rand(surface.x*0.17,surface.z*0.23)*Math.PI*2;
   ring.scale.setScalar(baseScale);
-  scene.add(ring);
+  parent.add(ring);
   return ring;
 }
 
-function makeChunk(cx,cz){
+function* makeChunk(cx,cz){
+  let chunkRoot=new THREE.Group();
   let envColors=environmentColors();
   let vegetation=environmentVegetation();
   let cityMode=chunkHasCityDistrict(cx,cz);
@@ -985,7 +1004,7 @@ function makeChunk(cx,cz){
   let land=new THREE.Mesh(geo,landMat);
   land.position.set(cx*chunkSize,0,cz*chunkSize);
   freezeStaticObject(land);
-  scene.add(land);
+  chunkRoot.add(land);
 
   let road=new THREE.Object3D();
 
@@ -997,7 +1016,8 @@ function makeChunk(cx,cz){
   water.position.set(cx*chunkSize,waterLevel,cz*chunkSize);
   water.renderOrder=2;
   freezeStaticObject(water);
-  scene.add(water);
+  chunkRoot.add(water);
+  yield;
 
   let clusterCount=Math.max(0,Math.ceil(vegetation.treeClusters*detail.treeDensity));
   let treesPerCluster=Math.max(1,Math.ceil(vegetation.treesPerCluster*detail.treeDensity));
@@ -1127,7 +1147,8 @@ function makeChunk(cx,cz){
   freezeStaticObject(trunks);
   freezeStaticObject(crowns);
   freezeStaticObject(pods);
-  scene.add(trunks,crowns,pods);
+  chunkRoot.add(trunks,crowns,pods);
+  yield;
 
   let grassClusterCount=Math.max(0,Math.ceil(vegetation.grassClusters*detail.grassDensity));
   let grassPerCluster=Math.max(1,Math.ceil(vegetation.grassPerCluster*detail.grassDensity));
@@ -1174,7 +1195,8 @@ function makeChunk(cx,cz){
   grasses.count=grassUsed;
   grasses.instanceMatrix.needsUpdate=true;
   freezeStaticObject(grasses);
-  scene.add(grasses);
+  chunkRoot.add(grasses);
+  yield;
 
   let rockCount=cityMode ? 6 : 30;
   let rocks=new THREE.InstancedMesh(rockGeo,rockMat,rockCount);
@@ -1222,7 +1244,8 @@ function makeChunk(cx,cz){
   rocks.count=rockUsed;
   rocks.instanceMatrix.needsUpdate=true;
   freezeStaticObject(rocks);
-  scene.add(rocks);
+  chunkRoot.add(rocks);
+  yield;
 
   let gravelCount=Math.max(0,Math.floor((cityMode ? 55 : 120)*detail.grassDensity));
   let gravel=new THREE.InstancedMesh(gravelGeo,gravelMat,gravelCount);
@@ -1259,7 +1282,8 @@ function makeChunk(cx,cz){
   gravel.count=gravelUsed;
   gravel.instanceMatrix.needsUpdate=true;
   freezeStaticObject(gravel);
-  scene.add(gravel);
+  chunkRoot.add(gravel);
+  yield;
 
   let maxBuildings=cityMode ? 70 : 120;
   let maxWindowInstances=maxBuildings*(cityMode ? 48 : 8);
@@ -1372,7 +1396,7 @@ function makeChunk(cx,cz){
       if(ty<waterLevel+0.3 || roadDistance(tx,tz)<20) continue;
 
       let turret=makeTurret(tx,ty,tz,Math.atan2(centerX-tx,centerZ-tz));
-      scene.add(turret);
+      chunkRoot.add(turret);
       let collider={x:tx,z:tz,r:3.2,type:"turret",village,object:turret};
       village.turrets.push(collider);
       colliders.push(collider);
@@ -1669,23 +1693,27 @@ function makeChunk(cx,cz){
   freezeStaticObject(buildingPorches);
   freezeStaticObject(villageWalls);
   freezeStaticObject(cityStreets);
-  scene.add(buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,cityStreets);
+  chunkRoot.add(buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,cityStreets);
+  yield;
 
   let landingSpacePoint=landingSpacePointForChunk(cx,cz,colliders);
   if(landingSpacePoint){
-    landingSpaces.push(makeLandingSpace(landingSpacePoint));
+    landingSpaces.push(makeLandingSpace(landingSpacePoint,chunkRoot));
     let landingSurface=makeLandingSurface(landingSpacePoint);
     landingSurfaces.push(landingSurface);
-    landingRings.push(makeLandingRing(landingSurface));
+    landingRings.push(makeLandingRing(landingSurface,chunkRoot));
   }
 
-  return {cx,cz,land,road,water,trunks,crowns,pods,grasses,rocks,gravel,buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,cityStreets,landingSpaces,landingSurfaces,landingRings,villageCenters,colliders};
+  scene.add(chunkRoot);
+
+  return {cx,cz,root:chunkRoot,land,road,water,trunks,crowns,pods,grasses,rocks,gravel,buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,cityStreets,landingSpaces,landingSurfaces,landingRings,villageCenters,colliders};
 }
 
 function updateChunksForCenters(centers){
   let chunkCenters=centers.map(center=>({
     cx:Math.floor(center.x/chunkSize),
-    cz:Math.floor(center.z/chunkSize)
+    cz:Math.floor(center.z/chunkSize),
+    viewDistance:Math.max(1,Math.floor(center.viewDistance || viewDistance))
   }));
 
   neededChunks.clear();
@@ -1695,12 +1723,13 @@ function updateChunksForCenters(centers){
   function detailForDistanceSq(distanceSq){
     if(distanceSq<=8) return {treeDensity:1,partDensity:1,grassDensity:1};
     if(distanceSq<=24) return {treeDensity:0.58,partDensity:0.62,grassDensity:0.62};
+    if(distanceSq>viewDistance*viewDistance) return {treeDensity:0.12,partDensity:0.28,grassDensity:0.18};
     return {treeDensity:0.24,partDensity:0.42,grassDensity:0.34};
   }
 
   for(let center of chunkCenters){
-    for(let x=-viewDistance;x<=viewDistance;x++){
-      for(let z=-viewDistance;z<=viewDistance;z++){
+    for(let x=-center.viewDistance;x<=center.viewDistance;x++){
+      for(let z=-center.viewDistance;z<=center.viewDistance;z++){
         let cx=center.cx+x;
         let cz=center.cz+z;
         let key=chunkKey(cx,cz);
@@ -1714,10 +1743,6 @@ function updateChunksForCenters(centers){
 
         if(detailIncreased){
           chunkDetails.set(key,nextDetail);
-          if(currentDetail && chunks.has(key)){
-            removalQueue.push(chunks.get(key));
-            chunks.delete(key);
-          }
         }
 
         neededChunks.add(key);
@@ -1770,6 +1795,8 @@ function disposeChunk(chunk){
     }
   }
 
+  if(chunk.root) scene.remove(chunk.root);
+
   scene.remove(
     chunk.land,
     chunk.road,
@@ -1819,19 +1846,64 @@ function disposeChunk(chunk){
   }
 }
 
-function processChunkQueue(maxItems=1,immediate=false){
-  let processed=0;
+function startNextChunkBuild(){
+  while(chunkQueue.length>0){
+    let item=chunkQueue.shift();
+    if(chunks.has(item.key) || !neededChunks.has(item.key)) continue;
 
-  while(chunkQueue.length>0 && processed<maxItems){
+    activeChunkBuild={
+      cx:item.cx,
+      cz:item.cz,
+      key:item.key,
+      detail:cloneChunkDetail(chunkDetails.get(item.key)),
+      generator:makeChunk(item.cx,item.cz)
+    };
+    return true;
+  }
+
+  return false;
+}
+
+function finishChunkBuild(job,chunk){
+  if(!chunk) return;
+
+  let currentDetail=chunkDetails.get(job.key);
+  let stale=!neededChunks.has(job.key)
+    || chunks.has(job.key)
+    || !sameChunkDetail(job.detail,currentDetail);
+
+  if(stale){
+    disposeChunk(chunk);
+    if(neededChunks.has(job.key) && !chunks.has(job.key)){
+      chunkQueue.push({cx:job.cx,cz:job.cz,key:job.key});
+    }
+    return;
+  }
+
+  chunks.set(job.key,chunk);
+}
+
+function processChunkQueue(maxItems=1,immediate=false,maxFrameMs=2){
+  let processed=0;
+  let deadline=performance.now()+maxFrameMs;
+
+  while(processed<maxItems){
     let now=performance.now();
-    if(!immediate && now-lastChunkBuildTime<35) return;
+    if(!immediate && processed>0 && now>=deadline) break;
+
+    if(!activeChunkBuild && !startNextChunkBuild()) break;
+    if(!activeChunkBuild) break;
+
     lastChunkBuildTime=now;
 
-    let item=chunkQueue.shift();
+    let job=activeChunkBuild;
+    let result=job.generator.next();
 
-    if(!chunks.has(item.key)){
-      chunks.set(item.key,makeChunk(item.cx,item.cz));
+    if(result.done){
+      activeChunkBuild=null;
+      finishChunkBuild(job,result.value);
     }
+
     processed++;
   }
 
@@ -1860,6 +1932,16 @@ function updateWind(time,rainIntensity=0){
 }
 
 function resetChunks(){
+  if(activeChunkBuild){
+    let job=activeChunkBuild;
+    activeChunkBuild=null;
+    let result=job.generator.next();
+    while(!result.done){
+      result=job.generator.next();
+    }
+    if(result.value) disposeChunk(result.value);
+  }
+
   for(let chunk of chunks.values()){
     disposeChunk(chunk);
   }
@@ -1871,6 +1953,7 @@ function resetChunks(){
   chunkDetails.clear();
   chunkQueue=[];
   removalQueue=[];
+  activeChunkBuild=null;
   lastChunkBuildTime=0;
   clearBossBases();
 }
@@ -1884,10 +1967,11 @@ function setLandingSpaceModel(model){
       chunk.landingSpaces=chunk.landingSpaces || [];
       chunk.landingSurfaces=chunk.landingSurfaces || [];
       chunk.landingRings=chunk.landingRings || [];
-      chunk.landingSpaces.push(makeLandingSpace(landingSpacePoint));
+      let parent=chunk.root || scene;
+      chunk.landingSpaces.push(makeLandingSpace(landingSpacePoint,parent));
       let landingSurface=makeLandingSurface(landingSpacePoint);
       chunk.landingSurfaces.push(landingSurface);
-      chunk.landingRings.push(makeLandingRing(landingSurface));
+      chunk.landingRings.push(makeLandingRing(landingSurface,parent));
     }
   }
 }

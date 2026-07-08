@@ -1,5 +1,5 @@
 import { THREE } from "./three.js";
-import { gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize, mothershipDropCount, mothershipDropInterval, mothershipDropLineSpacing, mothershipHoverDistance, mothershipHoverFrames, mothershipMinDelay, mothershipRandomDelay, mothershipRocketHits } from "./constants.js";
+import { gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize, viewDistance, mothershipDropCount, mothershipDropInterval, mothershipDropLineSpacing, mothershipHoverDistance, mothershipHoverFrames, mothershipMinDelay, mothershipRandomDelay, mothershipRocketHits } from "./constants.js";
 import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=no-ramps";
 import { createInput } from "./input.js";
 import { createHud } from "./hud.js?v=robot-ammo-icons";
@@ -160,7 +160,9 @@ let currentEnvironment=worldEnvironments[Math.floor(Math.random()*worldEnvironme
 let rainIntensity=0;
 let weatherTargetIntensity=0;
 let nextWeatherChange=0;
-let baseFogDensity=0.00042;
+let baseFogNear=900;
+let baseFogFar=3600;
+let jetFogAmount=0;
 let lastSkyWeatherIntensity=-1;
 let lastSkyNightAmount=-1;
 let hemiLight=null;
@@ -253,7 +255,7 @@ function refreshSceneEnvironment(){
   lastSkyWeatherIntensity=-1;
   lastSkyNightAmount=-1;
   updateSkyForWeather(true);
-  scene.fog=new THREE.FogExp2(currentEnvironment.fog || 0x7b4771,baseFogDensity);
+  scene.fog=new THREE.Fog(currentEnvironment.fog || 0x7b4771,baseFogNear,baseFogFar);
 }
 
 function updateDayNight(now=performance.now(),forceSky=false){
@@ -279,7 +281,10 @@ function updateDayNight(now=performance.now(),forceSky=false){
 
   if(scene.fog){
     scene.fog.color.set(currentEnvironment.fog || 0x7b4771).lerp(fogNightColor,night*0.72);
-    scene.fog.density=baseFogDensity+rainIntensity*0.00042+night*0.00026;
+    let fogNear=baseFogNear-rainIntensity*120-night*120;
+    let fogFar=baseFogFar-rainIntensity*650-night*450-jetFogAmount*1350;
+    scene.fog.near=Math.max(520,fogNear);
+    scene.fog.far=Math.max(scene.fog.near+650,fogFar);
   }
 
   updateSkyForWeather(forceSky,now);
@@ -380,7 +385,7 @@ let planetaryStationModel=null;
 let planetaryStation=null;
 let currentStartInfo=null;
 let planetaryStationDefenseCooldown=0;
-let jetUnlocked=false;
+let jetUnlocked=true;
 let score=0;
 let enemyScoreAmount=100;
 let giantScoreAmount=350;
@@ -6246,9 +6251,51 @@ let maxFixedStepsPerFrame=5;
 let fixedAccumulator=0;
 let lastLoopTime=null;
 
+function chunkViewDistanceForCar(car){
+  let altitude=car.y-drivingSurfaceHeight(car.x,car.z);
+  return (car.jetMode || car.jetProgress>0.35 || altitude>32) ? viewDistance+2 : viewDistance;
+}
+
+function chunkCenterForCar(car){
+  return {
+    x:car.x,
+    z:car.z,
+    viewDistance:chunkViewDistanceForCar(car)
+  };
+}
+
+function chunkCentersForActiveCars(){
+  return activeCars().map(chunkCenterForCar);
+}
+
+function chunkBuildBudget(){
+  let expandedView=activeCars().some(car=>chunkViewDistanceForCar(car)>viewDistance);
+  return expandedView
+    ? {items:7,frameMs:7}
+    : {items:1,frameMs:2};
+}
+
+function updateJetFogAmount(){
+  let target=0;
+
+  if(gameStarted){
+    for(let car of activeCars()){
+      if(!car || car.health<=0 || !car.group.visible) continue;
+
+      let altitude=Math.max(0,car.y-drivingSurfaceHeight(car.x,car.z));
+      let jetState=Math.max(car.jetMode ? 1 : 0,car.jetProgress || 0);
+      let altitudeState=clamp((altitude-28)/92,0,1);
+      target=Math.max(target,jetState,altitudeState);
+    }
+  }
+
+  jetFogAmount+=(target-jetFogAmount)*0.08;
+  if(Math.abs(target-jetFogAmount)<0.004) jetFogAmount=target;
+}
+
 function chunkSignatureForCars(){
   return activeCars()
-    .map(car=>Math.floor(car.x/chunkSize)+","+Math.floor(car.z/chunkSize))
+    .map(car=>Math.floor(car.x/chunkSize)+","+Math.floor(car.z/chunkSize)+","+chunkViewDistanceForCar(car))
     .join("|");
 }
 
@@ -6273,6 +6320,7 @@ function fixedUpdateGame(){
   updateTeleportEffects();
   updateRockDebris();
   updateBossLaserBeams();
+  updateJetFogAmount();
   updateWeather();
   world.updateWind(performance.now(),rainIntensity);
   for(let car of cars) updateVehicleHeadlights(car);
@@ -6283,7 +6331,7 @@ function fixedUpdateGame(){
 
   if(chunkSignature!==lastChunkSignature){
     lastChunkSignature=chunkSignature;
-    world.updateChunksForCenters(activeCars().map(car=>({x:car.x,z:car.z})));
+    world.updateChunksForCenters(chunkCentersForActiveCars());
   }
 }
 
@@ -6337,7 +6385,8 @@ function loop(timestamp=performance.now()){
   hud.updateSpeedHud();
   hud.updateMapHud();
   hud.updateCompassHud();
-  world.processChunkQueue();
+  let chunkBudget=chunkBuildBudget();
+  world.processChunkQueue(chunkBudget.items,false,chunkBudget.frameMs);
   pauseMenu.update(timestamp);
   renderGame();
 }
@@ -6600,10 +6649,11 @@ function startGame(mode,difficulty="medium"){
   clearRockets();
   clearEnemies();
   clearSupplyBoxes();
-  jetUnlocked=false;
+  jetUnlocked=true;
   gameOver=false;
   gameWon=false;
   gamePaused=false;
+  jetFogAmount=0;
   motorAudio.setPaused(false);
   pauseMenu.setVisible(false);
   fixedAccumulator=0;
@@ -6631,7 +6681,7 @@ function startGame(mode,difficulty="medium"){
 
   hud.init();
   lastChunkSignature=chunkSignatureForCars();
-  world.updateChunksForCenters(activeCars().map(car=>({x:car.x,z:car.z})));
+  world.updateChunksForCenters(chunkCentersForActiveCars());
   let settings=currentDifficulty();
   enemyWaveDelay=scaledDelay(90,settings.waveDelay);
   enemyPatrolDelay=scaledDelay(900+Math.floor(Math.random()*420),settings.patrolDelay);
@@ -6990,7 +7040,7 @@ secondCar.cameraYaw=secondCar.angle;
 updateCameras();
 
 lastChunkSignature=chunkSignatureForCars();
-world.updateChunksForCenters(activeCars().map(car=>({x:car.x,z:car.z})));
+world.updateChunksForCenters(chunkCentersForActiveCars());
 world.processChunkQueue(80,true);
 clouds.makeClouds();
 birds.makeBirds();
