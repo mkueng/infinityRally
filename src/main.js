@@ -6,7 +6,7 @@ import { createHud } from "./hud.js?v=robot-ammo-icons";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=night-stars";
 import { createWorld } from "./world.js?v=landing-touchdown-back";
 import { createMotorAudio } from "./audio.js?v=mech-walk-audio";
-import { loadCarModel, loadJetModel, loadLandingSpaceModel, loadPlanetaryStationModel, makeMechModel } from "./models.js?v=landing-space-top-center";
+import { loadCarModel, loadJetModel, loadLandingSpaceModel, loadPlanetaryStationModel, loadTradingOutpostModel, makeMechModel } from "./models.js?v=trading-outpost";
 import { makeSkyTexture } from "./textures.js?v=night-stars";
 
 const worldEnvironments=[
@@ -405,6 +405,9 @@ let giantTestRobot=null;
 let mothershipDelay=mothershipMinDelay+Math.floor(Math.random()*mothershipRandomDelay);
 let planetaryStationModel=null;
 let planetaryStation=null;
+let tradingOutpostModel=null;
+let tradingOutpost=null;
+let tradingOutpostCollision=null;
 let currentStartInfo=null;
 let planetaryStationDefenseCooldown=0;
 let jetUnlocked=false;
@@ -1496,6 +1499,50 @@ function collidesWithOtherCars(car,nextX,nextZ){
   return null;
 }
 
+function worldToTradingOutpostLocal(x,z){
+  if(!tradingOutpostCollision) return null;
+  let dx=x-tradingOutpostCollision.x;
+  let dz=z-tradingOutpostCollision.z;
+  let c=Math.cos(tradingOutpostCollision.angle);
+  let s=Math.sin(tradingOutpostCollision.angle);
+  return {
+    x:dx*c-dz*s,
+    z:dx*s+dz*c
+  };
+}
+
+function distanceSqToLocalSegment(px,pz,ax,az,bx,bz){
+  let sx=bx-ax;
+  let sz=bz-az;
+  let lenSq=sx*sx+sz*sz;
+  let t=lenSq>0.0001 ? ((px-ax)*sx+(pz-az)*sz)/lenSq : 0;
+  t=Math.max(0,Math.min(1,t));
+  let cx=ax+sx*t;
+  let cz=az+sz*t;
+  let dx=px-cx;
+  let dz=pz-cz;
+  return dx*dx+dz*dz;
+}
+
+function collidesWithTradingOutpostWalls(actor,x,z){
+  if(!tradingOutpostCollision) return false;
+
+  let local=worldToTradingOutpostLocal(x,z);
+  if(!local) return false;
+
+  let actorRadius=actor && Number.isFinite(actor.collisionRadius)
+    ? actor.collisionRadius
+    : 1.55;
+  for(let wall of tradingOutpostCollision.walls){
+    let radius=wall.r+actorRadius;
+    if(distanceSqToLocalSegment(local.x,local.z,wall.ax,wall.az,wall.bx,wall.bz)<radius*radius){
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function movementCollision(car,fromX,fromZ,toX,toZ){
   let dx=toX-fromX;
   let dz=toZ-fromZ;
@@ -1510,7 +1557,7 @@ function movementCollision(car,fromX,fromZ,toX,toZ){
     let z=fromZ+dz*t;
     let otherCar=collidesWithOtherCars(car,x,z);
 
-    if(world.collidesWithObstacles(x,z) || otherCar){
+    if(world.collidesWithObstacles(x,z) || collidesWithTradingOutpostWalls(car,x,z) || otherCar){
       return {hit:true,otherCar,safeX,safeZ};
     }
 
@@ -7477,6 +7524,7 @@ function startGame(mode,difficulty="medium"){
   placeCarOnOpenField(playerCar,startInfo);
   placeCarOnOpenField(secondCar,startInfo);
   spawnGiantTestRobot(startInfo);
+  placeTradingOutpostNearStart(startInfo);
   placePlanetaryStationNearStart(startInfo);
   world.placeTestBossBaseNearStart(playerCar.x,playerCar.z,playerCar.angle);
   spawnBossBaseGuards();
@@ -7554,6 +7602,15 @@ loadPlanetaryStationModel()
   })
   .catch(error=>{
     console.error("Failed to load planetary station model:",error);
+  });
+
+loadTradingOutpostModel()
+  .then(model=>{
+    tradingOutpostModel=model;
+    placeTradingOutpostNearStart(currentStartInfo);
+  })
+  .catch(error=>{
+    console.error("Failed to load trading outpost model:",error);
   });
 
 function placeCarOnOpenField(car,startInfo){
@@ -7636,6 +7693,32 @@ function clearPlanetaryStation(){
   if(!planetaryStation) return;
   scene.remove(planetaryStation);
   planetaryStation=null;
+}
+
+function clearTradingOutpost(){
+  if(tradingOutpost) scene.remove(tradingOutpost);
+  tradingOutpost=null;
+  tradingOutpostCollision=null;
+}
+
+function setTradingOutpostCollision(x,z,angle){
+  let halfX=31;
+  let halfZ=33;
+  let entranceHalfWidth=17;
+  let wallInset=4;
+  let wallRadius=1.4;
+  tradingOutpostCollision={
+    x,
+    z,
+    angle,
+    walls:[
+      {ax:-halfX,az:-halfZ+wallInset,bx:-halfX,bz:halfZ-wallInset,r:wallRadius},
+      {ax:halfX,az:-halfZ+wallInset,bx:halfX,bz:halfZ-wallInset,r:wallRadius},
+      {ax:-halfX+wallInset,az:-halfZ,bx:halfX-wallInset,bz:-halfZ,r:wallRadius},
+      {ax:-halfX,az:halfZ,bx:-entranceHalfWidth,bz:halfZ,r:wallRadius},
+      {ax:entranceHalfWidth,az:halfZ,bx:halfX,bz:halfZ,r:wallRadius}
+    ]
+  };
 }
 
 function mixedPlanetColor(a,b,amount){
@@ -7788,6 +7871,52 @@ function updatePlanetaryStationRepair(){
   if(repaired) hud.updateHealthHud();
 }
 
+function placeTradingOutpostNearStart(startInfo){
+  if(startInfo) currentStartInfo=startInfo;
+  if(!tradingOutpostModel || !currentStartInfo) return;
+
+  clearTradingOutpost();
+
+  startInfo=currentStartInfo;
+  let basePoint=roadPointForOffset(startInfo.z,startInfo.fieldOffset);
+  let angle=startInfo.angle;
+  let forwardX=Math.sin(angle);
+  let forwardZ=Math.cos(angle);
+  let rightX=Math.cos(angle);
+  let rightZ=-Math.sin(angle);
+  let offsets=[
+    {forward:34,right:-112},
+    {forward:-38,right:116},
+    {forward:126,right:-96},
+    {forward:-126,right:96},
+    {forward:0,right:138}
+  ];
+  let chosen=null;
+
+  for(let offset of offsets){
+    let x=basePoint.x+forwardX*offset.forward+rightX*offset.right;
+    let z=basePoint.z+forwardZ*offset.forward+rightZ*offset.right;
+    if(waterDepthAt(x,z)>0.35) continue;
+    if(roadDistance(x,z)<34) continue;
+    if(world.collidesWithObstacles(x,z,22)) continue;
+    chosen={x,z};
+    break;
+  }
+
+  if(!chosen){
+    chosen={
+      x:basePoint.x+rightX*-112+forwardX*34,
+      z:basePoint.z+rightZ*-112+forwardZ*34
+    };
+  }
+
+  tradingOutpost=tradingOutpostModel.clone(true);
+  tradingOutpost.position.set(chosen.x,drivingSurfaceHeight(chosen.x,chosen.z)+0.04,chosen.z);
+  tradingOutpost.rotation.y=angle+Math.PI*0.5;
+  setTradingOutpostCollision(chosen.x,chosen.z,tradingOutpost.rotation.y);
+  scene.add(tradingOutpost);
+}
+
 function placePlanetaryStationNearStart(startInfo){
   if(startInfo) currentStartInfo=startInfo;
   if(!planetaryStationModel || !currentStartInfo) return;
@@ -7847,6 +7976,7 @@ let initialStartInfo=findSafeFieldStart([playerCar.lateralOffset,0,secondCar.lat
 placeCarOnOpenField(playerCar,initialStartInfo);
 placeCarOnOpenField(secondCar,initialStartInfo);
 spawnGiantTestRobot(initialStartInfo);
+placeTradingOutpostNearStart(initialStartInfo);
 placePlanetaryStationNearStart(initialStartInfo);
 world.placeTestBossBaseNearStart(playerCar.x,playerCar.z,playerCar.angle);
 playerCar.cameraYaw=playerCar.angle;
