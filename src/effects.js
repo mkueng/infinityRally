@@ -136,6 +136,105 @@ export function createClouds(scene,getCarPosition){
   return {makeClouds,update};
 }
 
+export function createStars(scene,getCarPosition,getNightAmount=()=>0,getRainIntensity=()=>0){
+  let starCount=1800;
+  let positions=new Float32Array(starCount*3);
+  let colors=new Float32Array(starCount*3);
+  let sizes=new Float32Array(starCount);
+  let phases=new Float32Array(starCount);
+  let color=new THREE.Color();
+
+  for(let i=0;i<starCount;i++){
+    let angle=Math.random()*Math.PI*2;
+    let elevation=0.08+Math.pow(Math.random(),0.62)*(Math.PI*0.5-0.08);
+    let radius=76000+Math.random()*22000;
+    let flatRadius=Math.cos(elevation)*radius;
+
+    positions[i*3]=Math.cos(angle)*flatRadius;
+    positions[i*3+1]=Math.sin(elevation)*radius;
+    positions[i*3+2]=Math.sin(angle)*flatRadius;
+
+    color.set(Math.random()>0.78 ? 0xbfdcff : 0xffffff);
+    if(Math.random()>0.9) color.lerp(new THREE.Color(0xffddaa),0.45);
+    colors[i*3]=color.r;
+    colors[i*3+1]=color.g;
+    colors[i*3+2]=color.b;
+    sizes[i]=1.2+Math.pow(Math.random(),2.4)*4.8;
+    phases[i]=Math.random()*Math.PI*2;
+  }
+
+  let geometry=new THREE.BufferGeometry();
+  geometry.setAttribute("position",new THREE.BufferAttribute(positions,3));
+  geometry.setAttribute("starColor",new THREE.BufferAttribute(colors,3));
+  geometry.setAttribute("starSize",new THREE.BufferAttribute(sizes,1));
+  geometry.setAttribute("twinklePhase",new THREE.BufferAttribute(phases,1));
+
+  let material=new THREE.ShaderMaterial({
+    uniforms:{
+      opacity:{value:0},
+      time:{value:0}
+    },
+    transparent:true,
+    depthWrite:false,
+    depthTest:true,
+    blending:THREE.AdditiveBlending,
+    fog:false,
+    vertexShader:[
+      "attribute vec3 starColor;",
+      "attribute float starSize;",
+      "attribute float twinklePhase;",
+      "uniform float opacity;",
+      "uniform float time;",
+      "varying vec3 vColor;",
+      "varying float vOpacity;",
+      "void main(){",
+      "  vColor=starColor;",
+      "  float twinkle=0.72+sin(time*1.6+twinklePhase)*0.18+sin(time*0.73+twinklePhase*1.7)*0.1;",
+      "  vOpacity=opacity*twinkle;",
+      "  vec4 mvPosition=modelViewMatrix*vec4(position,1.0);",
+      "  gl_PointSize=clamp(starSize*(120000.0/max(1.0,-mvPosition.z)),1.1,5.5);",
+      "  gl_Position=projectionMatrix*mvPosition;",
+      "}"
+    ].join("\n"),
+    fragmentShader:[
+      "varying vec3 vColor;",
+      "varying float vOpacity;",
+      "void main(){",
+      "  vec2 uv=gl_PointCoord-vec2(0.5);",
+      "  float falloff=smoothstep(0.5,0.08,length(uv));",
+      "  float alpha=vOpacity*falloff;",
+      "  if(alpha<0.01) discard;",
+      "  gl_FragColor=vec4(vColor,alpha);",
+      "}"
+    ].join("\n")
+  });
+
+  let stars=new THREE.Points(geometry,material);
+  stars.frustumCulled=false;
+  stars.renderOrder=-10;
+  stars.visible=false;
+  scene.add(stars);
+
+  function update(){
+    let night=Math.max(0,Math.min(1,getNightAmount()));
+    let rain=Math.max(0,Math.min(1,getRainIntensity()));
+    let opacity=Math.pow(Math.max(0,(night-0.28)/0.72),1.4)*(1-rain*0.68);
+
+    if(opacity<=0.01){
+      stars.visible=false;
+      return;
+    }
+
+    let center=getCarPosition();
+    stars.visible=true;
+    stars.position.set(center.x || center.carX || 0,center.y || 0,center.z || center.carZ || 0);
+    material.uniforms.opacity.value=opacity*0.86;
+    material.uniforms.time.value+=0.016;
+  }
+
+  return {update};
+}
+
 export function createBirds(scene,getCarPosition){
   let birdGroup=new THREE.Group();
   scene.add(birdGroup);

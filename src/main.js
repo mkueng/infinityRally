@@ -3,11 +3,11 @@ import { gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize, viewDistance
 import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=no-ramps";
 import { createInput } from "./input.js";
 import { createHud } from "./hud.js?v=robot-ammo-icons";
-import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createWheelTracks } from "./effects.js?v=ambient-motes-varied";
+import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=night-stars";
 import { createWorld } from "./world.js?v=landing-touchdown-back";
 import { createMotorAudio } from "./audio.js?v=mech-walk-audio";
 import { loadCarModel, loadJetModel, loadLandingSpaceModel, loadPlanetaryStationModel, makeMechModel } from "./models.js?v=landing-space-top-center";
-import { makeSkyTexture } from "./textures.js?v=alien-planet";
+import { makeSkyTexture } from "./textures.js?v=night-stars";
 
 const worldEnvironments=[
   {
@@ -243,7 +243,8 @@ function timeOfDaySkyStops(now=performance.now()){
 
 function updateSkyForWeather(force=false,now=performance.now()){
   let weatherBucket=Math.round(rainIntensity*24)/24;
-  let nightBucket=Math.round(dayNightState(now).nightAmount*32)/32;
+  let nightState=dayNightState(now);
+  let nightBucket=Math.round(nightState.nightAmount*32)/32;
   if(!force && Math.abs(weatherBucket-lastSkyWeatherIntensity)<0.001 && Math.abs(nightBucket-lastSkyNightAmount)<0.001) return;
   lastSkyWeatherIntensity=weatherBucket;
   lastSkyNightAmount=nightBucket;
@@ -888,6 +889,17 @@ secondCar.shadow.setVisible(false);
 
 let world=createWorld(scene,{getDifficulty:()=>gameDifficulty,getEnvironment:()=>currentEnvironment});
 let clouds=createClouds(scene,()=>({carX:playerCar.x,carZ:playerCar.z}));
+let stars=createStars(scene,()=>{
+  let visibleCars=cars.filter(car=>car.group.visible && car.health>0);
+  let active=visibleCars.length ? visibleCars : [playerCar];
+  let x=0,y=0,z=0;
+  for(let car of active){
+    x+=car.camera.position.x;
+    y+=car.camera.position.y;
+    z+=car.camera.position.z;
+  }
+  return {x:x/active.length,y:y/active.length,z:z/active.length};
+},()=>dayNightState().nightAmount,()=>rainIntensity);
 let birds=createBirds(scene,()=>({carX:playerCar.x,carZ:playerCar.z}));
 let rain=createRain(scene,()=>({carX:px,carY:py,carZ:pz}),()=>rainRenderingSuspendedByJet() ? 0 : rainIntensity,()=>rainQualityScale());
 let ambientMotes=createAmbientMotes(scene,()=>({carX:px,carY:py,carZ:pz}),()=>rainIntensity);
@@ -6476,6 +6488,7 @@ function loop(timestamp=performance.now()){
     world.updateWind(timestamp,rainIntensity);
     for(let car of cars) updateVehicleHeadlights(car);
     clouds.update();
+    stars.update();
     birds.update();
     ambientMotes.update();
     rain.update();
@@ -6510,6 +6523,7 @@ function loop(timestamp=performance.now()){
   }
 
   clouds.update();
+  stars.update();
   birds.update();
   ambientMotes.update();
   rain.update();
