@@ -481,6 +481,7 @@ export function createAmbientMotes(scene,getCarPosition,getRainIntensity=()=>0){
 export function createDust(scene){
   let maxDustParticles=650;
   let dustParticles=[];
+  let dustPool=[];
   let dustTexture=makeDustTexture();
   let dustBaseMaterial=new THREE.SpriteMaterial({
     map:dustTexture,
@@ -492,14 +493,28 @@ export function createDust(scene){
     fog:false
   });
 
+  function makeDustSprite(){
+    let sprite=new THREE.Sprite(dustBaseMaterial.clone());
+    sprite.visible=false;
+    scene.add(sprite);
+    return sprite;
+  }
+
+  for(let i=0;i<maxDustParticles;i++){
+    dustPool.push(makeDustSprite());
+  }
+
   function spawnParticle(px,py,pz,vx,vz,vy,life,size,options={}){
     if(dustParticles.length>=maxDustParticles) return;
 
-    let sprite=new THREE.Sprite(dustBaseMaterial.clone());
-    if(options.color) sprite.material.color.set(options.color);
+    let sprite=dustPool.pop();
+    if(!sprite) return;
+
+    sprite.visible=true;
+    sprite.material.opacity=options.opacity ?? 0.78;
+    sprite.material.color.set(options.color || 0xffffff);
     sprite.position.set(px,py,pz);
     sprite.scale.set(size,size,size);
-    scene.add(sprite);
 
     dustParticles.push({
       sprite,
@@ -578,9 +593,11 @@ export function createDust(scene){
       p.sprite.material.opacity=Math.max(0,p.opacity*Math.pow(1-t,p.fadePower));
 
       if(p.age>=p.life){
-        scene.remove(p.sprite);
-        p.sprite.material.dispose();
-        dustParticles.splice(i,1);
+        p.sprite.visible=false;
+        p.sprite.material.opacity=0;
+        dustPool.push(p.sprite);
+        dustParticles[i]=dustParticles[dustParticles.length-1];
+        dustParticles.pop();
       }
     }
   }

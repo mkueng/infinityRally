@@ -11,6 +11,7 @@ export function createWorld(scene,options={}){
   let chunks=new Map();
   let bossBases=[];
   let bossBaseColliders=[];
+  let landingSpaceModel=null;
   let lastChunkBuildTime=0;
   let getDifficulty=typeof options.getDifficulty==="function" ? options.getDifficulty : ()=>"medium";
   let defaultEnvironment={
@@ -166,6 +167,7 @@ let bossBaseSpireGeo=new THREE.BoxGeometry(1,1,1);
 let bossBaseGateGeo=new THREE.BoxGeometry(1,1,1);
 let bossBaseRingGeo=new THREE.BoxGeometry(1,1,1);
 let bossBaseGlowGeo=new THREE.BoxGeometry(1,1,1);
+let landingRingGeo=new THREE.RingGeometry(0.72,1,96);
 let turretBaseMat=new THREE.MeshStandardMaterial({color:0x312a3e,roughness:0.82,metalness:0.42});
 let turretHeadMat=new THREE.MeshStandardMaterial({color:0x554163,emissive:0x16091f,emissiveIntensity:0.22,roughness:0.72,metalness:0.48});
 let turretBarrelMat=new THREE.MeshStandardMaterial({color:0x151923,emissive:0x06162d,emissiveIntensity:0.32,roughness:0.56,metalness:0.7});
@@ -791,6 +793,151 @@ function terrainPatchOk(x,z,radius,maxHeight=24,maxRange=7){
   return minH>-12 && maxH<maxHeight && maxH-minH<maxRange;
 }
 
+function localColliderAt(colliders,x,z,padding=0){
+  for(let obstacle of colliders){
+    if(obstacle.destroyed || obstacle.type==="smallRock") continue;
+    let radius=(obstacle.r || 0)+padding;
+    let dx=x-obstacle.x;
+    let dz=z-obstacle.z;
+    if(dx*dx+dz*dz<radius*radius) return obstacle;
+  }
+
+  return null;
+}
+
+function landingSpacePointForChunk(cx,cz,colliders){
+  if(!landingSpaceModel) return null;
+  if(r01(cx*953+17,cz*587-29)>0.055) return null;
+
+  for(let attempt=0;attempt<12;attempt++){
+    let rx=r01(cx*1949+attempt*43,cz*2879-attempt*31);
+    let rz=r01(cx*3539-attempt*19,cz*1423+attempt*47);
+    let x=cx*chunkSize+(rx-.5)*chunkSize;
+    let z=cz*chunkSize+(rz-.5)*chunkSize;
+    let y=groundHeight(x,z);
+
+    if(y<waterLevel+1.2 || y>30) continue;
+    if(roadDistance(x,z)<74) continue;
+    if(!terrainPatchOk(x,z,34,34,3.2)) continue;
+    if(localColliderAt(colliders,x,z,44)) continue;
+
+    return {
+      x,
+      y,
+      z,
+      yaw:r01(cx*463+attempt*23,cz*811-attempt*7)*Math.PI*2
+    };
+  }
+
+  return null;
+}
+
+function applyLandingSpacePalette(landingSpace){
+  let colors=environmentColors();
+  let hull=mixHexColor(colors.rock,colors.roof || colors.wall,0.56);
+  let deck=mixHexColor(colors.wall || colors.rock,colors.trim || colors.shore,0.28);
+  let accent=colors.trim || colors.shore;
+  let glow=colors.waterEmissive || colors.water || colors.podEmissive || colors.pod;
+  let green=mixHexColor(colors.grass || colors.low,colors.leaf || colors.mid,0.42);
+
+  landingSpace.traverse(child=>{
+    if(!child.isMesh || !child.material) return;
+    let materials=Array.isArray(child.material) ? child.material : [child.material];
+    let cloned=materials.map(material=>{
+      let next=material.clone();
+      if(next.name==="color_6383466" || next.name==="color_2829873"){
+        next.color.set(hull);
+        if(next.emissive) next.emissive.set(mixHexColor(colors.barkEmissive || hull,colors.rock,0.35));
+        next.emissiveIntensity=0.1;
+      }else if(next.name==="color_12568524" || next.name==="color_16448250"){
+        next.color.set(deck);
+        if(next.emissive) next.emissive.set(mixHexColor(deck,glow,0.18));
+        next.emissiveIntensity=0.08;
+      }else if(next.name==="color_9771553" || next.name==="color_15277357"){
+        next.color.set(accent);
+        if(next.emissive) next.emissive.set(mixHexColor(accent,glow,0.45));
+        next.emissiveIntensity=0.34;
+      }else if(next.name==="color_11593967"){
+        next.color.set(mixHexColor(colors.water || glow,colors.trim || glow,0.22));
+        if(next.emissive) next.emissive.set(glow);
+        next.emissiveIntensity=0.5;
+      }else if(next.name==="color_4634441"){
+        next.color.set(green);
+        if(next.emissive) next.emissive.set(mixHexColor(green,colors.grassEmissive || green,0.5));
+        next.emissiveIntensity=0.18;
+      }
+      return next;
+    });
+    child.material=Array.isArray(child.material) ? cloned : cloned[0];
+  });
+}
+
+function makeLandingSpace(point){
+  let landingSpace=landingSpaceModel.clone(true);
+  applyLandingSpacePalette(landingSpace);
+  landingSpace.position.set(point.x,point.y+0.04,point.z);
+  landingSpace.rotation.y=point.yaw;
+  freezeStaticObject(landingSpace);
+  scene.add(landingSpace);
+  return landingSpace;
+}
+
+function makeLandingSurface(point){
+  let surfaceOffset=landingSpaceModel && Number.isFinite(landingSpaceModel.userData.landingSurfaceOffset)
+    ? landingSpaceModel.userData.landingSurfaceOffset
+    : 0.24;
+  let localX=landingSpaceModel && Number.isFinite(landingSpaceModel.userData.landingSurfaceLocalX)
+    ? landingSpaceModel.userData.landingSurfaceLocalX
+    : 0;
+  let localZ=landingSpaceModel && Number.isFinite(landingSpaceModel.userData.landingSurfaceLocalZ)
+    ? landingSpaceModel.userData.landingSurfaceLocalZ
+    : 0;
+  let yaw=point.yaw || 0;
+  let cos=Math.cos(yaw);
+  let sin=Math.sin(yaw);
+  let surfaceX=point.x+localX*cos+localZ*sin;
+  let surfaceZ=point.z-localX*sin+localZ*cos;
+  let touchdownBackOffset=4.8;
+  let touchdownX=surfaceX-sin*touchdownBackOffset;
+  let touchdownZ=surfaceZ-cos*touchdownBackOffset;
+
+  return {
+    x:surfaceX,
+    z:surfaceZ,
+    touchdownX,
+    touchdownZ,
+    modelX:point.x,
+    modelZ:point.z,
+    y:point.y+0.04+surfaceOffset,
+    r:92,
+    padR:24
+  };
+}
+
+function makeLandingRing(surface){
+  let colors=environmentColors();
+  let glow=colors.waterEmissive || colors.water || colors.podEmissive || colors.pod || colors.trim;
+  let material=new THREE.MeshBasicMaterial({
+    color:glow,
+    transparent:true,
+    opacity:0.72,
+    depthWrite:false,
+    depthTest:true,
+    blending:THREE.AdditiveBlending,
+    side:THREE.DoubleSide
+  });
+  let ring=new THREE.Mesh(landingRingGeo,material);
+  let baseScale=Math.max(8.5,Math.min(13.5,(surface.padR || 24)*0.44));
+  ring.position.set(surface.x,surface.y+0.12,surface.z);
+  ring.rotation.x=-Math.PI/2;
+  ring.renderOrder=16;
+  ring.userData.baseScale=baseScale;
+  ring.userData.phase=rand(surface.x*0.17,surface.z*0.23)*Math.PI*2;
+  ring.scale.setScalar(baseScale);
+  scene.add(ring);
+  return ring;
+}
+
 function makeChunk(cx,cz){
   let envColors=environmentColors();
   let vegetation=environmentVegetation();
@@ -798,10 +945,15 @@ function makeChunk(cx,cz){
   let detail=chunkDetails.get(chunkKey(cx,cz)) || {treeDensity:1,partDensity:1,grassDensity:1};
   let colors=[];
   let colliders=[];
+  let landingSpaces=[];
+  let landingSurfaces=[];
+  let landingRings=[];
   let geo=new THREE.PlaneGeometry(chunkSize,chunkSize,segments,segments);
   geo.rotateX(-Math.PI/2);
 
   let pos=geo.attributes.position;
+  let vertexColor=new THREE.Color();
+  let lowColor=new THREE.Color(envColors.low);
 
   for(let i=0;i<pos.count;i++){
     let wx=pos.getX(i)+cx*chunkSize;
@@ -814,19 +966,17 @@ function makeChunk(cx,cz){
 
     pos.setY(i,h);
 
-    let color=new THREE.Color();
-
-    if(h<waterLevel) color.set(envColors.underwater);
-    else if(h<waterLevel+2.7) color.set(envColors.shore);
+    if(h<waterLevel) vertexColor.set(envColors.underwater);
+    else if(h<waterLevel+2.7) vertexColor.set(envColors.shore);
     else if(h<waterLevel+5.4){
       let t=(h-(waterLevel+2.7))/2.7;
-      color.set(envColors.shore).lerp(new THREE.Color(envColors.low),t);
+      vertexColor.set(envColors.shore).lerp(lowColor,t);
     }
-    else if(h<15) color.set(envColors.low);
-    else if(h<30) color.set(envColors.mid);
-    else color.set(envColors.high);
+    else if(h<15) vertexColor.set(envColors.low);
+    else if(h<30) vertexColor.set(envColors.mid);
+    else vertexColor.set(envColors.high);
 
-    colors.push(color.r,color.g,color.b);
+    colors.push(vertexColor.r,vertexColor.g,vertexColor.b);
   }
 
   geo.setAttribute("color",new THREE.Float32BufferAttribute(colors,3));
@@ -1521,7 +1671,15 @@ function makeChunk(cx,cz){
   freezeStaticObject(cityStreets);
   scene.add(buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,cityStreets);
 
-  return {land,road,water,trunks,crowns,pods,grasses,rocks,gravel,buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,cityStreets,villageCenters,colliders};
+  let landingSpacePoint=landingSpacePointForChunk(cx,cz,colliders);
+  if(landingSpacePoint){
+    landingSpaces.push(makeLandingSpace(landingSpacePoint));
+    let landingSurface=makeLandingSurface(landingSpacePoint);
+    landingSurfaces.push(landingSurface);
+    landingRings.push(makeLandingRing(landingSurface));
+  }
+
+  return {cx,cz,land,road,water,trunks,crowns,pods,grasses,rocks,gravel,buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,cityStreets,landingSpaces,landingSurfaces,landingRings,villageCenters,colliders};
 }
 
 function updateChunksForCenters(centers){
@@ -1631,6 +1789,8 @@ function disposeChunk(chunk){
     chunk.buildingPorches,
     chunk.villageWalls,
     chunk.cityStreets,
+    ...(chunk.landingSpaces || []),
+    ...(chunk.landingRings || []),
     ...turretObjects
   );
 
@@ -1652,6 +1812,11 @@ function disposeChunk(chunk){
   chunk.buildingPorches.dispose();
   chunk.villageWalls.dispose();
   if(chunk.cityStreets) chunk.cityStreets.dispose();
+  if(chunk.landingRings){
+    for(let ring of chunk.landingRings){
+      if(ring.material) ring.material.dispose();
+    }
+  }
 }
 
 function processChunkQueue(maxItems=1,immediate=false){
@@ -1677,6 +1842,17 @@ function processChunkQueue(maxItems=1,immediate=false){
 }
 
 function updateWind(time,rainIntensity=0){
+  let t=time*0.004;
+  for(let chunk of chunks.values()){
+    if(!chunk.landingRings) continue;
+    for(let ring of chunk.landingRings){
+      let pulse=(Math.sin(t+(ring.userData.phase || 0))*0.5+0.5);
+      let scale=(ring.userData.baseScale || 10)*(0.92+pulse*0.18);
+      ring.scale.setScalar(scale);
+      if(ring.material) ring.material.opacity=0.38+pulse*0.42;
+    }
+  }
+
   if(!grassWindShader) return;
   let rain=Math.max(0,Math.min(1,rainIntensity));
   if(grassWindShader.uniforms.windTime) grassWindShader.uniforms.windTime.value=time*0.001*(1+rain*0.55);
@@ -1699,6 +1875,55 @@ function resetChunks(){
   clearBossBases();
 }
 
+function setLandingSpaceModel(model){
+  landingSpaceModel=model;
+  for(let chunk of chunks.values()){
+    if(!chunk || (chunk.landingSpaces && chunk.landingSpaces.length>0)) continue;
+    let landingSpacePoint=landingSpacePointForChunk(chunk.cx,chunk.cz,chunk.colliders || []);
+    if(landingSpacePoint){
+      chunk.landingSpaces=chunk.landingSpaces || [];
+      chunk.landingSurfaces=chunk.landingSurfaces || [];
+      chunk.landingRings=chunk.landingRings || [];
+      chunk.landingSpaces.push(makeLandingSpace(landingSpacePoint));
+      let landingSurface=makeLandingSurface(landingSpacePoint);
+      chunk.landingSurfaces.push(landingSurface);
+      chunk.landingRings.push(makeLandingRing(landingSurface));
+    }
+  }
+}
+
+function landingSurfaceAt(x,z,physicalOnly=false){
+  let pcx=Math.floor(x/chunkSize);
+  let pcz=Math.floor(z/chunkSize);
+  let best=null;
+  let bestDistSq=Infinity;
+
+  for(let dx=-1;dx<=1;dx++){
+    for(let dz=-1;dz<=1;dz++){
+      let chunk=chunks.get(chunkKey(pcx+dx,pcz+dz));
+      if(!chunk || !chunk.landingSurfaces) continue;
+
+      for(let surface of chunk.landingSurfaces){
+        let sx=x-surface.x;
+        let sz=z-surface.z;
+        let distSq=sx*sx+sz*sz;
+        let radius=physicalOnly ? (surface.padR || surface.r || 0) : (surface.r || 0);
+        if(distSq<radius*radius && distSq<bestDistSq){
+          best=surface;
+          bestDistSq=distSq;
+        }
+      }
+    }
+  }
+
+  return best;
+}
+
+function landingSurfaceHeightAt(x,z,physicalOnly=false){
+  let surface=landingSurfaceAt(x,z,physicalOnly);
+  return surface ? surface.y : null;
+}
+
   return {
     chunks,
     bossBases,
@@ -1717,6 +1942,9 @@ function resetChunks(){
     updateWind,
     processChunkQueue,
     setEnvironment:applyEnvironment,
+    setLandingSpaceModel,
+    landingSurfaceAt,
+    landingSurfaceHeightAt,
     resetChunks
   };
 }

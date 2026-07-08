@@ -348,6 +348,111 @@ export function loadJetModel(accentColor=0xb83a32){
   });
 }
 
+export function normalizeLandingSpaceModel(landingSpace){
+  let model=new THREE.Group();
+  let asset=new THREE.Group();
+  landingSpace.rotation.x=-Math.PI/2;
+  asset.add(landingSpace);
+  model.add(asset);
+  model.updateMatrixWorld(true);
+
+  let box=new THREE.Box3().setFromObject(model);
+  let size=new THREE.Vector3();
+  let center=new THREE.Vector3();
+  box.getSize(size);
+  box.getCenter(center);
+
+  let scale=46/Math.max(size.x,size.z,0.001);
+  model.scale.setScalar(scale);
+  model.updateMatrixWorld(true);
+
+  box.setFromObject(model);
+  box.getCenter(center);
+  asset.position.x-=center.x/scale;
+  asset.position.z-=center.z/scale;
+  model.updateMatrixWorld(true);
+
+  box.setFromObject(model);
+  asset.position.y-=box.min.y/scale;
+  model.updateMatrixWorld(true);
+  box.setFromObject(model);
+  model.userData.landingSurfaceOffset=Math.max(0.1,box.max.y);
+
+  let topBox=new THREE.Box3();
+  let topPoint=new THREE.Vector3();
+  let localPoint=new THREE.Vector3();
+  let topThreshold=box.max.y-Math.max(0.08,box.max.y*0.025);
+  model.traverse(child=>{
+    if(!child.isMesh || !child.geometry || !child.geometry.attributes.position) return;
+    let positions=child.geometry.attributes.position;
+    for(let i=0;i<positions.count;i++){
+      localPoint.fromBufferAttribute(positions,i);
+      topPoint.copy(localPoint).applyMatrix4(child.matrixWorld);
+      if(topPoint.y>=topThreshold) topBox.expandByPoint(topPoint);
+    }
+  });
+  if(!topBox.isEmpty()){
+    let topCenter=new THREE.Vector3();
+    topBox.getCenter(topCenter);
+    model.userData.landingSurfaceLocalX=topCenter.x;
+    model.userData.landingSurfaceLocalZ=topCenter.z;
+  }
+
+  model.traverse(child=>{
+    if(child.isMesh){
+      child.castShadow=true;
+      child.receiveShadow=true;
+      if(child.geometry) child.geometry.computeVertexNormals();
+      if(child.material){
+        let materials=Array.isArray(child.material) ? child.material : [child.material];
+        for(let material of materials){
+          material.side=THREE.FrontSide;
+          material.roughness=material.roughness ?? 0.68;
+          material.metalness=material.metalness ?? 0.18;
+          if(material.name==="color_11593967"){
+            material.emissive=material.emissive || new THREE.Color(0x000000);
+            material.emissive.set(0x1b7180);
+            material.emissiveIntensity=0.38;
+          }
+          if(material.name==="color_4634441"){
+            material.emissive=material.emissive || new THREE.Color(0x000000);
+            material.emissive.set(0x134f18);
+            material.emissiveIntensity=0.22;
+          }
+        }
+      }
+    }
+  });
+
+  return model;
+}
+
+export function loadLandingSpaceModel(){
+  let mtlLoader=new MTLLoader();
+  mtlLoader.setPath("assets/landingSpace/");
+
+  return new Promise((resolve,reject)=>{
+    mtlLoader.load(
+      "obj.mtl",
+      materials=>{
+        materials.preload();
+
+        let objLoader=new OBJLoader();
+        objLoader.setPath("assets/landingSpace/");
+        objLoader.setMaterials(materials);
+        objLoader.load(
+          "tinker.obj",
+          object=>resolve(normalizeLandingSpaceModel(object)),
+          undefined,
+          reject
+        );
+      },
+      undefined,
+      reject
+    );
+  });
+}
+
 export function normalizePlanetaryStationModel(station){
   let model=new THREE.Group();
   let asset=new THREE.Group();
