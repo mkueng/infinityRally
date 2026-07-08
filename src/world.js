@@ -13,6 +13,8 @@ export function createWorld(scene,options={}){
   let bossBaseColliders=[];
   let landingSpaceModel=null;
   let animatedLandingRings=[];
+  let activeVillages=[];
+  let activeTurrets=[];
   let activeChunkBuild=null;
   let lastChunkBuildTime=0;
   let getDifficulty=typeof options.getDifficulty==="function" ? options.getDifficulty : ()=>"medium";
@@ -969,6 +971,7 @@ function* makeChunk(cx,cz){
   let landingSpaces=[];
   let landingSurfaces=[];
   let landingRings=[];
+  let chunkHasWater=false;
   let geo=new THREE.PlaneGeometry(chunkSize,chunkSize,segments,segments);
   geo.rotateX(-Math.PI/2);
 
@@ -982,6 +985,7 @@ function* makeChunk(cx,cz){
     let h=groundHeight(wx,wz);
 
     if(h<waterLevel){
+      chunkHasWater=true;
       h=Math.min(h,waterLevel-0.55);
     }
 
@@ -1009,16 +1013,18 @@ function* makeChunk(cx,cz){
   chunkRoot.add(land);
 
   let road=new THREE.Object3D();
-
-  let water=new THREE.Mesh(
-    new THREE.PlaneGeometry(chunkSize,chunkSize),
-    waterMat
-  );
-  water.rotation.x=-Math.PI/2;
-  water.position.set(cx*chunkSize,waterLevel,cz*chunkSize);
-  water.renderOrder=2;
-  freezeStaticObject(water);
-  chunkRoot.add(water);
+  let water=new THREE.Object3D();
+  if(chunkHasWater){
+    water=new THREE.Mesh(
+      new THREE.PlaneGeometry(chunkSize,chunkSize),
+      waterMat
+    );
+    water.rotation.x=-Math.PI/2;
+    water.position.set(cx*chunkSize,waterLevel,cz*chunkSize);
+    water.renderOrder=2;
+    freezeStaticObject(water);
+    chunkRoot.add(water);
+  }
   yield;
 
   let clusterCount=Math.max(0,Math.ceil(vegetation.treeClusters*detail.treeDensity));
@@ -1787,6 +1793,7 @@ function updateChunks(px,pz){
 }
 
 function disposeChunk(chunk){
+  unregisterChunk(chunk);
   let turretObjects=[];
   if(chunk.villageCenters){
     for(let village of chunk.villageCenters){
@@ -1825,7 +1832,7 @@ function disposeChunk(chunk){
 
   chunk.land.geometry.dispose();
   if(chunk.road.geometry) chunk.road.geometry.dispose();
-  chunk.water.geometry.dispose();
+  if(chunk.water && chunk.water.geometry) chunk.water.geometry.dispose();
   chunk.trunks.dispose();
   chunk.crowns.dispose();
   chunk.pods.dispose();
@@ -1848,6 +1855,58 @@ function disposeChunk(chunk){
       if(ring.material) ring.material.dispose();
     }
   }
+}
+
+function registerChunk(chunk){
+  if(!chunk) return;
+  if(chunk.villageCenters){
+    for(let village of chunk.villageCenters){
+      activeVillages.push(village);
+    }
+  }
+  if(chunk.colliders){
+    for(let collider of chunk.colliders){
+      if(collider && collider.type==="turret") activeTurrets.push(collider);
+    }
+  }
+}
+
+function unregisterChunk(chunk){
+  if(!chunk) return;
+  if(chunk.villageCenters){
+    for(let village of chunk.villageCenters){
+      let index=activeVillages.indexOf(village);
+      if(index>=0) activeVillages.splice(index,1);
+    }
+  }
+  if(chunk.colliders){
+    for(let collider of chunk.colliders){
+      if(!collider || collider.type!=="turret") continue;
+      let index=activeTurrets.indexOf(collider);
+      if(index>=0) activeTurrets.splice(index,1);
+    }
+  }
+}
+
+function collidersInRadius(x,z,radius){
+  let found=[];
+  let reach=radius+chunkSize;
+  let minCx=Math.floor((x-reach)/chunkSize);
+  let maxCx=Math.floor((x+reach)/chunkSize);
+  let minCz=Math.floor((z-reach)/chunkSize);
+  let maxCz=Math.floor((z+reach)/chunkSize);
+
+  for(let cx=minCx;cx<=maxCx;cx++){
+    for(let cz=minCz;cz<=maxCz;cz++){
+      let chunk=chunks.get(chunkKey(cx,cz));
+      if(!chunk || !chunk.colliders) continue;
+      for(let collider of chunk.colliders){
+        found.push(collider);
+      }
+    }
+  }
+
+  return found;
 }
 
 function startNextChunkBuild(){
@@ -1885,6 +1944,7 @@ function finishChunkBuild(job,chunk){
   }
 
   chunks.set(job.key,chunk);
+  registerChunk(chunk);
 }
 
 function processChunkQueue(maxItems=1,immediate=false,maxFrameMs=2){
@@ -1954,6 +2014,9 @@ function resetChunks(){
   chunkDetails.clear();
   chunkQueue=[];
   removalQueue=[];
+  activeVillages.length=0;
+  activeTurrets.length=0;
+  animatedLandingRings.length=0;
   activeChunkBuild=null;
   lastChunkBuildTime=0;
   clearBossBases();
@@ -2012,6 +2075,9 @@ function landingSurfaceHeightAt(x,z,physicalOnly=false){
   return {
     chunks,
     bossBases,
+    activeVillages,
+    activeTurrets,
+    collidersInRadius,
     collidesWithObstacles,
     obstacleAt,
     obstacleAlongSegment,

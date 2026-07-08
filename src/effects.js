@@ -484,58 +484,118 @@ export function createAmbientMotes(scene,getCarPosition,getRainIntensity=()=>0){
 
 export function createDust(scene){
   let maxDustParticles=650;
-  let dustParticles=[];
-  let dustPool=[];
+  let activeParticles=[];
+  let freeParticles=[];
   let dustTexture=makeDustTexture();
-  let dustBaseMaterial=new THREE.SpriteMaterial({
-    map:dustTexture,
-    color:0xffffff,
+  let positions=new Float32Array(maxDustParticles*3);
+  let colors=new Float32Array(maxDustParticles*3);
+  let sizes=new Float32Array(maxDustParticles);
+  let opacities=new Float32Array(maxDustParticles);
+  let geometry=new THREE.BufferGeometry();
+  let material=new THREE.ShaderMaterial({
+    uniforms:{map:{value:dustTexture}},
     transparent:true,
-    opacity:0.85,
     depthWrite:false,
     blending:THREE.NormalBlending,
-    fog:false
+    fog:false,
+    vertexShader:[
+      "attribute vec3 particleColor;",
+      "attribute float particleSize;",
+      "attribute float particleOpacity;",
+      "varying vec3 vColor;",
+      "varying float vOpacity;",
+      "void main(){",
+      "  vColor=particleColor;",
+      "  vOpacity=particleOpacity;",
+      "  vec4 mvPosition=modelViewMatrix*vec4(position,1.0);",
+      "  gl_PointSize=clamp(particleSize*(1400.0/max(1.0,-mvPosition.z)),2.0,96.0);",
+      "  gl_Position=projectionMatrix*mvPosition;",
+      "}"
+    ].join("\n"),
+    fragmentShader:[
+      "uniform sampler2D map;",
+      "varying vec3 vColor;",
+      "varying float vOpacity;",
+      "void main(){",
+      "  vec4 tex=texture2D(map,gl_PointCoord);",
+      "  float alpha=vOpacity*tex.a;",
+      "  if(alpha<0.01) discard;",
+      "  gl_FragColor=vec4(vColor,alpha);",
+      "}"
+    ].join("\n")
   });
-
-  function makeDustSprite(){
-    let sprite=new THREE.Sprite(dustBaseMaterial.clone());
-    sprite.visible=false;
-    scene.add(sprite);
-    return sprite;
-  }
+  let tempColor=new THREE.Color();
 
   for(let i=0;i<maxDustParticles;i++){
-    dustPool.push(makeDustSprite());
+    positions[i*3]=0;
+    positions[i*3+1]=-10000;
+    positions[i*3+2]=0;
+    colors[i*3]=1;
+    colors[i*3+1]=1;
+    colors[i*3+2]=1;
+    sizes[i]=0;
+    opacities[i]=0;
+    freeParticles.push({
+      index:i,
+      px:0,
+      py:0,
+      pz:0,
+      vx:0,
+      vz:0,
+      vy:0,
+      age:0,
+      life:1,
+      baseSize:1,
+      gravity:0.018,
+      growth:2.4,
+      opacity:0.78,
+      fadePower:2
+    });
   }
 
+  geometry.setAttribute("position",new THREE.BufferAttribute(positions,3));
+  geometry.setAttribute("particleColor",new THREE.BufferAttribute(colors,3));
+  geometry.setAttribute("particleSize",new THREE.BufferAttribute(sizes,1));
+  geometry.setAttribute("particleOpacity",new THREE.BufferAttribute(opacities,1));
+
+  let points=new THREE.Points(geometry,material);
+  points.frustumCulled=false;
+  scene.add(points);
+
   function spawnParticle(px,py,pz,vx,vz,vy,life,size,options={}){
-    if(dustParticles.length>=maxDustParticles) return;
+    let particle=freeParticles.pop();
+    if(!particle) return;
 
-    let sprite=dustPool.pop();
-    if(!sprite) return;
+    let index=particle.index;
+    tempColor.set(options.color || 0xffffff);
+    colors[index*3]=tempColor.r;
+    colors[index*3+1]=tempColor.g;
+    colors[index*3+2]=tempColor.b;
+    positions[index*3]=px;
+    positions[index*3+1]=py;
+    positions[index*3+2]=pz;
+    sizes[index]=size;
+    opacities[index]=options.opacity ?? 0.78;
 
-    sprite.visible=true;
-    sprite.material.opacity=options.opacity ?? 0.78;
-    sprite.material.color.set(options.color || 0xffffff);
-    sprite.position.set(px,py,pz);
-    sprite.scale.set(size,size,size);
+    particle.px=px;
+    particle.py=py;
+    particle.pz=pz;
+    particle.vx=vx;
+    particle.vz=vz;
+    particle.vy=vy;
+    particle.age=0;
+    particle.life=life;
+    particle.baseSize=size;
+    particle.gravity=options.gravity ?? 0.018;
+    particle.growth=options.growth ?? 2.4;
+    particle.opacity=options.opacity ?? 0.78;
+    particle.fadePower=options.fadePower ?? 2;
 
-    dustParticles.push({
-      sprite,
-      px,
-      py,
-      pz,
-      vx,
-      vz,
-      vy,
-      age:0,
-      life,
-      baseSize:size,
-      gravity:options.gravity ?? 0.018,
-      growth:options.growth ?? 2.4,
-      opacity:options.opacity ?? 0.78,
-      fadePower:options.fadePower ?? 2
-    });
+    activeParticles.push(particle);
+    geometry.attributes.position.needsUpdate=true;
+    geometry.attributes.particleColor.needsUpdate=true;
+    geometry.attributes.particleSize.needsUpdate=true;
+    geometry.attributes.particleOpacity.needsUpdate=true;
   }
 
   function spawnSplashParticle(px,py,pz,vx,vz,vy,life,size){
@@ -553,7 +613,7 @@ export function createDust(scene){
       color:Math.random()>0.42 ? 0xbca78b : 0x8f8374,
       gravity:0.012,
       growth:2.8,
-      opacity:0.42,
+      opacity:0.62,
       fadePower:1.85
     });
   }
@@ -563,7 +623,7 @@ export function createDust(scene){
       color:Math.random()>0.45 ? 0xfff1a8 : 0xff8a2a,
       gravity:-0.012,
       growth:1.35,
-      opacity:0.88,
+      opacity:0.95,
       fadePower:1.35
     });
   }
@@ -573,14 +633,16 @@ export function createDust(scene){
       color:Math.random()>0.45 ? 0xd8fbff : 0x7ac8ff,
       gravity:-0.004,
       growth:1.65,
-      opacity:0.36,
+      opacity:0.52,
       fadePower:0.82
     });
   }
 
   function update(){
-    for(let i=dustParticles.length-1;i>=0;i--){
-      let p=dustParticles[i];
+    if(activeParticles.length===0) return;
+
+    for(let i=activeParticles.length-1;i>=0;i--){
+      let p=activeParticles[i];
       p.age+=0.016;
 
       p.px+=p.vx*0.016;
@@ -592,18 +654,28 @@ export function createDust(scene){
 
       let t=Math.min(1,p.age/p.life);
       let puff=p.baseSize*(1+t*p.growth);
-      p.sprite.position.set(p.px,p.py,p.pz);
-      p.sprite.scale.set(puff,puff,puff);
-      p.sprite.material.opacity=Math.max(0,p.opacity*Math.pow(1-t,p.fadePower));
+      let index=p.index;
+      positions[index*3]=p.px;
+      positions[index*3+1]=p.py;
+      positions[index*3+2]=p.pz;
+      sizes[index]=puff;
+      opacities[index]=Math.max(0,p.opacity*Math.pow(1-t,p.fadePower));
 
       if(p.age>=p.life){
-        p.sprite.visible=false;
-        p.sprite.material.opacity=0;
-        dustPool.push(p.sprite);
-        dustParticles[i]=dustParticles[dustParticles.length-1];
-        dustParticles.pop();
+        positions[index*3]=0;
+        positions[index*3+1]=-10000;
+        positions[index*3+2]=0;
+        sizes[index]=0;
+        opacities[index]=0;
+        freeParticles.push(p);
+        activeParticles[i]=activeParticles[activeParticles.length-1];
+        activeParticles.pop();
       }
     }
+
+    geometry.attributes.position.needsUpdate=true;
+    geometry.attributes.particleSize.needsUpdate=true;
+    geometry.attributes.particleOpacity.needsUpdate=true;
   }
 
   return {spawnSplashParticle,spawnGroundDustParticle,spawnThrusterParticle,spawnJetExhaustParticle,update};
@@ -611,7 +683,6 @@ export function createDust(scene){
 
 export function createWheelTracks(scene){
   let maxTracks=1400;
-  let tracks=[];
   let trackCursor=0;
   let lastTrackByCar=new Map();
   let trackGeo=new THREE.PlaneGeometry(0.34,1.18);
@@ -620,7 +691,7 @@ export function createWheelTracks(scene){
     map:trackTexture,
     color:0x1e1a16,
     transparent:true,
-    opacity:0.24,
+    opacity:0.3,
     depthWrite:false,
     depthTest:true,
     polygonOffset:true,
@@ -647,24 +718,26 @@ export function createWheelTracks(scene){
     return texture;
   }
 
-  function addTrack(x,y,z,angle,opacity,width,length){
-    let mesh;
-    if(tracks.length<maxTracks){
-      mesh=new THREE.Mesh(trackGeo,trackMat.clone());
-      mesh.renderOrder=1;
-      scene.add(mesh);
-      tracks.push(mesh);
-    }else{
-      mesh=tracks[trackCursor];
-      trackCursor=(trackCursor+1)%maxTracks;
-    }
+  let trackMesh=new THREE.InstancedMesh(trackGeo,trackMat,maxTracks);
+  let trackDummy=new THREE.Object3D();
+  let hiddenMatrix=new THREE.Matrix4().makeScale(0,0,0);
+  trackMesh.renderOrder=1;
+  for(let i=0;i<maxTracks;i++){
+    trackMesh.setMatrixAt(i,hiddenMatrix);
+  }
+  trackMesh.instanceMatrix.needsUpdate=true;
+  trackMesh.frustumCulled=false;
+  scene.add(trackMesh);
 
-    mesh.material.opacity=opacity;
-    mesh.visible=true;
-    mesh.position.set(x,y+0.045,z);
-    mesh.rotation.order="YXZ";
-    mesh.rotation.set(-Math.PI/2,angle,0);
-    mesh.scale.set(width/0.34,length/1.18,1);
+  function addTrack(x,y,z,angle,opacity,width,length){
+    trackDummy.position.set(x,y+0.045,z);
+    trackDummy.rotation.order="YXZ";
+    trackDummy.rotation.set(-Math.PI/2,angle,0);
+    trackDummy.scale.set(width/0.34,length/1.18,1);
+    trackDummy.updateMatrix();
+    trackMesh.setMatrixAt(trackCursor,trackDummy.matrix);
+    trackMesh.instanceMatrix.needsUpdate=true;
+    trackCursor=(trackCursor+1)%maxTracks;
   }
 
   function addCarTracks(car,surfaceY,inWater){

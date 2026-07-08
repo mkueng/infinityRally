@@ -282,7 +282,7 @@ function updateDayNight(now=performance.now(),forceSky=false){
   if(scene.fog){
     scene.fog.color.set(currentEnvironment.fog || 0x7b4771).lerp(fogNightColor,night*0.72);
     let fogNear=baseFogNear-rainIntensity*120-night*120;
-    let fogFar=baseFogFar-rainIntensity*650-night*450-jetFogAmount*950;
+    let fogFar=baseFogFar-rainIntensity*650-night*450-jetFogAmount*700;
     scene.fog.near=Math.max(520,fogNear);
     scene.fog.far=Math.max(scene.fog.near+650,fogFar);
   }
@@ -306,7 +306,7 @@ function updateWeather(){
 let scene=new THREE.Scene();
 let playerCamera=new THREE.PerspectiveCamera(45,innerWidth/innerHeight,.1,1e6);
 let secondCamera=new THREE.PerspectiveCamera(45,innerWidth/innerHeight,.1,1e6);
-let renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:"high-performance"});
+let renderer=new THREE.WebGLRenderer({antialias:false,powerPreference:"high-performance"});
 let currentPixelRatio=0;
 let lastPixelRatioUpdate=0;
 function rendererQualityState(){
@@ -416,6 +416,7 @@ let morphedCarSpeedMultiplier=4;
 let morphTransitionRate=0.075;
 let jetTransitionRate=0.075;
 let jetMaxSpeed=2.4;
+let jetExitGroundClearance=5.5;
 let mechStrideLength=2.35;
 let rocketSpeed=1.75;
 let longRangeRocketSpeed=2.85;
@@ -2071,33 +2072,30 @@ function spawnSupplyBoxForVillage(village,type,index,key){
 function spawnVillageSupplyBoxes(){
   let jetUnlockCandidate=null;
 
-  for(let chunk of world.chunks.values()){
-    if(!chunk.villageCenters) continue;
-    for(let village of chunk.villageCenters){
-      if(!world.isVillageCleared(village)) continue;
+  for(let village of world.activeVillages || []){
+    if(!world.isVillageCleared(village)) continue;
 
-      if(!jetUnlocked && !supplySpawnKeys.has("jet-unlock") && village.buildings && village.buildings.length>4){
-        let distSq=nearestActiveCarDistanceSq(village.x,village.z);
-        if(Number.isFinite(distSq) && (!jetUnlockCandidate || distSq<jetUnlockCandidate.distSq)){
-          jetUnlockCandidate={village,distSq};
-        }
+    if(!jetUnlocked && !supplySpawnKeys.has("jet-unlock") && village.buildings && village.buildings.length>4){
+      let distSq=nearestActiveCarDistanceSq(village.x,village.z);
+      if(Number.isFinite(distSq) && (!jetUnlockCandidate || distSq<jetUnlockCandidate.distSq)){
+        jetUnlockCandidate={village,distSq};
+      }
+    }
+
+    let supplySets=gameMode==="double" ? 2 : 1;
+    for(let set=0;set<supplySets;set++){
+      for(let type of ["rocket","cannon","health","boost"]){
+        let key=supplyKeyForVillage(village,`${type}-${set}`);
+        if(supplySpawnKeys.has(key)) continue;
+
+        let typeIndex=type==="rocket" ? 0 : type==="cannon" ? 1 : type==="health" ? 2 : 3;
+        spawnSupplyBoxForVillage(village,type,typeIndex+set*4,key);
       }
 
-      let supplySets=gameMode==="double" ? 2 : 1;
-      for(let set=0;set<supplySets;set++){
-        for(let type of ["rocket","cannon","health","boost"]){
-          let key=supplyKeyForVillage(village,`${type}-${set}`);
-          if(supplySpawnKeys.has(key)) continue;
-
-          let typeIndex=type==="rocket" ? 0 : type==="cannon" ? 1 : type==="health" ? 2 : 3;
-          spawnSupplyBoxForVillage(village,type,typeIndex+set*4,key);
-        }
-
-        if(village.city){
-          let key=supplyKeyForVillage(village,`bomb-${set}`);
-          if(!supplySpawnKeys.has(key)){
-            spawnSupplyBoxForVillage(village,"bomb",8+set,key);
-          }
+      if(village.city){
+        let key=supplyKeyForVillage(village,`bomb-${set}`);
+        if(!supplySpawnKeys.has(key)){
+          spawnSupplyBoxForVillage(village,"bomb",8+set,key);
         }
       }
     }
@@ -2903,17 +2901,17 @@ function fireClusterBomb(car){
 
 function destroyObstaclesInRadius(x,z,radius){
   let destroyed=[];
+  let candidates=world.collidersInRadius
+    ? world.collidersInRadius(x,z,radius)
+    : Array.from(world.chunks.values()).flatMap(chunk=>chunk.colliders || []);
 
-  for(let chunk of world.chunks.values()){
-    if(!chunk.colliders) continue;
-    for(let obstacle of chunk.colliders){
-      if(!obstacle || obstacle.destroyed) continue;
-      let dx=obstacle.x-x;
-      let dz=obstacle.z-z;
-      let reach=radius+(obstacle.r || 0);
-      if(dx*dx+dz*dz>reach*reach) continue;
-      if(destroyWorldObstacle(obstacle)) destroyed.push(obstacle);
-    }
+  for(let obstacle of candidates){
+    if(!obstacle || obstacle.destroyed) continue;
+    let dx=obstacle.x-x;
+    let dz=obstacle.z-z;
+    let reach=radius+(obstacle.r || 0);
+    if(dx*dx+dz*dz>reach*reach) continue;
+    if(destroyWorldObstacle(obstacle)) destroyed.push(obstacle);
   }
 
   return destroyed;
@@ -3461,17 +3459,14 @@ function prepareVillageEnemyBudget(village){
 function villageSpawnCenters(center){
   let villages=[];
 
-  for(let chunk of world.chunks.values()){
-    if(!chunk.villageCenters) continue;
-    for(let village of chunk.villageCenters){
-      prepareVillageEnemyBudget(village);
-      if((village.enemyRemaining ?? 0)<=0) continue;
-      let dx=village.x-center.x;
-      let dz=village.z-center.z;
-      let distSq=dx*dx+dz*dz;
-      if(distSq<130*130 || distSq>620*620) continue;
-      villages.push({village,distSq});
-    }
+  for(let village of world.activeVillages || []){
+    prepareVillageEnemyBudget(village);
+    if((village.enemyRemaining ?? 0)<=0) continue;
+    let dx=village.x-center.x;
+    let dz=village.z-center.z;
+    let distSq=dx*dx+dz*dz;
+    if(distSq<130*130 || distSq>620*620) continue;
+    villages.push({village,distSq});
   }
 
   villages.sort((a,b)=>a.distSq-b.distSq);
@@ -4099,8 +4094,15 @@ function updateEnemy(enemy){
 function updateEnemies(){
   let settings=currentDifficulty();
   for(let enemy of enemies){
-    updateEnemy(enemy);
-    if(enemy.active && playerDistanceSqForEnemy(enemy)>720*720){
+    let distSq=playerDistanceSqForEnemy(enemy);
+    let skipFarUpdate=enemy.active
+      && distSq>420*420
+      && enemy.hitRattle<=0
+      && !enemy.isBoss
+      && ((enemy.lodFrame=(enemy.lodFrame || 0)+1)%3!==0);
+
+    if(!skipFarUpdate) updateEnemy(enemy);
+    if(enemy.active && distSq>720*720){
       enemy.active=false;
       enemy.group.visible=false;
       if(enemy.shadow){
@@ -4135,61 +4137,58 @@ function updateEnemies(){
 
 function updateVillageTurrets(){
   if(gameDifficulty==="easy") return;
-  for(let chunk of world.chunks.values()){
-    if(!chunk.colliders) continue;
-    for(let turret of chunk.colliders){
-      if(!turret || turret.type!=="turret" || turret.destroyed) continue;
-      let target=null;
-      let bestDistSq=Infinity;
+  for(let turret of world.activeTurrets || []){
+    if(!turret || turret.destroyed) continue;
+    let target=null;
+    let bestDistSq=Infinity;
 
-      for(let car of activeCars()){
-        if(car.health<=0 || !car.group.visible) continue;
-        let dx=car.x-turret.x;
-        let dz=car.z-turret.z;
-        let distSq=dx*dx+dz*dz;
-        if(distSq<bestDistSq){
-          bestDistSq=distSq;
-          target=car;
-        }
+    for(let car of activeCars()){
+      if(car.health<=0 || !car.group.visible) continue;
+      let dx=car.x-turret.x;
+      let dz=car.z-turret.z;
+      let distSq=dx*dx+dz*dz;
+      if(distSq<bestDistSq){
+        bestDistSq=distSq;
+        target=car;
       }
+    }
 
-      if(!target || bestDistSq>170*170) continue;
+    if(!target || bestDistSq>170*170) continue;
 
-      let y=drivingSurfaceHeight(turret.x,turret.z)+0.2;
-      let angle=Math.atan2(target.x-turret.x,target.z-turret.z);
-      if(turret.object){
-        turret.object.rotation.y+=normalizeAngle(angle-turret.object.rotation.y)*0.12;
-      }
+    let y=drivingSurfaceHeight(turret.x,turret.z)+0.2;
+    let angle=Math.atan2(target.x-turret.x,target.z-turret.z);
+    if(turret.object){
+      turret.object.rotation.y+=normalizeAngle(angle-turret.object.rotation.y)*0.12;
+    }
 
-      if(!turret.actor){
-        turret.actor={
-          id:`turret-${Math.round(turret.x)}-${Math.round(turret.z)}`,
-          isEnemy:true,
-          health:1,
-          x:turret.x,
-          y,
-          z:turret.z,
-          angle,
-          aiTarget:target,
-          cannonCooldown:40+Math.floor(Math.random()*70),
-          morphed:false,
-          morphProgress:0,
-          jetMode:false,
-          jetProgress:0
-        };
-      }
+    if(!turret.actor){
+      turret.actor={
+        id:`turret-${Math.round(turret.x)}-${Math.round(turret.z)}`,
+        isEnemy:true,
+        health:1,
+        x:turret.x,
+        y,
+        z:turret.z,
+        angle,
+        aiTarget:target,
+        cannonCooldown:40+Math.floor(Math.random()*70),
+        morphed:false,
+        morphProgress:0,
+        jetMode:false,
+        jetProgress:0
+      };
+    }
 
-      let actor=turret.actor;
-      actor.x=turret.x;
-      actor.y=y;
-      actor.z=turret.z;
-      actor.angle=angle;
-      actor.aiTarget=target;
-      actor.health=1;
-      if(actor.cannonCooldown>0) actor.cannonCooldown--;
-      if(actor.cannonCooldown<=0 && fireCannon(actor)){
-        actor.cannonCooldown=96+Math.floor(Math.random()*58);
-      }
+    let actor=turret.actor;
+    actor.x=turret.x;
+    actor.y=y;
+    actor.z=turret.z;
+    actor.angle=angle;
+    actor.aiTarget=target;
+    actor.health=1;
+    if(actor.cannonCooldown>0) actor.cannonCooldown--;
+    if(actor.cannonCooldown<=0 && fireCannon(actor)){
+      actor.cannonCooldown=96+Math.floor(Math.random()*58);
     }
   }
 }
@@ -4357,12 +4356,25 @@ function updateMorphInput(car){
   let jetButton=buttons.b || keyboardJet;
   let pressedMorph=morphButton && !car.lastMorphButton;
   let pressedJet=jetUnlocked && jetButton && !car.lastJetButton;
+  let exitingJet=car.jetMode || car.jetProgress>0.35;
+  let surfaceY=drivingSurfaceHeight(car.x,car.z);
+  let nearGroundForJetExit=car.y-surfaceY<=jetExitGroundClearance;
 
   if(pressedMorph && !gameOver && car.health>0){
+    if(exitingJet && !nearGroundForJetExit){
+      car.lastMorphButton=morphButton;
+      car.lastJetButton=jetButton;
+      return;
+    }
     car.morphed=!car.morphed;
     if(car.morphed) car.jetMode=false;
   }
   if(pressedJet && !gameOver && car.health>0){
+    if(car.jetMode && !nearGroundForJetExit){
+      car.lastMorphButton=morphButton;
+      car.lastJetButton=jetButton;
+      return;
+    }
     car.jetMode=!car.jetMode;
     if(car.jetMode){
       car.morphed=false;
@@ -5935,7 +5947,11 @@ function updateCar(car){
         let airThrust=airborneMovement ? 1.85 : 1;
         car.speed+=0.0052*airThrust*throttlePower*(1-speedRatio*0.35);
       }else if(brakeOrReverse){
-        car.speed+=(car.speed>0.03 ? -0.02 : -0.0045)*throttlePower;
+        if(jetMovement){
+          car.speed=approach(car.speed,0,0.026*throttlePower);
+        }else{
+          car.speed+=(car.speed>0.03 ? -0.02 : -0.0045)*throttlePower;
+        }
       }else{
         if(!jetMovement){
           car.speed*=car.onGround ? 0.965 : 0.985;
@@ -5944,7 +5960,7 @@ function updateCar(car){
       }
     }
 
-    car.speed=clamp(car.speed,-localMaxSpeed*0.42,forwardMaxSpeed);
+    car.speed=clamp(car.speed,jetMovement ? 0 : -localMaxSpeed*0.42,forwardMaxSpeed);
 
     speedAbs=Math.abs(car.speed);
     let movingSteer=clamp(speedAbs/0.34,0,1);
@@ -5967,7 +5983,7 @@ function updateCar(car){
       let highSpeedCalm=1-clamp((speedAbs-0.32)/0.32,0,0.18);
       let robotTurnBoost=1+0.42*(1-smoothStep(car.morphProgress/0.65));
       let steeringResponse=(0.52+movingSteer*0.54)*highSpeedCalm*robotTurnBoost;
-      let jetYawScale=jetMovement ? 0.24 : 1;
+      let jetYawScale=jetMovement ? 0.38 : 1;
       car.angle+=turn*reverseSteer*0.031*steeringResponse*jetYawScale;
       car.velAngle=car.angle;
     }
@@ -6002,7 +6018,7 @@ function updateCar(car){
   let surfaceY=drivingSurfaceHeight(car.x,car.z);
   let landingSurface=landingSurfaceAt(car.x,car.z);
   let landingPadSurface=landingPadSurfaceAt(car.x,car.z);
-  let takeoffInput=Math.abs(car.throttleInput || 0)>0.08 || Math.abs(car.liftInput || 0)>0.08;
+  let takeoffInput=(car.throttleInput || 0)>0.08 || (car.liftInput || 0)>0.08;
   if(takeoffInput && (car.landedOnPad || car.landingReleaseFrames>0)){
     car.landingReleaseFrames=90;
     car.landedOnPad=false;
@@ -6021,7 +6037,7 @@ function updateCar(car){
   let jetAltitudeMax=154;
   if(jetHovering && !gameOver && !carDisabled){
     let climbInput=autoLanding ? 0 : Math.max(0,car.liftInput || 0);
-    car.speed=clamp(car.speed+climbInput*0.027,-mechGroundMaxSpeed*0.42,jetMaxSpeed);
+    car.speed=clamp(car.speed+climbInput*0.027,0,jetMaxSpeed);
     if(!Number.isFinite(car.jetAltitudeTarget)){
       car.jetAltitudeTarget=Math.max(car.y,surfaceY+8);
     }
@@ -6042,12 +6058,14 @@ function updateCar(car){
       autoLandingDeckY=centeredOnPad ? landingSurface.y+2.4 : autoLandingApproachY;
       car.jetAltitudeTarget=approach(car.jetAltitudeTarget,autoLandingDeckY,centeredOnPad ? 0.72 : 0.48);
     }else{
-      car.jetAltitudeTarget=clamp(car.jetAltitudeTarget+(car.liftInput || 0)*0.224,waterLevel+5,jetAltitudeMax);
+      let liftInput=car.liftInput || 0;
+      let altitudeAdjust=liftInput*(liftInput<0 ? 0.36 : 0.224);
+      car.jetAltitudeTarget=clamp(car.jetAltitudeTarget+altitudeAdjust,waterLevel+5,jetAltitudeMax);
     }
     let hoverTarget=car.jetAltitudeTarget+Math.sin(performance.now()*0.004)*0.22;
     if(autoLanding) hoverTarget=car.jetAltitudeTarget;
     let lift=(hoverTarget-car.y)*0.045-car.vy*0.2;
-    car.vy=clamp(car.vy+lift,-0.42,0.78);
+    car.vy=clamp(car.vy+lift,-0.62,0.78);
     emitJetHoverExhaust(car);
   }
 
@@ -6171,7 +6189,7 @@ function updateCar(car){
   let jetPitch=clamp(-jetLiftPitch*0.18-Math.max(0,car.speed)*0.025,-0.3,0.12);
   let targetPitch=jetHovering ? jetPitch : -Math.atan2(frontY-backY,pitchSampleDist*2);
   car.pitch+=(targetPitch-car.pitch)*0.18;
-  let jetBankTarget=jetHovering ? clamp((car.turnInputEase || 0)*-0.32+(car.turnVelocity || 0)*-3.6,-0.42,0.42) : 0;
+  let jetBankTarget=jetHovering ? clamp((car.turnInputEase || 0)*-0.46+(car.turnVelocity || 0)*-4.4,-0.58,0.58) : 0;
   car.jetBank+=(jetBankTarget-(car.jetBank || 0))*(jetHovering ? 0.07 : 0.18);
 
   car.group.position.set(car.x,car.y,car.z);
