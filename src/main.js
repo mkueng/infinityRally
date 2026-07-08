@@ -282,7 +282,7 @@ function updateDayNight(now=performance.now(),forceSky=false){
   if(scene.fog){
     scene.fog.color.set(currentEnvironment.fog || 0x7b4771).lerp(fogNightColor,night*0.72);
     let fogNear=baseFogNear-rainIntensity*120-night*120;
-    let fogFar=baseFogFar-rainIntensity*650-night*450-jetFogAmount*1350;
+    let fogFar=baseFogFar-rainIntensity*650-night*450-jetFogAmount*950;
     scene.fog.near=Math.max(520,fogNear);
     scene.fog.far=Math.max(scene.fog.near+650,fogFar);
   }
@@ -307,11 +307,28 @@ let scene=new THREE.Scene();
 let playerCamera=new THREE.PerspectiveCamera(45,innerWidth/innerHeight,.1,1e6);
 let secondCamera=new THREE.PerspectiveCamera(45,innerWidth/innerHeight,.1,1e6);
 let renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:"high-performance"});
-function updateRendererPixelRatio(){
-  let maxRatio=gameMode==="double" ? 1 : 1.5;
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1,maxRatio));
+let currentPixelRatio=0;
+let lastPixelRatioUpdate=0;
+function rendererQualityState(){
+  let jetView=gameStarted && cars.some(car=>car.group.visible && car.health>0 && chunkViewDistanceForCar(car)>viewDistance);
+  let rainy=rainIntensity>0.18;
+  if(gameMode==="double"){
+    if(jetView && rainy) return 0.75;
+    if(jetView || rainy) return 0.85;
+    return 0.95;
+  }
+  if(jetView && rainy) return 1.05;
+  if(jetView || rainy) return 1.2;
+  return 1.5;
 }
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1,1.5));
+function updateRendererPixelRatio(){
+  let target=Math.min(window.devicePixelRatio || 1,rendererQualityState());
+  if(Math.abs(target-currentPixelRatio)<0.01) return;
+  currentPixelRatio=target;
+  renderer.setPixelRatio(target);
+}
+currentPixelRatio=Math.min(window.devicePixelRatio || 1,1.5);
+renderer.setPixelRatio(currentPixelRatio);
 renderer.setSize(innerWidth,innerHeight);
 renderer.setScissorTest(true);
 document.body.appendChild(renderer.domElement);
@@ -417,6 +434,7 @@ let boostSupplyAmount=45;
 let clusterBombSupplyAmount=20;
 let rockets=[];
 let supplyBoxes=[];
+let supplyScanCooldown=0;
 let supplySpawnKeys=new Set();
 let rocketBodyGeo=new THREE.CylinderGeometry(0.11,0.13,0.8,12);
 let rocketNoseGeo=new THREE.ConeGeometry(0.16,0.34,12);
@@ -855,7 +873,7 @@ secondCar.shadow.setVisible(false);
 let world=createWorld(scene,{getDifficulty:()=>gameDifficulty,getEnvironment:()=>currentEnvironment});
 let clouds=createClouds(scene,()=>({carX:playerCar.x,carZ:playerCar.z}));
 let birds=createBirds(scene,()=>({carX:playerCar.x,carZ:playerCar.z}));
-let rain=createRain(scene,()=>({carX:px,carZ:pz}),()=>rainIntensity);
+let rain=createRain(scene,()=>({carX:px,carY:py,carZ:pz}),()=>rainIntensity,()=>rainQualityScale());
 let ambientMotes=createAmbientMotes(scene,()=>({carX:px,carY:py,carZ:pz}),()=>rainIntensity);
 let dust=createDust(scene);
 let wheelTracks=createWheelTracks(scene);
@@ -2135,7 +2153,12 @@ function collectSupplyBox(box,car){
 }
 
 function updateSupplyBoxes(){
-  spawnVillageSupplyBoxes();
+  if(supplyScanCooldown<=0){
+    spawnVillageSupplyBoxes();
+    supplyScanCooldown=30;
+  }else{
+    supplyScanCooldown--;
+  }
 
   let now=performance.now();
   for(let i=supplyBoxes.length-1;i>=0;i--){
@@ -2163,6 +2186,7 @@ function clearSupplyBoxes(){
     scene.remove(box);
   }
   supplyBoxes=[];
+  supplyScanCooldown=0;
   supplySpawnKeys.clear();
 }
 
@@ -6275,6 +6299,14 @@ function chunkBuildBudget(){
     : {items:1,frameMs:2};
 }
 
+function rainQualityScale(){
+  let jetView=gameStarted && activeCars().some(car=>chunkViewDistanceForCar(car)>viewDistance);
+  if(gameMode==="double" && jetView) return 0.38;
+  if(gameMode==="double") return 0.52;
+  if(jetView) return 0.62;
+  return 1;
+}
+
 function updateJetFogAmount(){
   let target=0;
 
@@ -6376,6 +6408,11 @@ function loop(timestamp=performance.now()){
 
   if(steps>=maxFixedStepsPerFrame && fixedAccumulator>=fixedStepMs){
     fixedAccumulator=fixedStepMs-0.001;
+  }
+
+  if(timestamp-lastPixelRatioUpdate>500){
+    lastPixelRatioUpdate=timestamp;
+    updateRendererPixelRatio();
   }
 
   clouds.update();

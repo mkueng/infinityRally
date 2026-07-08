@@ -12,6 +12,7 @@ export function createWorld(scene,options={}){
   let bossBases=[];
   let bossBaseColliders=[];
   let landingSpaceModel=null;
+  let animatedLandingRings=[];
   let activeChunkBuild=null;
   let lastChunkBuildTime=0;
   let getDifficulty=typeof options.getDifficulty==="function" ? options.getDifficulty : ()=>"medium";
@@ -953,6 +954,7 @@ function makeLandingRing(surface,parent=scene){
   ring.userData.phase=rand(surface.x*0.17,surface.z*0.23)*Math.PI*2;
   ring.scale.setScalar(baseScale);
   parent.add(ring);
+  animatedLandingRings.push(ring);
   return ring;
 }
 
@@ -1841,6 +1843,8 @@ function disposeChunk(chunk){
   if(chunk.cityStreets) chunk.cityStreets.dispose();
   if(chunk.landingRings){
     for(let ring of chunk.landingRings){
+      let ringIndex=animatedLandingRings.indexOf(ring);
+      if(ringIndex>=0) animatedLandingRings.splice(ringIndex,1);
       if(ring.material) ring.material.dispose();
     }
   }
@@ -1915,14 +1919,11 @@ function processChunkQueue(maxItems=1,immediate=false,maxFrameMs=2){
 
 function updateWind(time,rainIntensity=0){
   let t=time*0.004;
-  for(let chunk of chunks.values()){
-    if(!chunk.landingRings) continue;
-    for(let ring of chunk.landingRings){
-      let pulse=(Math.sin(t+(ring.userData.phase || 0))*0.5+0.5);
-      let scale=(ring.userData.baseScale || 10)*(0.92+pulse*0.18);
-      ring.scale.setScalar(scale);
-      if(ring.material) ring.material.opacity=0.38+pulse*0.42;
-    }
+  for(let ring of animatedLandingRings){
+    let pulse=(Math.sin(t+(ring.userData.phase || 0))*0.5+0.5);
+    let scale=(ring.userData.baseScale || 10)*(0.92+pulse*0.18);
+    ring.scale.setScalar(scale);
+    if(ring.material) ring.material.opacity=0.38+pulse*0.42;
   }
 
   if(!grassWindShader) return;

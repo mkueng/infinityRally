@@ -303,7 +303,7 @@ export function createBirds(scene,getCarPosition){
   return {makeBirds,update};
 }
 
-export function createRain(scene,getCarPosition,getRainIntensity=()=>0){
+export function createRain(scene,getCarPosition,getRainIntensity=()=>0,getRainQuality=()=>1){
   let maxDrops=850;
   let range=420;
   let height=190;
@@ -347,18 +347,22 @@ export function createRain(scene,getCarPosition,getRainIntensity=()=>0){
     }
 
     rain.visible=true;
+    let quality=Math.max(0.25,Math.min(1,getRainQuality()));
     material.opacity=0.18+intensity*0.42;
-    let activeDrops=Math.max(40,Math.floor(maxDrops*intensity));
-    let {carX,carZ}=getCarPosition();
+    let activeDrops=Math.max(28,Math.floor(maxDrops*intensity*quality));
+    let {carX,carY=20,carZ}=getCarPosition();
+    let lowerY=Math.min(8,carY-130);
+    let upperY=Math.max(150,carY+70);
+    let rainHeight=upperY-lowerY;
     rainTime+=0.016;
 
     for(let i=0;i<activeDrops;i++){
       let ox=wrap(offsets[i*3]+Math.sin(rainTime*0.7+i)*18,range*0.5);
-      let fall=(offsets[i*3+1]-rainTime*speeds[i]*60)%height;
-      if(fall<0) fall+=height;
+      let fall=(offsets[i*3+1]-rainTime*speeds[i]*60)%rainHeight;
+      if(fall<0) fall+=rainHeight;
       let oz=wrap(offsets[i*3+2]+Math.cos(rainTime*0.55+i*0.7)*12,range*0.5);
       let x=carX+ox;
-      let y=18+fall;
+      let y=lowerY+fall;
       let z=carZ+oz;
       let base=i*6;
 
@@ -608,6 +612,7 @@ export function createDust(scene){
 export function createWheelTracks(scene){
   let maxTracks=1400;
   let tracks=[];
+  let trackCursor=0;
   let lastTrackByCar=new Map();
   let trackGeo=new THREE.PlaneGeometry(0.34,1.18);
   let trackTexture=makeTrackTexture();
@@ -643,21 +648,23 @@ export function createWheelTracks(scene){
   }
 
   function addTrack(x,y,z,angle,opacity,width,length){
-    let mesh=new THREE.Mesh(trackGeo,trackMat.clone());
+    let mesh;
+    if(tracks.length<maxTracks){
+      mesh=new THREE.Mesh(trackGeo,trackMat.clone());
+      mesh.renderOrder=1;
+      scene.add(mesh);
+      tracks.push(mesh);
+    }else{
+      mesh=tracks[trackCursor];
+      trackCursor=(trackCursor+1)%maxTracks;
+    }
+
     mesh.material.opacity=opacity;
+    mesh.visible=true;
     mesh.position.set(x,y+0.045,z);
     mesh.rotation.order="YXZ";
     mesh.rotation.set(-Math.PI/2,angle,0);
     mesh.scale.set(width/0.34,length/1.18,1);
-    mesh.renderOrder=1;
-    scene.add(mesh);
-    tracks.push(mesh);
-
-    while(tracks.length>maxTracks){
-      let old=tracks.shift();
-      scene.remove(old);
-      old.material.dispose();
-    }
   }
 
   function addCarTracks(car,surfaceY,inWater){
