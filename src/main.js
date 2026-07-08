@@ -349,6 +349,9 @@ let gameWon=false;
 let healthDamageCooldown=0;
 let cameraFollowDistance=18;
 let cameraFollowHeight=7.5;
+let screenShakeAmount=0;
+let screenShakeSeed=0;
+let screenShakeOffset=new THREE.Vector3();
 let cars=[];
 let gameStarted=false;
 let gamePaused=false;
@@ -398,6 +401,7 @@ let enemyPatrolDelay=900;
 let enemySpawnSerial=0;
 let enemyBudgetRun=0;
 let mothership=null;
+let giantTestRobot=null;
 let mothershipDelay=mothershipMinDelay+Math.floor(Math.random()*mothershipRandomDelay);
 let planetaryStationModel=null;
 let planetaryStation=null;
@@ -469,6 +473,23 @@ let cannonCoreMat=new THREE.MeshBasicMaterial({
 });
 let cannonGlowMat=new THREE.MeshBasicMaterial({
   color:0x9fd8ff,
+  transparent:true,
+  opacity:0.34,
+  depthWrite:false,
+  blending:THREE.AdditiveBlending
+});
+let giantFireballs=[];
+let giantFireballCoreGeo=new THREE.SphereGeometry(1,24,16);
+let giantFireballGlowGeo=new THREE.SphereGeometry(1,24,16);
+let giantFireballCoreMat=new THREE.MeshBasicMaterial({
+  color:0xfff0a0,
+  transparent:true,
+  opacity:0.96,
+  depthWrite:false,
+  blending:THREE.AdditiveBlending
+});
+let giantFireballGlowMat=new THREE.MeshBasicMaterial({
+  color:0xff5a16,
   transparent:true,
   opacity:0.34,
   depthWrite:false,
@@ -790,6 +811,22 @@ function maxCarRocketAmmo(){
 
 function scaledDelay(frames,scale){
   return Math.max(1,Math.round(frames*scale));
+}
+
+function updateScreenShakeFrame(){
+  if(screenShakeAmount<=0.001){
+    screenShakeAmount=0;
+    screenShakeOffset.set(0,0,0);
+    return;
+  }
+
+  let t=performance.now()*0.08+screenShakeSeed;
+  screenShakeOffset.set(
+    Math.sin(t*1.7)*screenShakeAmount*0.58,
+    Math.cos(t*2.3)*screenShakeAmount*0.42,
+    0
+  );
+  screenShakeAmount*=0.88;
 }
 
 function createCarState(id,lateralOffset,controls,camera,gamepadIndex){
@@ -3075,6 +3112,7 @@ function clearRockets(){
     scene.remove(bomb.mesh);
   }
   clusterBombs=[];
+  clearGiantFireballs();
   clearExplosions();
   clearRockDebris();
   clearTeleportEffects();
@@ -5704,6 +5742,624 @@ function createEnemyState(index,x,z,type="mech"){
   };
 }
 
+function clearGiantTestRobot(){
+  if(!giantTestRobot) return;
+  scene.remove(giantTestRobot.group);
+  if(giantTestRobot.shadow) scene.remove(giantTestRobot.shadow);
+  giantTestRobot=null;
+}
+
+function makeGiantTestRobotShadow(){
+  let shadow=new THREE.Mesh(
+    new THREE.CircleGeometry(1,48),
+    new THREE.MeshBasicMaterial({
+      color:0x000000,
+      transparent:true,
+      opacity:0.24,
+      depthWrite:false,
+      depthTest:true
+    })
+  );
+  shadow.rotation.x=-Math.PI/2;
+  shadow.scale.set(42,26,1);
+  shadow.renderOrder=1;
+  scene.add(shadow);
+  return shadow;
+}
+
+function makeGiantRobotConnector(name,material){
+  let connector=new THREE.Mesh(new THREE.CylinderGeometry(0.18,0.18,1,16),material.clone());
+  connector.name=name;
+  connector.castShadow=true;
+  connector.receiveShadow=true;
+  return connector;
+}
+
+function giantRobotPartPoint(mesh,offsetY=0){
+  let point=new THREE.Vector3(0,offsetY,0);
+  point.applyEuler(mesh.rotation);
+  point.add(mesh.position);
+  return point;
+}
+
+function giantRobotHalfHeight(mesh){
+  if(!mesh || !mesh.geometry) return 0.1;
+  if(!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+  let box=mesh.geometry.boundingBox;
+  return Math.max(0.1,(box.max.y-box.min.y)*mesh.scale.y*0.5);
+}
+
+function addGiantRobotLegConnectors(robot){
+  let model=robot && robot.mechModel;
+  let parts=model && model.userData ? model.userData.walkParts : null;
+  if(!parts) return;
+
+  let connectorMat=new THREE.MeshStandardMaterial({
+    color:0x151a20,
+    roughness:0.62,
+    metalness:0.72
+  });
+
+  robot.legConnectors=[];
+  for(let sideName of ["left","right"]){
+    let sideParts=parts[sideName];
+    if(!sideParts) continue;
+    for(let spec of [
+      ["hipUpper",sideParts.hip,sideParts.upperLeg,0,1],
+      ["upperKnee",sideParts.upperLeg,sideParts.knee,-1,0],
+      ["kneeShin",sideParts.knee,sideParts.shin,0,1],
+      ["shinFoot",sideParts.shin,sideParts.foot,-1,1]
+    ]){
+      let connector=makeGiantRobotConnector(`giant-${sideName}-${spec[0]}-connector`,connectorMat);
+      model.add(connector);
+      robot.legConnectors.push({
+        mesh:connector,
+        from:spec[1],
+        to:spec[2],
+        fromSign:spec[3],
+        toSign:spec[4]
+      });
+    }
+  }
+}
+
+function updateGiantRobotLegConnectors(robot){
+  if(!robot || !robot.legConnectors) return;
+
+  let yAxis=new THREE.Vector3(0,1,0);
+  for(let connector of robot.legConnectors){
+    let from=connector.from;
+    let to=connector.to;
+    if(!from || !to) continue;
+
+    let fromY=connector.fromSign*giantRobotHalfHeight(from)*0.82;
+    let toY=connector.toSign*giantRobotHalfHeight(to)*0.82;
+    let a=giantRobotPartPoint(from,fromY);
+    let b=giantRobotPartPoint(to,toY);
+    let delta=b.clone().sub(a);
+    let length=Math.max(0.1,delta.length());
+
+    connector.mesh.position.copy(a).add(b).multiplyScalar(0.5);
+    connector.mesh.quaternion.setFromUnitVectors(yAxis,delta.normalize());
+    connector.mesh.scale.set(1,length,1);
+  }
+}
+
+function triggerScreenShake(amount=0.12){
+  screenShakeAmount=Math.min(1.7,Math.max(screenShakeAmount,amount));
+  screenShakeSeed=Math.random()*Math.PI*2;
+}
+
+function triggerGiantFootstepShake(robot,sideName){
+  let nearestDistance=Infinity;
+  for(let car of activeCars()){
+    if(!car || !car.group.visible || car.health<=0) continue;
+    nearestDistance=Math.min(nearestDistance,Math.hypot(car.x-robot.x,car.z-robot.z));
+  }
+
+  let distanceFalloff=Number.isFinite(nearestDistance)
+    ? clamp(1-nearestDistance/520,0.18,1)
+    : 0.35;
+  let sideVariation=sideName==="left" ? 1 : 0.92;
+  triggerScreenShake(0.82*distanceFalloff*sideVariation);
+}
+
+function giantRobotStepPose(phaseOffset,stride){
+  let phase=phaseOffset%(Math.PI*2);
+  if(phase<0) phase+=Math.PI*2;
+  let t=phase/(Math.PI*2);
+
+  if(t<0.5){
+    let stanceT=t/0.5;
+    return {
+      z:stride*(1-stanceT*2),
+      lift:0,
+      planted:1
+    };
+  }
+
+  let swingT=(t-0.5)/0.5;
+  return {
+    z:-stride+swingT*stride*2,
+    lift:Math.sin(swingT*Math.PI),
+    planted:0
+  };
+}
+
+function updateGiantTestRobotWalk(robot){
+  let model=robot && robot.mechModel;
+  let parts=model && model.userData ? model.userData.walkParts : null;
+  if(!model || !parts) return;
+
+  model.traverse(child=>{
+    if(child.isMesh) resetMechPart(child);
+  });
+
+  let phase=robot.walkCycle || 0;
+  let stride=1.82;
+  let bodyBob=Math.abs(Math.sin(phase*2))*0.055;
+  let bodySway=Math.sin(phase)*0.018;
+  let bodyPitch=0.035+Math.max(0,Math.sin(phase*2))*0.018;
+
+  model.position.y=(model.userData.baseY || 0)+bodyBob;
+  model.rotation.x=-bodyPitch;
+  model.rotation.z=bodySway;
+
+  if(parts.pelvis){
+    parts.pelvis.rotation.z-=bodySway*0.8;
+    parts.pelvis.rotation.x+=bodyPitch*0.35;
+  }
+  if(parts.torso){
+    parts.torso.rotation.z+=bodySway*0.45;
+    parts.torso.rotation.y+=Math.sin(phase)*0.025;
+  }
+  if(parts.head){
+    parts.head.rotation.z-=bodySway*0.7;
+    parts.head.rotation.x+=bodyPitch*0.24;
+  }
+  if(parts.reactorPack) parts.reactorPack.rotation.x+=bodyPitch*0.4;
+
+  for(let sideName of ["left","right"]){
+    let side=sideName==="left" ? -1 : 1;
+    let sideParts=parts[sideName];
+    if(!sideParts) continue;
+
+    let pose=giantRobotStepPose(phase+(sideName==="left" ? 0 : Math.PI),stride);
+    let footZ=pose.z;
+    let lift=pose.lift;
+    let planted=pose.planted;
+    if(!robot.footPlantState) robot.footPlantState={left:planted,right:planted};
+    if(planted && !robot.footPlantState[sideName]) triggerGiantFootstepShake(robot,sideName);
+    robot.footPlantState[sideName]=planted;
+    let kneeDrive=lift*0.58;
+    let hipSwing=-footZ*0.16;
+    let anklePitch=-footZ*0.12-lift*0.08+planted*0.08;
+
+    if(sideParts.hip){
+      sideParts.hip.rotation.x+=hipSwing*0.28;
+      sideParts.hip.position.y-=planted*0.035;
+    }
+    if(sideParts.upperLeg){
+      sideParts.upperLeg.rotation.x+=hipSwing+kneeDrive*0.42;
+      sideParts.upperLeg.position.z+=footZ*0.22+kneeDrive*0.16;
+      sideParts.upperLeg.position.y-=planted*0.04;
+    }
+    if(sideParts.knee){
+      sideParts.knee.position.z+=footZ*0.38+kneeDrive*0.46;
+      sideParts.knee.position.y+=lift*0.24;
+    }
+    if(sideParts.kneePlate){
+      sideParts.kneePlate.position.z+=footZ*0.38+kneeDrive*0.46;
+      sideParts.kneePlate.position.y+=lift*0.24;
+    }
+    if(sideParts.shin){
+      sideParts.shin.rotation.x+=-hipSwing*0.64-kneeDrive*0.52;
+      sideParts.shin.position.z+=footZ*0.54+kneeDrive*0.36;
+      sideParts.shin.position.y+=lift*0.18;
+    }
+    if(sideParts.foot){
+      sideParts.foot.position.z+=footZ;
+      sideParts.foot.position.y+=lift*0.72;
+      sideParts.foot.rotation.x+=anklePitch;
+      sideParts.foot.rotation.z+=side*planted*0.025;
+    }
+    if(sideParts.toePlate){
+      sideParts.toePlate.position.z+=footZ+0.12;
+      sideParts.toePlate.position.y+=lift*0.72;
+      sideParts.toePlate.rotation.x+=anklePitch+lift*0.1;
+      sideParts.toePlate.rotation.z+=side*planted*0.025;
+    }
+    if(sideParts.upperArm){
+      sideParts.upperArm.rotation.x+=-side*0.02-Math.sin(phase+(sideName==="left" ? Math.PI : 0))*0.22;
+      sideParts.upperArm.rotation.z+=side*0.06;
+    }
+    if(sideParts.forearm){
+      sideParts.forearm.rotation.x+=-Math.sin(phase+(sideName==="left" ? Math.PI : 0))*0.12;
+    }
+    if(sideParts.hand){
+      sideParts.hand.position.z+=-Math.sin(phase+(sideName==="left" ? Math.PI : 0))*0.1;
+    }
+    if(sideParts.shoulder){
+      sideParts.shoulder.rotation.z+=side*0.018;
+    }
+
+    if(robot.throwWindup>0 && robot.activeThrowSide===sideName){
+      let throwPose=smoothStep(robot.throwWindup/28);
+      if(sideParts.shoulder) sideParts.shoulder.rotation.x-=0.18*throwPose;
+      if(sideParts.upperArm) {
+        sideParts.upperArm.rotation.x-=0.9*throwPose;
+        sideParts.upperArm.rotation.z+=side*0.22*throwPose;
+      }
+      if(sideParts.forearm) sideParts.forearm.rotation.x-=0.48*throwPose;
+      if(sideParts.hand) sideParts.hand.position.z+=0.36*throwPose;
+    }
+  }
+
+  robot.walkCycle=phase+(robot.gaitRate || 0.0116);
+}
+
+function makeGiantFireballMesh(){
+  let group=new THREE.Group();
+  let core=new THREE.Mesh(giantFireballCoreGeo,giantFireballCoreMat.clone());
+  let glow=new THREE.Mesh(giantFireballGlowGeo,giantFireballGlowMat.clone());
+  let corona=new THREE.Mesh(giantFireballGlowGeo,giantFireballGlowMat.clone());
+
+  core.scale.setScalar(2.2);
+  glow.scale.setScalar(4.4);
+  corona.scale.setScalar(7.2);
+  corona.material.opacity=0.16;
+  group.add(core,glow,corona);
+  group.userData.core=core;
+  group.userData.glow=glow;
+  group.userData.corona=corona;
+  return group;
+}
+
+function giantRobotThrowPoint(robot,sideName){
+  let model=robot && robot.mechModel;
+  let parts=model && model.userData ? model.userData.walkParts : null;
+  let sideParts=parts && parts[sideName];
+  let hand=sideParts && sideParts.hand;
+
+  if(hand){
+    model.updateWorldMatrix(true,true);
+    hand.updateWorldMatrix(true,false);
+    return hand.localToWorld(new THREE.Vector3(0,0,0.28));
+  }
+
+  let side=sideName==="left" ? -1 : 1;
+  let forwardX=Math.sin(robot.angle);
+  let forwardZ=Math.cos(robot.angle);
+  let rightX=Math.cos(robot.angle);
+  let rightZ=-Math.sin(robot.angle);
+  return new THREE.Vector3(
+    robot.x+forwardX*18+rightX*side*15,
+    robot.y+38,
+    robot.z+forwardZ*18+rightZ*side*15
+  );
+}
+
+function nearestEnemyForGiant(robot){
+  let best=null;
+  let bestDistSq=Infinity;
+  let range=620;
+
+  for(let enemy of activeEnemies()){
+    if(!enemy || !enemy.active || enemy.health<=0) continue;
+    let dx=enemy.x-robot.x;
+    let dz=enemy.z-robot.z;
+    let distSq=dx*dx+dz*dz;
+    if(distSq<bestDistSq && distSq<range*range){
+      best=enemy;
+      bestDistSq=distSq;
+    }
+  }
+
+  return best;
+}
+
+function throwGiantFireball(robot,target){
+  if(!robot || !target) return false;
+
+  let sideName=robot.throwSide==="left" ? "left" : "right";
+  robot.throwSide=sideName==="left" ? "right" : "left";
+  robot.activeThrowSide=sideName;
+  let start=giantRobotThrowPoint(robot,sideName);
+  let targetY=target.y+Math.max(3,target.hitHeight || 5)*0.62;
+  let dx=target.x-start.x;
+  let dz=target.z-start.z;
+  let dy=targetY-start.y;
+  let horizontalDistance=Math.max(1,Math.hypot(dx,dz));
+  let gravity=0.018;
+  let flightFrames=clamp(horizontalDistance/3.1,72,150);
+  let vx=dx/flightFrames;
+  let vz=dz/flightFrames;
+  let vy=(dy+0.5*gravity*flightFrames*flightFrames)/flightFrames;
+  let mesh=makeGiantFireballMesh();
+
+  mesh.position.copy(start);
+  scene.add(mesh);
+  giantFireballs.push({
+    owner:robot,
+    target,
+    mesh,
+    x:start.x,
+    y:start.y,
+    z:start.z,
+    vx,
+    vy,
+    vz,
+    gravity,
+    age:0,
+    life:Math.ceil(flightFrames)+54,
+    damage:95,
+    blastRadius:42
+  });
+
+  robot.throwCooldown=118;
+  robot.throwWindup=28;
+
+  for(let i=0;i<20;i++){
+    dust.spawnThrusterParticle(
+      start.x,
+      start.y,
+      start.z,
+      -vx*(1.8+Math.random()*1.8)+(Math.random()-0.5)*2.2,
+      -vz*(1.8+Math.random()*1.8)+(Math.random()-0.5)*2.2,
+      -vy*0.25+(Math.random()-0.5)*2.6,
+      0.28+Math.random()*0.18,
+      0.12+Math.random()*0.08
+    );
+  }
+
+  if(motorAudio.playRocketLaunch) motorAudio.playRocketLaunch(robot);
+  return true;
+}
+
+function updateGiantFireballs(){
+  for(let i=giantFireballs.length-1;i>=0;i--){
+    let fireball=giantFireballs[i];
+    fireball.age++;
+
+    let prevX=fireball.x;
+    let prevY=fireball.y;
+    let prevZ=fireball.z;
+    fireball.vy-=fireball.gravity;
+    fireball.x+=fireball.vx;
+    fireball.y+=fireball.vy;
+    fireball.z+=fireball.vz;
+
+    fireball.mesh.position.set(fireball.x,fireball.y,fireball.z);
+    fireball.mesh.rotation.y+=0.08;
+    fireball.mesh.rotation.x+=0.055;
+    let pulse=1+Math.sin(fireball.age*0.42)*0.08;
+    if(fireball.mesh.userData.core) fireball.mesh.userData.core.scale.setScalar(2.2*pulse);
+    if(fireball.mesh.userData.glow) fireball.mesh.userData.glow.scale.setScalar(4.4*(1+Math.sin(fireball.age*0.31)*0.1));
+    if(fireball.mesh.userData.corona) fireball.mesh.userData.corona.scale.setScalar(7.2*(1+Math.sin(fireball.age*0.23)*0.08));
+
+    if(fireball.age%2===0){
+      for(let t=0;t<3;t++){
+        dust.spawnThrusterParticle(
+          fireball.x-fireball.vx*(0.5+t*0.32),
+          fireball.y-fireball.vy*(0.5+t*0.32),
+          fireball.z-fireball.vz*(0.5+t*0.32),
+          -fireball.vx*(1.2+Math.random()*0.9)+(Math.random()-0.5)*1.6,
+          -fireball.vz*(1.2+Math.random()*0.9)+(Math.random()-0.5)*1.6,
+          -fireball.vy*0.35+(Math.random()-0.5)*1.8,
+          0.32+Math.random()*0.22,
+          0.12+Math.random()*0.08
+        );
+      }
+    }
+
+    let surfaceY=drivingSurfaceHeight(fireball.x,fireball.z);
+    let hitEnemy=null;
+    for(let enemy of activeEnemies()){
+      let hitRadius=Math.max(7.5,(enemy.collisionRadius || 3)+4.8);
+      let hitHeight=Math.max(8,enemy.hitHeight || 5);
+      let dx=enemy.x-fireball.x;
+      let dz=enemy.z-fireball.z;
+      if(dx*dx+dz*dz<hitRadius*hitRadius && Math.abs(fireball.y-enemy.y)<hitHeight+8){
+        hitEnemy=enemy;
+        break;
+      }
+    }
+
+    let hitObstacle=world.obstacleAlongSegment3D(prevX,prevY,prevZ,fireball.x,fireball.y,fireball.z,2.4);
+    let hitGround=fireball.y<=surfaceY+1.1;
+    let expired=fireball.age>fireball.life;
+
+    if(hitEnemy || hitObstacle || hitGround || expired){
+      let explosionX=hitEnemy ? hitEnemy.x : hitObstacle ? hitObstacle.x : fireball.x;
+      let explosionZ=hitEnemy ? hitEnemy.z : hitObstacle ? hitObstacle.z : fireball.z;
+      let explosionY=hitEnemy
+        ? hitEnemy.y+Math.max(2,(hitEnemy.hitHeight || 5)*0.45)
+        : Math.max(fireball.y,drivingSurfaceHeight(explosionX,explosionZ)+1.1);
+
+      spawnRocketExplosion(explosionX,explosionY,explosionZ);
+      triggerScreenShake(0.68);
+
+      if(hitEnemy){
+        damageEnemy(hitEnemy,fireball.damage);
+        rattleActor(hitEnemy,1.2);
+      }
+
+      for(let enemy of activeEnemies()){
+        if(enemy===hitEnemy) continue;
+        let dx=enemy.x-explosionX;
+        let dz=enemy.z-explosionZ;
+        if(dx*dx+dz*dz<fireball.blastRadius*fireball.blastRadius){
+          damageEnemy(enemy,Math.max(24,fireball.damage*0.55));
+          rattleActor(enemy,0.95);
+        }
+      }
+
+      for(let s=0;s<34;s++){
+        let angle=Math.random()*Math.PI*2;
+        let speed=4+Math.random()*9;
+        dust.spawnThrusterParticle(
+          explosionX,
+          explosionY,
+          explosionZ,
+          Math.cos(angle)*speed,
+          Math.sin(angle)*speed,
+          1.2+Math.random()*5.8,
+          0.38+Math.random()*0.28,
+          0.14+Math.random()*0.1
+        );
+      }
+
+      scene.remove(fireball.mesh);
+      giantFireballs.splice(i,1);
+    }
+  }
+}
+
+function clearGiantFireballs(){
+  for(let fireball of giantFireballs){
+    scene.remove(fireball.mesh);
+  }
+  giantFireballs=[];
+}
+
+function spawnGiantTestRobot(startInfo){
+  clearGiantTestRobot();
+
+  let angle=startInfo.angle;
+  let forwardX=Math.sin(angle);
+  let forwardZ=Math.cos(angle);
+  let rightX=Math.cos(angle);
+  let rightZ=-Math.sin(angle);
+  let basePoint=roadPointForOffset(startInfo.z,startInfo.fieldOffset);
+  let x=basePoint.x+forwardX*165+rightX*62;
+  let z=basePoint.z+forwardZ*165+rightZ*62;
+  let y=drivingSurfaceHeight(x,z);
+  let group=new THREE.Group();
+  group.rotation.order="YXZ";
+  scene.add(group);
+
+  let model=makeEnemyMechModel(9871,"giant");
+  model.name="giant-test-robot";
+  model.scale.multiplyScalar(8.2);
+  model.position.y=0.84*model.scale.y;
+  model.userData.baseY=model.position.y;
+  model.traverse(child=>{
+    if(!child.isMesh || !child.material) return;
+    child.castShadow=true;
+    child.receiveShadow=true;
+    child.material=child.material.clone();
+    if(child.name.includes("cockpit") || child.name.includes("visor") || child.name.includes("eye")){
+      child.material.color.set(0xa9f2ff);
+      if(child.material.emissive) child.material.emissive.set(0x32d7ff);
+      child.material.emissiveIntensity=1.4;
+    }else if(child.name.includes("plate") || child.name.includes("shroud") || child.name.includes("pauldron")){
+      child.material.color.set(0x756c84);
+      if(child.material.emissive) child.material.emissive.set(0x140b1e);
+      child.material.emissiveIntensity=0.18;
+    }
+  });
+  group.add(model);
+
+  giantTestRobot={
+    id:"giant-test-robot",
+    group,
+    mechModel:model,
+    carModel:null,
+    x,
+    y,
+    z,
+    homeX:x,
+    homeZ:z,
+    angle,
+    velAngle:angle,
+    speed:0.108,
+    speedDelta:0,
+    turnVelocity:0,
+    gaitRate:Math.PI/270,
+    throwCooldown:80,
+    throwWindup:0,
+    throwSide:"right",
+    patrolDistance:320,
+    patrolSign:1,
+    onGround:true,
+    airborne:false,
+    health:1000,
+    morphProgress:0,
+    walkCycle:0,
+    lastWalkX:x,
+    lastWalkZ:z,
+    movementCompression:0,
+    movementLean:0,
+    movementPitch:0,
+    walkMaxSpeed:0.12,
+    walkProfile:{
+      phaseOffset:0,
+      strideScale:3.6,
+      cadenceScale:0.32,
+      intensityScale:1.08,
+      legSwing:1.32,
+      armSwing:0.5,
+      footLift:1.24,
+      kneeDrive:0.9,
+      bobScale:0.34,
+      torsoSway:0.52,
+      forwardLean:0.18,
+      armLag:-0.18
+    },
+    shadow:makeGiantTestRobotShadow()
+  };
+
+  addGiantRobotLegConnectors(giantTestRobot);
+  updateGiantTestRobot();
+}
+
+function updateGiantTestRobot(){
+  if(!giantTestRobot) return;
+
+  let robot=giantTestRobot;
+  if(robot.throwCooldown>0) robot.throwCooldown--;
+  if(robot.throwWindup>0) robot.throwWindup--;
+
+  let target=nearestEnemyForGiant(robot);
+  if(target){
+    let targetAngle=Math.atan2(target.x-robot.x,target.z-robot.z);
+    let turn=clamp(normalizeAngle(targetAngle-robot.angle),-0.012,0.012);
+    robot.angle=normalizeAngle(robot.angle+turn);
+    robot.velAngle=robot.angle;
+
+    if(robot.throwCooldown<=0){
+      throwGiantFireball(robot,target);
+    }
+  }
+
+  let forwardX=Math.sin(robot.angle);
+  let forwardZ=Math.cos(robot.angle);
+  let distanceFromHome=(robot.x-robot.homeX)*forwardX+(robot.z-robot.homeZ)*forwardZ;
+
+  if(distanceFromHome>robot.patrolDistance){
+    robot.angle=normalizeAngle(robot.angle+Math.PI);
+    robot.velAngle=robot.angle;
+  }
+
+  let previousSpeed=robot.speed;
+  robot.x+=Math.sin(robot.angle)*robot.speed;
+  robot.z+=Math.cos(robot.angle)*robot.speed;
+  robot.y=drivingSurfaceHeight(robot.x,robot.z);
+  robot.speedDelta=robot.speed-previousSpeed;
+  robot.turnVelocity=0;
+  robot.group.position.set(robot.x,robot.y,robot.z);
+  robot.group.rotation.y=robot.angle;
+  robot.group.rotation.x=0;
+  robot.group.rotation.z=0;
+  updateGiantTestRobotWalk(robot);
+  updateGiantRobotLegConnectors(robot);
+
+  if(robot.shadow){
+    robot.shadow.position.set(robot.x,robot.y+0.08,robot.z);
+    robot.shadow.rotation.z=-robot.angle;
+  }
+}
+
 function updateMorphVisual(car){
   let target=car.morphed ? 1 : 0;
   let previous=car.morphProgress;
@@ -6309,6 +6965,12 @@ function updateCameraForCar(car){
   let camZ=car.z-Math.cos(car.cameraYaw)*camDist;
   let camY=car.y+camHeight;
   let lookAhead=16;
+  let rightX=Math.cos(car.cameraYaw);
+  let rightZ=-Math.sin(car.cameraYaw);
+
+  camX+=rightX*screenShakeOffset.x;
+  camY+=screenShakeOffset.y;
+  camZ+=rightZ*screenShakeOffset.x;
 
   car.camera.position.set(camX,camY,camZ);
   car.camera.lookAt(
@@ -6319,6 +6981,7 @@ function updateCameraForCar(car){
 }
 
 function updateCameras(){
+  updateScreenShakeFrame();
   updateCameraForCar(playerCar);
   if(gameMode==="double") updateCameraForCar(secondCar);
 
@@ -6451,6 +7114,7 @@ function fixedUpdateGame(){
   updatePlanetaryStationRepair();
   updateCannonBolts();
   updateClusterBombs();
+  updateGiantFireballs();
   if(healthDamageCooldown>0) healthDamageCooldown--;
 
   dust.update();
@@ -6459,6 +7123,7 @@ function fixedUpdateGame(){
   updateRockDebris();
   updateBossLaserBeams();
   updateJetFogAmount();
+  updateGiantTestRobot();
   updateWeather();
   world.updateWind(performance.now(),rainIntensity);
   for(let car of cars) updateVehicleHeadlights(car);
@@ -6487,6 +7152,7 @@ function loop(timestamp=performance.now()){
     updateWeather();
     world.updateWind(timestamp,rainIntensity);
     for(let car of cars) updateVehicleHeadlights(car);
+    updateGiantTestRobot();
     clouds.update();
     stars.update();
     birds.update();
@@ -6810,6 +7476,7 @@ function startGame(mode,difficulty="medium"){
   let startInfo=findSafeFieldStart(mode==="double" ? [playerCar.lateralOffset,secondCar.lateralOffset] : [playerCar.lateralOffset]);
   placeCarOnOpenField(playerCar,startInfo);
   placeCarOnOpenField(secondCar,startInfo);
+  spawnGiantTestRobot(startInfo);
   placePlanetaryStationNearStart(startInfo);
   world.placeTestBossBaseNearStart(playerCar.x,playerCar.z,playerCar.angle);
   spawnBossBaseGuards();
@@ -7179,6 +7846,7 @@ setWorldSeed(Math.random()*100000,currentEnvironment.terrain || {});
 let initialStartInfo=findSafeFieldStart([playerCar.lateralOffset,0,secondCar.lateralOffset]);
 placeCarOnOpenField(playerCar,initialStartInfo);
 placeCarOnOpenField(secondCar,initialStartInfo);
+spawnGiantTestRobot(initialStartInfo);
 placePlanetaryStationNearStart(initialStartInfo);
 world.placeTestBossBaseNearStart(playerCar.x,playerCar.z,playerCar.angle);
 playerCar.cameraYaw=playerCar.angle;
