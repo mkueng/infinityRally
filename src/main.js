@@ -5,8 +5,8 @@ import { createInput } from "./input.js";
 import { createHud } from "./hud.js?v=robot-ammo-icons";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=night-stars";
 import { createWorld } from "./world.js?v=landing-touchdown-back";
-import { createMotorAudio } from "./audio.js?v=mech-walk-audio";
-import { loadCarModel, loadJetModel, loadLandingSpaceModel, loadPlanetaryStationModel, loadTradingOutpostModel, makeMechModel } from "./models.js?v=trading-outpost";
+import { createMotorAudio } from "./audio.js?v=cannonimpact-mp3";
+import { loadCarModel, loadJetModel, loadLandingSpaceModel, loadTradingOutpostModel, makeMechModel } from "./models.js?v=trading-outpost";
 import { makeSkyTexture } from "./textures.js?v=night-stars";
 
 const worldEnvironments=[
@@ -403,13 +403,10 @@ let enemyBudgetRun=0;
 let mothership=null;
 let giantTestRobot=null;
 let mothershipDelay=mothershipMinDelay+Math.floor(Math.random()*mothershipRandomDelay);
-let planetaryStationModel=null;
-let planetaryStation=null;
 let tradingOutpostModel=null;
 let tradingOutpost=null;
 let tradingOutpostCollision=null;
 let currentStartInfo=null;
-let planetaryStationDefenseCooldown=0;
 let jetUnlocked=false;
 let score=0;
 let enemyScoreAmount=100;
@@ -668,11 +665,34 @@ function waterDepthAt(x,z){
   return waterLevel-groundHeight(x,z);
 }
 
-function drivingSurfaceHeight(x,z){
+function tradingOutpostSurfaceHeightAt(x,z,margin=0){
+  if(!tradingOutpostCollision) return null;
+
+  let local=worldToTradingOutpostLocal(x,z);
+  if(!local || !tradingOutpostCollision.floor) return null;
+
+  let floor=tradingOutpostCollision.floor;
+  margin=Math.max(0,margin || 0);
+  if(local.x<floor.minX-margin || local.x>floor.maxX+margin || local.z<floor.minZ-margin || local.z>floor.maxZ+margin) return null;
+
+  return tradingOutpostCollision.y+floor.y;
+}
+
+function drivingSurfaceHeight(x,z,outpostMargin=0){
   let surfaceY=carSurfaceHeight(x,z);
   let landingSurfaceY=world && world.landingSurfaceHeightAt ? world.landingSurfaceHeightAt(x,z,true) : null;
   if(Number.isFinite(landingSurfaceY)) surfaceY=Math.max(surfaceY,landingSurfaceY);
+  let tradingOutpostSurfaceY=tradingOutpostSurfaceHeightAt(x,z,outpostMargin);
+  if(Number.isFinite(tradingOutpostSurfaceY)) surfaceY=tradingOutpostSurfaceY;
   return waterDepthAt(x,z)>0.15 ? Math.max(surfaceY,waterLevel-0.34) : surfaceY;
+}
+
+function surfaceHeightForActor(actor,x,z){
+  let actorRadius=actor && Number.isFinite(actor.collisionRadius)
+    ? actor.collisionRadius
+    : 2.35;
+  let outpostMargin=Math.max(7.5,actorRadius*2.75);
+  return drivingSurfaceHeight(x,z,outpostMargin);
 }
 
 function landingSurfaceAt(x,z){
@@ -731,6 +751,35 @@ function mountainClimbBlocked(car,fromX,fromZ,toX,toZ){
   let localSlope=terrainSlopeAt(toX,toZ);
   let heightAboveRoad=drivingSurfaceHeight(toX,toZ)-drivingSurfaceHeight(roadCenterX(toZ),toZ);
   return heightAboveRoad>18 && totalUphill>0.42 && maxGrade>0.95 && localSlope>0.85;
+}
+
+function uphillGradeAlongSegment(fromX,fromZ,toX,toZ){
+  let dx=toX-fromX;
+  let dz=toZ-fromZ;
+  let distance=Math.hypot(dx,dz);
+  if(distance<0.01) return 0;
+
+  let totalUphill=0;
+  let previousX=fromX;
+  let previousZ=fromZ;
+  let previousY=drivingSurfaceHeight(fromX,fromZ);
+  let samples=Math.max(2,Math.ceil(distance/0.45));
+
+  for(let i=1;i<=samples;i++){
+    let t=i/samples;
+    let sampleX=fromX+dx*t;
+    let sampleZ=fromZ+dz*t;
+    let sampleY=drivingSurfaceHeight(sampleX,sampleZ);
+    let stepDistance=Math.hypot(sampleX-previousX,sampleZ-previousZ);
+    if(stepDistance>0.001){
+      totalUphill+=Math.max(0,sampleY-previousY);
+    }
+    previousX=sampleX;
+    previousZ=sampleZ;
+    previousY=sampleY;
+  }
+
+  return totalUphill/distance;
 }
 
 function normalizeAngle(angle){
@@ -1146,9 +1195,9 @@ let hud=createHud({
     z:enemy.z,
     health:enemy.health
   })),
-  getStationState:()=>planetaryStation ? ({
-    x:planetaryStation.position.x,
-    z:planetaryStation.position.z
+  getStationState:()=>tradingOutpost ? ({
+    x:tradingOutpost.position.x,
+    z:tradingOutpost.position.z
   }) : null,
   getChunks:()=>world.chunks
 });
@@ -1239,6 +1288,35 @@ function damageWorldObstacle(obstacle,amount=1){
   if(obstacle.health>0) return false;
 
   return destroyWorldObstacle(obstacle);
+}
+
+function rockNearImpact(x,y,z,radius=4.5){
+  if(!world || !world.collidersInRadius) return null;
+
+  let candidates=world.collidersInRadius(x,z,radius);
+  let best=null;
+  let bestDistSq=Infinity;
+
+  for(let obstacle of candidates){
+    if(!obstacle || obstacle.destroyed) continue;
+    if(obstacle.type!=="rock" && obstacle.type!=="smallRock") continue;
+
+    let obstacleRadius=obstacle.visualRadius || obstacle.r || 0;
+    let reach=radius+obstacleRadius;
+    let dx=x-obstacle.x;
+    let dz=z-obstacle.z;
+    let distSq=dx*dx+dz*dz;
+    if(distSq>reach*reach || distSq>=bestDistSq) continue;
+
+    let baseY=Number.isFinite(obstacle.baseY) ? obstacle.baseY : groundHeight(obstacle.x,obstacle.z);
+    let topY=baseY+(obstacle.visualHeight || obstacle.height || obstacle.r || 2);
+    if(Number.isFinite(y) && (y<baseY-2.5 || y>topY+radius)) continue;
+
+    best=obstacle;
+    bestDistSq=distSq;
+  }
+
+  return best;
 }
 
 function spawnBossBaseImpact(base,x,y,z,amount=1){
@@ -1524,7 +1602,37 @@ function distanceSqToLocalSegment(px,pz,ax,az,bx,bz){
   return dx*dx+dz*dz;
 }
 
-function collidesWithTradingOutpostWalls(actor,x,z){
+function tradingOutpostRoomViolation(local,actorRadius){
+  let room=tradingOutpostCollision && tradingOutpostCollision.room;
+  if(!room || !local) return 0;
+
+  let padding=actorRadius+room.wallRadius;
+  let leftLimit=room.left+padding;
+  let rightLimit=room.right-padding;
+  let backLimit=room.back+padding;
+  let frontLimit=room.front-padding;
+  let doorwayHalfWidth=Math.max(0,room.entranceHalfWidth-actorRadius);
+  let inDoorway=Math.abs(local.x)<=doorwayHalfWidth;
+
+  return Math.max(
+    0,
+    leftLimit-local.x,
+    local.x-rightLimit,
+    backLimit-local.z,
+    inDoorway ? 0 : local.z-frontLimit
+  );
+}
+
+function insideTradingOutpostFloor(local,margin=0.5){
+  let floor=tradingOutpostCollision && tradingOutpostCollision.floor;
+  if(!floor || !local) return false;
+  return local.x>=floor.minX-margin
+    && local.x<=floor.maxX+margin
+    && local.z>=floor.minZ-margin
+    && local.z<=floor.maxZ+margin;
+}
+
+function collidesWithTradingOutpostWalls(actor,x,z,fromX=null,fromZ=null){
   if(!tradingOutpostCollision) return false;
 
   let local=worldToTradingOutpostLocal(x,z);
@@ -1532,10 +1640,26 @@ function collidesWithTradingOutpostWalls(actor,x,z){
 
   let actorRadius=actor && Number.isFinite(actor.collisionRadius)
     ? actor.collisionRadius
-    : 1.55;
+    : 2.35;
+  let fromLocal=Number.isFinite(fromX) && Number.isFinite(fromZ)
+    ? worldToTradingOutpostLocal(fromX,fromZ)
+    : null;
+  let useRoomBoundary=insideTradingOutpostFloor(local) || insideTradingOutpostFloor(fromLocal);
+  let roomViolation=useRoomBoundary ? tradingOutpostRoomViolation(local,actorRadius) : 0;
+  if(roomViolation>0){
+    let fromViolation=tradingOutpostRoomViolation(fromLocal,actorRadius);
+    if(roomViolation>fromViolation+0.03) return true;
+  }
+
   for(let wall of tradingOutpostCollision.walls){
     let radius=wall.r+actorRadius;
-    if(distanceSqToLocalSegment(local.x,local.z,wall.ax,wall.az,wall.bx,wall.bz)<radius*radius){
+    let distanceSq=distanceSqToLocalSegment(local.x,local.z,wall.ax,wall.az,wall.bx,wall.bz);
+    let radiusSq=radius*radius;
+    if(distanceSq<radiusSq){
+      let fromDistanceSq=fromLocal
+        ? distanceSqToLocalSegment(fromLocal.x,fromLocal.z,wall.ax,wall.az,wall.bx,wall.bz)
+        : Infinity;
+      if(fromDistanceSq<radiusSq && distanceSq>=fromDistanceSq-0.03) continue;
       return true;
     }
   }
@@ -1557,7 +1681,7 @@ function movementCollision(car,fromX,fromZ,toX,toZ){
     let z=fromZ+dz*t;
     let otherCar=collidesWithOtherCars(car,x,z);
 
-    if(world.collidesWithObstacles(x,z) || collidesWithTradingOutpostWalls(car,x,z) || otherCar){
+    if(world.collidesWithObstacles(x,z) || collidesWithTradingOutpostWalls(car,x,z,safeX,safeZ) || otherCar){
       return {hit:true,otherCar,safeX,safeZ};
     }
 
@@ -1632,8 +1756,12 @@ function makeRocketMesh(){
   return group;
 }
 
-function spawnRocketExplosion(x,y,z,playSound=true){
-  if(playSound) motorAudio.playExplosion();
+function spawnRocketExplosion(x,y,z,playSound=true,soundType="rocket"){
+  if(playSound){
+    if(soundType==="cannon" && motorAudio.playCannonImpact) motorAudio.playCannonImpact();
+    else if(motorAudio.playRocketImpact) motorAudio.playRocketImpact();
+    else motorAudio.playExplosion();
+  }
 
   let flash=new THREE.Mesh(explosionFlashGeo,explosionFlashMat.clone());
   flash.position.set(x,y,z);
@@ -3269,7 +3397,9 @@ function updateRockets(){
       targetImpact=(rocket.age>=rocket.impactAge && dx*dx+dz*dz<28*28)
         || (dx*dx+dz*dz<12*12 && rocket.y<=rocket.targetY+14);
     }
-    let hit=rocket.y<=surfaceY+0.35 || hitObstacle || hitActor || mothershipHit || targetImpact;
+    let terrainHit=rocket.y<=surfaceY+0.35;
+    if(!hitObstacle && terrainHit) hitObstacle=rockNearImpact(rocket.x,rocket.y,rocket.z,4.5);
+    let hit=terrainHit || hitObstacle || hitActor || mothershipHit || targetImpact;
 
     if(hit || rocket.age>rocket.life){
       let shouldExplode=hit || rocket.ballistic;
@@ -3376,7 +3506,9 @@ function updateCannonBolts(){
     let hitObstacle=bolt.ignoreObstacleFrames && bolt.age<=bolt.ignoreObstacleFrames
       ? null
       : world.obstacleAlongSegment3D(prevX,prevY,prevZ,bolt.x,bolt.y,bolt.z,0.9);
-    let hit=bolt.y<=surfaceY+0.22 || hitObstacle || hitActor || mothershipHit;
+    let terrainHit=bolt.y<=surfaceY+0.22;
+    if(!hitObstacle && terrainHit) hitObstacle=rockNearImpact(bolt.x,bolt.y,bolt.z,3.25);
+    let hit=terrainHit || hitObstacle || hitActor || mothershipHit;
 
     if(hit || bolt.age>bolt.life){
       if(hit){
@@ -3387,7 +3519,7 @@ function updateCannonBolts(){
           : mothershipHit
           ? mothershipHit.y
           : Math.max(bolt.y,surfaceY+0.45);
-        spawnRocketExplosion(explosionX,explosionY,explosionZ);
+        spawnRocketExplosion(explosionX,explosionY,explosionZ,true,"cannon");
         if(mothershipHit) damageMothership(explosionX,explosionY,explosionZ,0.4);
         if(hitObstacle){
           if(hitObstacle.type==="bossBase"){
@@ -4471,7 +4603,7 @@ function updateMorphInput(car){
   let pressedJet=jetUnlocked && jetButton && !car.lastJetButton;
   let exitingJet=car.jetMode || car.jetProgress>0.35;
   let fuelEmpty=(car.fuel ?? maxFuel)<=0.001;
-  let surfaceY=drivingSurfaceHeight(car.x,car.z);
+  let surfaceY=surfaceHeightForActor(car,car.x,car.z);
   let nearGroundForJetExit=car.y-surfaceY<=jetExitGroundClearance;
 
   if(pressedMorph && !gameOver && car.health>0){
@@ -4497,7 +4629,7 @@ function updateMorphInput(car){
     car.jetMode=!car.jetMode;
     if(car.jetMode){
       car.morphed=false;
-      car.jetAltitudeTarget=Math.max(car.y,drivingSurfaceHeight(car.x,car.z)+8);
+      car.jetAltitudeTarget=Math.max(car.y,surfaceHeightForActor(car,car.x,car.z)+8);
     }
   }
   car.lastMorphButton=morphButton;
@@ -5909,6 +6041,7 @@ function triggerGiantFootstepShake(robot,sideName){
     : 0.35;
   let sideVariation=sideName==="left" ? 1 : 0.92;
   triggerScreenShake(0.82*distanceFalloff*sideVariation);
+  if(motorAudio.playGiantFootstep) motorAudio.playGiantFootstep(distanceFalloff*sideVariation);
 }
 
 function giantRobotStepPose(phaseOffset,stride){
@@ -6281,6 +6414,7 @@ function spawnGiantTestRobot(startInfo){
   let x=basePoint.x+forwardX*165+rightX*62;
   let z=basePoint.z+forwardZ*165+rightZ*62;
   let y=drivingSurfaceHeight(x,z);
+  let patrolRadius=Math.max(150,Math.hypot(x-basePoint.x,z-basePoint.z));
   let group=new THREE.Group();
   group.rotation.order="YXZ";
   scene.add(group);
@@ -6317,6 +6451,9 @@ function spawnGiantTestRobot(startInfo){
     z,
     homeX:x,
     homeZ:z,
+    patrolCenterX:basePoint.x,
+    patrolCenterZ:basePoint.z,
+    patrolRadius,
     angle,
     velAngle:angle,
     speed:0.108,
@@ -6326,7 +6463,6 @@ function spawnGiantTestRobot(startInfo){
     throwCooldown:80,
     throwWindup:0,
     throwSide:"right",
-    patrolDistance:320,
     patrolSign:1,
     onGround:true,
     airborne:false,
@@ -6377,14 +6513,21 @@ function updateGiantTestRobot(){
     if(robot.throwCooldown<=0){
       throwGiantFireball(robot,target);
     }
-  }
-
-  let forwardX=Math.sin(robot.angle);
-  let forwardZ=Math.cos(robot.angle);
-  let distanceFromHome=(robot.x-robot.homeX)*forwardX+(robot.z-robot.homeZ)*forwardZ;
-
-  if(distanceFromHome>robot.patrolDistance){
-    robot.angle=normalizeAngle(robot.angle+Math.PI);
+  }else{
+    let centerX=Number.isFinite(robot.patrolCenterX) ? robot.patrolCenterX : robot.homeX;
+    let centerZ=Number.isFinite(robot.patrolCenterZ) ? robot.patrolCenterZ : robot.homeZ;
+    let dx=robot.x-centerX;
+    let dz=robot.z-centerZ;
+    let distance=Math.max(1,Math.hypot(dx,dz));
+    let radius=Number.isFinite(robot.patrolRadius) ? robot.patrolRadius : 180;
+    let orbitAngle=Math.atan2(dx,dz);
+    let lookAhead=clamp(0.42+Math.abs(distance-radius)/radius,0.42,0.95);
+    let aheadAngle=orbitAngle+(robot.patrolSign || 1)*lookAhead;
+    let targetX=centerX+Math.sin(aheadAngle)*radius;
+    let targetZ=centerZ+Math.cos(aheadAngle)*radius;
+    let desiredAngle=Math.atan2(targetX-robot.x,targetZ-robot.z);
+    let turn=clamp(normalizeAngle(desiredAngle-robot.angle),-0.009,0.009);
+    robot.angle=normalizeAngle(robot.angle+turn);
     robot.velAngle=robot.angle;
   }
 
@@ -6582,6 +6725,12 @@ function updateMechAnimation(car){
     let lifted=Math.max(0,-Math.cos(sidePhase))*intensity;
     let lifted01=smoothStep(lifted/Math.max(0.001,intensity));
     let planted01=smoothStep(planted/Math.max(0.001,intensity));
+    let giantFootPlanted=car.isGiant && moving && planted01>0.72 && lifted01<0.2;
+    if(car.isGiant){
+      if(!car.footPlantState) car.footPlantState={left:false,right:false};
+      if(giantFootPlanted && !car.footPlantState[sideName]) triggerGiantFootstepShake(car,sideName);
+      car.footPlantState[sideName]=giantFootPlanted;
+    }
     let stride=1+runAmount*1.36+longStrideAmount*0.98+sprintAmount*0.28;
     let lift=(1+runAmount*0.56+longStrideAmount*0.18)*(walkProfile ? walkProfile.footLift : 1);
     let kneeDrive=runAmount*lifted01*(1-longStrideAmount*0.12-sprintAmount*0.06)*(walkProfile ? walkProfile.kneeDrive : 1);
@@ -6669,6 +6818,7 @@ function updateCar(car){
   let airborneMovement=car.airborne || !car.onGround;
   let carDisabled=car.health<=0;
   let weightedMechMovement=!jetMovement && !airborneMovement && car.morphProgress<0.4;
+  let carGroundMovement=!jetMovement && !airborneMovement && car.morphProgress>0.68;
 
   if(gameOver || carDisabled){
     car.speed=0;
@@ -6763,6 +6913,21 @@ function updateCar(car){
     let moveAngle=weightedMechMovement ? car.velAngle : car.angle;
     car.x+=Math.sin(moveAngle)*car.speed;
     car.z+=Math.cos(moveAngle)*car.speed;
+    if(carGroundMovement && Math.abs(car.speed)>0.01){
+      let uphillGrade=uphillGradeAlongSegment(prevX,prevZ,car.x,car.z);
+      if(uphillGrade>0.006){
+        let uphill01=clamp((uphillGrade-0.006)/0.09,0,1);
+        let uphillEase=uphill01*uphill01;
+        let uphillDrag=0.00035+uphillEase*0.018;
+        let uphillMaxSpeed=localMaxSpeed*morphSpeedMultiplier*(1-uphillEase*0.55);
+        let speedSign=car.speed<0 ? -1 : 1;
+        car.speed*=1-uphillDrag;
+        if(Math.abs(car.speed)>uphillMaxSpeed){
+          let slowedAbs=approach(Math.abs(car.speed),uphillMaxSpeed,0.012+uphillEase*0.045);
+          car.speed=speedSign*slowedAbs;
+        }
+      }
+    }
     if(mountainClimbBlocked(car,prevX,prevZ,car.x,car.z)){
       car.x=prevX;
       car.z=prevZ;
@@ -6783,7 +6948,7 @@ function updateCar(car){
     Math.min(jetMovement ? jetMaxSpeed : (airborneMovement ? mechAirMaxSpeed : localMaxSpeed)*morphSpeedMultiplier,car.speed)
   );
 
-  let surfaceY=drivingSurfaceHeight(car.x,car.z);
+  let surfaceY=surfaceHeightForActor(car,car.x,car.z);
   let landingSurface=landingSurfaceAt(car.x,car.z);
   let landingPadSurface=landingPadSurfaceAt(car.x,car.z);
   let takeoffInput=(car.throttleInput || 0)>0.08 || (car.liftInput || 0)>0.08;
@@ -6857,7 +7022,7 @@ function updateCar(car){
     if(terrainCollision.hit){
       car.x=terrainCollision.safeX;
       car.z=terrainCollision.safeZ;
-      surfaceY=drivingSurfaceHeight(car.x,car.z);
+      surfaceY=surfaceHeightForActor(car,car.x,car.z);
       car.y=Math.max(terrainCollision.safeY,surfaceY+1.15);
       car.vy=Math.max(0.12,-car.vy*0.25);
       car.speed*=0.18;
@@ -6881,7 +7046,7 @@ function updateCar(car){
   if(!gameOver && !carDisabled && autoLanding){
     landingPadSurface=landingPadSurfaceAt(car.x,car.z);
     let landingDeckY=landingPadSurface ? landingPadSurface.y+2.4 : null;
-    surfaceY=drivingSurfaceHeight(car.x,car.z);
+    surfaceY=surfaceHeightForActor(car,car.x,car.z);
     if(!landingPadSurface && Number.isFinite(autoLandingApproachY) && car.y<autoLandingApproachY){
       car.y=autoLandingApproachY;
       car.vy=0;
@@ -6919,7 +7084,7 @@ function updateCar(car){
     car.angle+=collision.otherCar ? Math.PI*0.12 : Math.PI*0.18;
     car.velAngle=car.angle;
     damageCar(car,collision.otherCar ? 1 : 3);
-    surfaceY=drivingSurfaceHeight(car.x,car.z);
+    surfaceY=surfaceHeightForActor(car,car.x,car.z);
     if(car.y<surfaceY) car.y=surfaceY;
   }
 
@@ -6973,8 +7138,8 @@ function updateCar(car){
   let frontZ=car.z+Math.cos(car.angle)*pitchSampleDist;
   let backX=car.x-Math.sin(car.angle)*pitchSampleDist;
   let backZ=car.z-Math.cos(car.angle)*pitchSampleDist;
-  let frontY=drivingSurfaceHeight(frontX,frontZ);
-  let backY=drivingSurfaceHeight(backX,backZ);
+  let frontY=surfaceHeightForActor(car,frontX,frontZ);
+  let backY=surfaceHeightForActor(car,backX,backZ);
   let ceilingPitchRelease=jetHovering && (car.jetAltitudeTarget || 0)>=jetAltitudeMax-0.4;
   let jetLiftPitch=ceilingPitchRelease ? 0 : (car.liftInput || 0);
   let jetPitch=clamp(-jetLiftPitch*0.18-Math.max(0,car.speed)*0.025,-0.3,0.12);
@@ -7010,7 +7175,14 @@ function updateCameraForCar(car){
   let camHeight=cameraFollowHeight;
   let camX=car.x-Math.sin(car.cameraYaw)*camDist;
   let camZ=car.z-Math.cos(car.cameraYaw)*camDist;
-  let camY=car.y+camHeight;
+  let targetCamY=car.y+camHeight;
+  let carMode=car.morphProgress>0.72 && car.jetProgress<0.35;
+  if(!Number.isFinite(car.cameraY) || !carMode){
+    car.cameraY=targetCamY;
+  }else{
+    car.cameraY+=(targetCamY-car.cameraY)*0.14;
+  }
+  let camY=car.cameraY;
   let lookAhead=16;
   let rightX=Math.cos(car.cameraYaw);
   let rightZ=-Math.sin(car.cameraYaw);
@@ -7048,7 +7220,7 @@ function updateCameraForCar(car){
   if(!Number.isFinite(car.cameraLookY)){
     car.cameraLookY=lookY;
   }else{
-    car.cameraLookY+=(lookY-car.cameraLookY)*0.055;
+    car.cameraLookY+=(lookY-car.cameraLookY)*(carMode ? 0.055 : 0.055);
   }
 
   car.camera.position.set(camX,camY,camZ);
@@ -7124,7 +7296,7 @@ let fixedAccumulator=0;
 let lastLoopTime=null;
 
 function chunkViewDistanceForCar(car){
-  let altitude=car.y-drivingSurfaceHeight(car.x,car.z);
+  let altitude=car.y-surfaceHeightForActor(car,car.x,car.z);
   return (car.jetMode || car.jetProgress>0.35 || altitude>32) ? viewDistance+2 : viewDistance;
 }
 
@@ -7162,7 +7334,7 @@ function updateJetFogAmount(){
     for(let car of activeCars()){
       if(!car || car.health<=0 || !car.group.visible) continue;
 
-      let altitude=Math.max(0,car.y-drivingSurfaceHeight(car.x,car.z));
+      let altitude=Math.max(0,car.y-surfaceHeightForActor(car,car.x,car.z));
       let jetState=Math.max(car.jetMode ? 1 : 0,car.jetProgress || 0);
       let altitudeState=clamp((altitude-28)/92,0,1);
       target=Math.max(target,jetState,altitudeState);
@@ -7189,8 +7361,7 @@ function fixedUpdateGame(){
   updateBossBaseDefenses();
   updateSupplyBoxes();
   updateRockets();
-  updatePlanetaryStationDefense();
-  updatePlanetaryStationRepair();
+  updateTradingOutpostRepair();
   updateCannonBolts();
   updateClusterBombs();
   updateGiantFireballs();
@@ -7280,6 +7451,10 @@ function loop(timestamp=performance.now()){
   pauseMenu.update(timestamp);
   renderGame();
 }
+
+renderer.domElement.addEventListener("click",()=>{
+  if(gameStarted && !gamePaused && !gameOver) input.requestPointerLock(renderer.domElement);
+});
 
 window.addEventListener("resize",()=>{
   updateRendererPixelRatio();
@@ -7533,6 +7708,7 @@ function startGame(mode,difficulty="medium"){
   gameDifficulty=difficultySettings[difficulty] ? difficulty : "medium";
   enemyBudgetRun++;
   gameStarted=true;
+  input.requestPointerLock(renderer.domElement);
   document.body.classList.toggle("single-player",mode==="single");
   document.body.classList.toggle("double-player",mode==="double");
 
@@ -7557,7 +7733,6 @@ function startGame(mode,difficulty="medium"){
   placeCarOnOpenField(secondCar,startInfo);
   spawnGiantTestRobot(startInfo);
   placeTradingOutpostNearStart(startInfo);
-  placePlanetaryStationNearStart(startInfo);
   world.placeTestBossBaseNearStart(playerCar.x,playerCar.z,playerCar.angle);
   spawnBossBaseGuards();
   setCarActive(playerCar,true);
@@ -7627,15 +7802,6 @@ loadLandingSpaceModel()
     console.error("Failed to load landing space model:",error);
   });
 
-loadPlanetaryStationModel()
-  .then(model=>{
-    planetaryStationModel=model;
-    placePlanetaryStationNearStart(currentStartInfo);
-  })
-  .catch(error=>{
-    console.error("Failed to load planetary station model:",error);
-  });
-
 loadTradingOutpostModel()
   .then(model=>{
     tradingOutpostModel=model;
@@ -7693,6 +7859,7 @@ function placeCarOnOpenField(car,startInfo){
   car.mouseAimWorldX=0;
   car.mouseAimWorldY=0;
   car.mouseAimWorldZ=0;
+  car.cameraY=NaN;
   car.cameraLookY=NaN;
   car.cameraPitchOffset=0;
   car.lastAimMouseVersion=input.mouse.version;
@@ -7723,34 +7890,59 @@ function placeCarOnOpenField(car,startInfo){
   updateMorphVisual(car);
 }
 
-function clearPlanetaryStation(){
-  if(!planetaryStation) return;
-  scene.remove(planetaryStation);
-  planetaryStation=null;
-}
-
 function clearTradingOutpost(){
   if(tradingOutpost) scene.remove(tradingOutpost);
   tradingOutpost=null;
   tradingOutpostCollision=null;
 }
 
-function setTradingOutpostCollision(x,z,angle){
-  let halfX=31;
-  let halfZ=33;
-  let entranceHalfWidth=17;
-  let wallInset=4;
-  let wallRadius=1.4;
+function setTradingOutpostCollision(x,z,angle,y){
+  let modelData=tradingOutpostModel ? tradingOutpostModel.userData || {} : {};
+  let bounds=modelData.tradingOutpostBounds || {};
+  let halfX=Math.max(31,(Number.isFinite(modelData.footprintHalfX) ? modelData.footprintHalfX : 31)-3.2);
+  let halfZ=Math.max(33,(Number.isFinite(modelData.footprintHalfZ) ? modelData.footprintHalfZ : 33)-3.2);
+  let minX=Number.isFinite(bounds.wallMinX) ? bounds.wallMinX : -halfX;
+  let maxX=Number.isFinite(bounds.wallMaxX) ? bounds.wallMaxX : halfX;
+  let minZ=Number.isFinite(bounds.wallMinZ) ? bounds.wallMinZ : -halfZ;
+  let maxZ=Number.isFinite(bounds.wallMaxZ) ? bounds.wallMaxZ : halfZ;
+  let wallLeftX=Number.isFinite(bounds.wallLeftX) ? bounds.wallLeftX : minX;
+  let wallRightX=Number.isFinite(bounds.wallRightX) ? bounds.wallRightX : maxX;
+  let wallMinZ=Number.isFinite(bounds.wallMinZInner) ? bounds.wallMinZInner : minZ;
+  let wallMaxZ=Number.isFinite(bounds.wallMaxZInner) ? bounds.wallMaxZInner : maxZ;
+  let entranceHalfWidth=Math.max(13,Math.min((wallRightX-wallLeftX)*0.24,Math.min(Math.abs(wallLeftX),Math.abs(wallRightX))*0.78));
+  let wallInset=0;
+  let wallRadius=1.25;
+  let floorInset=0.35;
+  let floorMinX=Number.isFinite(bounds.floorMinX) ? bounds.floorMinX+floorInset : minX+wallRadius;
+  let floorMaxX=Number.isFinite(bounds.floorMaxX) ? bounds.floorMaxX-floorInset : maxX-wallRadius;
+  let floorMinZ=Number.isFinite(bounds.floorMinZ) ? bounds.floorMinZ+floorInset : minZ+wallRadius;
+  let floorMaxZ=Number.isFinite(bounds.floorMaxZ) ? bounds.floorMaxZ-floorInset : maxZ-wallRadius;
   tradingOutpostCollision={
     x,
     z,
     angle,
+    y:Number.isFinite(y) ? y : carSurfaceHeight(x,z),
+    floor:{
+      minX:Math.min(floorMinX,floorMaxX),
+      maxX:Math.max(floorMinX,floorMaxX),
+      minZ:Math.min(floorMinZ,floorMaxZ),
+      maxZ:Math.max(floorMinZ,floorMaxZ),
+      y:Number.isFinite(bounds.floorY) ? bounds.floorY : 0
+    },
+    room:{
+      left:wallLeftX,
+      right:wallRightX,
+      back:wallMinZ,
+      front:wallMaxZ,
+      entranceHalfWidth,
+      wallRadius
+    },
     walls:[
-      {ax:-halfX,az:-halfZ+wallInset,bx:-halfX,bz:halfZ-wallInset,r:wallRadius},
-      {ax:halfX,az:-halfZ+wallInset,bx:halfX,bz:halfZ-wallInset,r:wallRadius},
-      {ax:-halfX+wallInset,az:-halfZ,bx:halfX-wallInset,bz:-halfZ,r:wallRadius},
-      {ax:-halfX,az:halfZ,bx:-entranceHalfWidth,bz:halfZ,r:wallRadius},
-      {ax:entranceHalfWidth,az:halfZ,bx:halfX,bz:halfZ,r:wallRadius}
+      {ax:wallLeftX,az:wallMinZ+wallInset,bx:wallLeftX,bz:wallMaxZ-wallInset,r:wallRadius},
+      {ax:wallRightX,az:wallMinZ+wallInset,bx:wallRightX,bz:wallMaxZ-wallInset,r:wallRadius},
+      {ax:wallLeftX+wallInset,az:wallMinZ,bx:wallRightX-wallInset,bz:wallMinZ,r:wallRadius},
+      {ax:wallLeftX,az:wallMaxZ,bx:-entranceHalfWidth,bz:wallMaxZ,r:wallRadius},
+      {ax:entranceHalfWidth,az:wallMaxZ,bx:wallRightX,bz:wallMaxZ,r:wallRadius}
     ]
   };
 }
@@ -7759,30 +7951,57 @@ function mixedPlanetColor(a,b,amount){
   return new THREE.Color(a).lerp(new THREE.Color(b),Math.max(0,Math.min(1,amount)));
 }
 
-function tintPlanetaryStationForEnvironment(station){
+function tintTradingOutpostForEnvironment(outpost){
   let colors=currentEnvironment.colors || {};
-  let hull=mixedPlanetColor(colors.wall || 0x5a526d,colors.rock || 0x3f334b,0.34);
-  let bright=mixedPlanetColor(colors.trim || 0xa78fbd,colors.wall || 0x5a526d,0.18);
-  let dark=mixedPlanetColor(colors.roof || 0x322b45,colors.rock || 0x3f334b,0.45);
-  let accent=new THREE.Color(colors.podEmissive || colors.waterEmissive || colors.pod || colors.water || 0x8dfff2);
-  let pale=mixedPlanetColor(colors.trim || 0xa78fbd,colors.water || 0x8dfff2,0.22);
+  let hull=mixedPlanetColor(colors.wall || 0x5a526d,colors.mid || colors.rock || 0x3f334b,0.36);
+  let floor=mixedPlanetColor(colors.rock || 0x3f334b,colors.wall || 0x5a526d,0.46);
+  let roof=mixedPlanetColor(colors.roof || 0x322b45,colors.rock || 0x3f334b,0.52);
+  let dark=mixedPlanetColor(colors.roof || 0x322b45,colors.bark || colors.rock || 0x24133a,0.58);
+  let trim=mixedPlanetColor(colors.trim || 0xa78fbd,colors.high || colors.wall || 0x5a526d,0.34);
+  let pale=mixedPlanetColor(colors.shore || colors.trim || 0xa78fbd,colors.high || colors.water || 0x8dfff2,0.32);
+  let glass=mixedPlanetColor(colors.water || 0x8dfff2,colors.trim || 0xa78fbd,0.28);
+  let glow=new THREE.Color(colors.waterEmissive || colors.podEmissive || colors.water || colors.pod || 0x8dfff2);
+  let accent=new THREE.Color(colors.podEmissive || colors.pod || colors.trim || 0xff7a32);
+  let warning=mixedPlanetColor(colors.pod || 0xff6bd6,colors.roof || 0x322b45,0.28);
 
-  station.traverse(child=>{
+  function applyOutpostMaterial(material,color,options={}){
+    material.color.copy(color);
+    material.roughness=options.roughness ?? material.roughness ?? 0.62;
+    material.metalness=options.metalness ?? material.metalness ?? 0.2;
+    if(options.transparent!=null) material.transparent=options.transparent;
+    if(options.opacity!=null) material.opacity=options.opacity;
+    if(options.depthWrite!=null) material.depthWrite=options.depthWrite;
+    if(material.emissive){
+      material.emissive.copy(options.emissive || new THREE.Color(0x000000));
+      material.emissiveIntensity=options.emissiveIntensity ?? 0;
+    }
+  }
+
+  outpost.traverse(child=>{
     if(!child.isMesh || !child.material) return;
 
     let materials=Array.isArray(child.material) ? child.material : [child.material];
     let tinted=materials.map(material=>{
       let clone=material.clone();
-      if(clone.name==="color_6383466") clone.color.copy(hull);
-      else if(clone.name==="color_14541540") clone.color.copy(bright);
-      else if(clone.name==="color_2829873") clone.color.copy(dark);
-      else if(clone.name==="color_4634441"){
-        clone.color.copy(accent);
-        if(clone.emissive){
-          clone.emissive.copy(accent);
-          clone.emissiveIntensity=0.36;
-        }
-      }else if(clone.name==="color_16448250") clone.color.copy(pale);
+      if(clone.name==="color_7720667"){
+        applyOutpostMaterial(clone,glass,{roughness:0.14,metalness:0.08,transparent:true,opacity:0.68,depthWrite:false,emissive:glow,emissiveIntensity:0.24});
+      }else if(clone.name==="color_10988977"){
+        applyOutpostMaterial(clone,floor,{roughness:0.72,metalness:0.26});
+      }else if(clone.name==="color_2829873"){
+        applyOutpostMaterial(clone,dark,{roughness:0.78,metalness:0.5});
+      }else if(clone.name==="color_16448250"){
+        applyOutpostMaterial(clone,pale,{roughness:0.36,metalness:0.18,emissive:glass,emissiveIntensity:0.1});
+      }else if(clone.name==="color_6383466"){
+        applyOutpostMaterial(clone,hull,{roughness:0.66,metalness:0.38});
+      }else if(clone.name==="color_14789940"){
+        applyOutpostMaterial(clone,trim,{roughness:0.46,metalness:0.28,emissive:accent,emissiveIntensity:0.12});
+      }else if(clone.name==="color_12568524"){
+        applyOutpostMaterial(clone,roof,{roughness:0.7,metalness:0.3});
+      }else if(clone.name==="color_4634441"){
+        applyOutpostMaterial(clone,glow,{roughness:0.24,metalness:0.12,emissive:glow,emissiveIntensity:0.68});
+      }else if(clone.name==="color_9771553"){
+        applyOutpostMaterial(clone,warning,{roughness:0.42,metalness:0.24,emissive:accent,emissiveIntensity:0.22});
+      }
       return clone;
     });
 
@@ -7790,112 +8009,16 @@ function tintPlanetaryStationForEnvironment(station){
   });
 }
 
-function planetaryStationDefenseSettings(){
-  if(gameDifficulty==="hard") return {range:210,damage:14,cooldown:20};
-  if(gameDifficulty==="easy") return {range:135,damage:7,cooldown:38};
-  return {range:170,damage:10,cooldown:28};
-}
-
-function stationDefenseTarget(){
-  if(!planetaryStation) return null;
-
-  let {range}=planetaryStationDefenseSettings();
-  let best=null;
-  let bestDistSq=range*range;
-  for(let enemy of activeEnemies()){
-    if(!enemy.active || enemy.health<=0 || enemy.isBoat) continue;
-    let dx=enemy.x-planetaryStation.position.x;
-    let dz=enemy.z-planetaryStation.position.z;
-    let distSq=dx*dx+dz*dz;
-    if(distSq<bestDistSq){
-      best=enemy;
-      bestDistSq=distSq;
-    }
-  }
-  return best;
-}
-
-function firePlanetaryStationCannon(target){
-  if(!planetaryStation || !target) return false;
-  let settings=planetaryStationDefenseSettings();
-
-  let mounts=planetaryStation.userData.cannonMounts || [];
-  if(!mounts.length) return false;
-
-  let mountIndex=planetaryStation.userData.nextCannonMount || 0;
-  let mount=mounts[mountIndex%mounts.length];
-  planetaryStation.userData.nextCannonMount=mountIndex+1;
-  let yaw=planetaryStation.rotation.y;
-  let sinYaw=Math.sin(yaw);
-  let cosYaw=Math.cos(yaw);
-
-  let startX=planetaryStation.position.x+mount.x*cosYaw+mount.z*sinYaw;
-  let startY=planetaryStation.position.y+mount.y;
-  let startZ=planetaryStation.position.z-mount.x*sinYaw+mount.z*cosYaw;
-  let aimX=target.x-startX;
-  let aimY=target.y+(target.hitHeight || 4)*0.45-startY;
-  let aimZ=target.z-startZ;
-  let aimLen=Math.max(0.001,Math.hypot(aimX,aimY,aimZ));
-  let mesh=makeCannonBoltMesh();
-  mesh.position.set(startX,startY,startZ);
-  mesh.rotation.y=Math.atan2(aimX,aimZ);
-  mesh.rotation.x=-Math.asin(clamp(aimY/aimLen,-1,1));
-  scene.add(mesh);
-
-  cannonBolts.push({
-    owner:{isEnemy:false,isStationDefense:true},
-    mesh,
-    x:startX,
-    y:startY,
-    z:startZ,
-    vx:(aimX/aimLen)*cannonSpeed,
-    vy:(aimY/aimLen)*cannonSpeed,
-    vz:(aimZ/aimLen)*cannonSpeed,
-    age:0,
-    life:Math.min(120,Math.max(52,Math.ceil(aimLen/cannonSpeed)+10)),
-    damage:settings.damage,
-    ignoreObstacleFrames:5
-  });
-
-  for(let i=0;i<6;i++){
-    dust.spawnThrusterParticle(
-      startX,
-      startY,
-      startZ,
-      -(aimX/aimLen)*(1.0+Math.random()*1.6)+(Math.random()-0.5)*0.55,
-      -(aimZ/aimLen)*(1.0+Math.random()*1.6)+(Math.random()-0.5)*0.55,
-      (Math.random()-0.5)*0.75,
-      0.12,
-      0.05+Math.random()*0.03
-    );
-  }
-
-  return true;
-}
-
-function updatePlanetaryStationDefense(){
-  if(!planetaryStation || gameOver) return;
-  if(planetaryStationDefenseCooldown>0){
-    planetaryStationDefenseCooldown--;
-    return;
-  }
-
-  let target=stationDefenseTarget();
-  if(target && firePlanetaryStationCannon(target)){
-    planetaryStationDefenseCooldown=planetaryStationDefenseSettings().cooldown;
-  }
-}
-
-function updatePlanetaryStationRepair(){
-  if(!planetaryStation || gameOver) return;
+function updateTradingOutpostRepair(){
+  if(!tradingOutpost || gameOver) return;
 
   let repairRadius=92;
   let repaired=false;
   for(let car of activeCars()){
     if(!car.group.visible || car.health<=0 || car.health>=100) continue;
 
-    let dx=car.x-planetaryStation.position.x;
-    let dz=car.z-planetaryStation.position.z;
+    let dx=car.x-tradingOutpost.position.x;
+    let dz=car.z-tradingOutpost.position.z;
     if(dx*dx+dz*dz>repairRadius*repairRadius) continue;
 
     car.health=100;
@@ -7947,62 +8070,9 @@ function placeTradingOutpostNearStart(startInfo){
   tradingOutpost=tradingOutpostModel.clone(true);
   tradingOutpost.position.set(chosen.x,drivingSurfaceHeight(chosen.x,chosen.z)+0.04,chosen.z);
   tradingOutpost.rotation.y=angle+Math.PI*0.5;
-  setTradingOutpostCollision(chosen.x,chosen.z,tradingOutpost.rotation.y);
+  tintTradingOutpostForEnvironment(tradingOutpost);
+  setTradingOutpostCollision(chosen.x,chosen.z,tradingOutpost.rotation.y,tradingOutpost.position.y);
   scene.add(tradingOutpost);
-}
-
-function placePlanetaryStationNearStart(startInfo){
-  if(startInfo) currentStartInfo=startInfo;
-  if(!planetaryStationModel || !currentStartInfo) return;
-
-  clearPlanetaryStation();
-
-  startInfo=currentStartInfo;
-  let basePoint=roadPointForOffset(startInfo.z,startInfo.fieldOffset);
-  let angle=startInfo.angle;
-  let forwardX=Math.sin(angle);
-  let forwardZ=Math.cos(angle);
-  let rightX=Math.cos(angle);
-  let rightZ=-Math.sin(angle);
-  let offsets=[
-    {forward:62,right:76},
-    {forward:78,right:-76},
-    {forward:-62,right:82},
-    {forward:96,right:0},
-    {forward:-82,right:-68}
-  ];
-  let chosen=null;
-
-  for(let offset of offsets){
-    let x=basePoint.x+forwardX*offset.forward+rightX*offset.right;
-    let z=basePoint.z+forwardZ*offset.forward+rightZ*offset.right;
-    if(waterDepthAt(x,z)>0.35) continue;
-    if(roadDistance(x,z)<24) continue;
-    if(world.collidesWithObstacles(x,z,16)) continue;
-    chosen={x,z};
-    break;
-  }
-
-  if(!chosen){
-    chosen={
-      x:basePoint.x+rightX*76+forwardX*62,
-      z:basePoint.z+rightZ*76+forwardZ*62
-    };
-  }
-
-  planetaryStation=planetaryStationModel.clone(true);
-  tintPlanetaryStationForEnvironment(planetaryStation);
-  planetaryStation.position.set(chosen.x,drivingSurfaceHeight(chosen.x,chosen.z),chosen.z);
-  planetaryStation.rotation.y=angle+Math.PI;
-  planetaryStation.userData.cannonMounts=[
-    {x:0,y:10,z:36},
-    {x:31,y:8,z:18},
-    {x:-31,y:8,z:18},
-    {x:0,y:9,z:-34}
-  ];
-  planetaryStation.userData.nextCannonMount=0;
-  planetaryStationDefenseCooldown=24;
-  scene.add(planetaryStation);
 }
 
 setWorldSeed(Math.random()*100000,currentEnvironment.terrain || {});
@@ -8011,7 +8081,6 @@ placeCarOnOpenField(playerCar,initialStartInfo);
 placeCarOnOpenField(secondCar,initialStartInfo);
 spawnGiantTestRobot(initialStartInfo);
 placeTradingOutpostNearStart(initialStartInfo);
-placePlanetaryStationNearStart(initialStartInfo);
 world.placeTestBossBaseNearStart(playerCar.x,playerCar.z,playerCar.angle);
 playerCar.cameraYaw=playerCar.angle;
 secondCar.cameraYaw=secondCar.angle;

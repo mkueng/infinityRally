@@ -3,9 +3,17 @@ export function createMotorAudio(cars){
   let master=null;
   let motors=[];
   let noiseBuffer=null;
+  let rocketLaunchBuffer=null;
+  let rocketLaunchBufferPromise=null;
+  let rocketImpactBuffer=null;
+  let rocketImpactBufferPromise=null;
+  let cannonImpactBuffer=null;
+  let cannonImpactBufferPromise=null;
+  let giantFootstepBuffer=null;
+  let giantFootstepBufferPromise=null;
   let supported=true;
   let sfxVolume=1;
-  let musicVolume=0.2;
+  let musicVolume=0.05;
   let paused=false;
   let backgroundMusic=new Audio("./assets/music/ROSpace.mp3");
   backgroundMusic.loop=true;
@@ -30,6 +38,10 @@ export function createMotorAudio(cars){
     master.gain.value=paused ? 0 : 0.26*sfxVolume;
     master.connect(context.destination);
     noiseBuffer=createNoiseBuffer();
+    loadRocketLaunchBuffer();
+    loadRocketImpactBuffer();
+    loadCannonImpactBuffer();
+    loadGiantFootstepBuffer();
 
     motors=cars.map((car,index)=>{
       let idleOsc=context.createOscillator();
@@ -145,6 +157,102 @@ export function createMotorAudio(cars){
     return buffer;
   }
 
+  function loadRocketLaunchBuffer(){
+    if(!context || !supported) return null;
+    if(rocketLaunchBuffer) return Promise.resolve(rocketLaunchBuffer);
+    if(rocketLaunchBufferPromise) return rocketLaunchBufferPromise;
+
+    rocketLaunchBufferPromise=fetch("./assets/sounds/rocketLaunch.mp3")
+      .then(response=>{
+        if(!response.ok) throw new Error(`Failed to load rocketLaunch.mp3: ${response.status}`);
+        return response.arrayBuffer();
+      })
+      .then(data=>context.decodeAudioData(data))
+      .then(buffer=>{
+        rocketLaunchBuffer=buffer;
+        return buffer;
+      })
+      .catch(error=>{
+        console.warn(error);
+        rocketLaunchBufferPromise=null;
+        return null;
+      });
+
+    return rocketLaunchBufferPromise;
+  }
+
+  function loadRocketImpactBuffer(){
+    if(!context || !supported) return null;
+    if(rocketImpactBuffer) return Promise.resolve(rocketImpactBuffer);
+    if(rocketImpactBufferPromise) return rocketImpactBufferPromise;
+
+    rocketImpactBufferPromise=fetch("./assets/sounds/rocketImpact.mp3")
+      .then(response=>{
+        if(!response.ok) throw new Error(`Failed to load rocketImpact.mp3: ${response.status}`);
+        return response.arrayBuffer();
+      })
+      .then(data=>context.decodeAudioData(data))
+      .then(buffer=>{
+        rocketImpactBuffer=buffer;
+        return buffer;
+      })
+      .catch(error=>{
+        console.warn(error);
+        rocketImpactBufferPromise=null;
+        return null;
+      });
+
+    return rocketImpactBufferPromise;
+  }
+
+  function loadCannonImpactBuffer(){
+    if(!context || !supported) return null;
+    if(cannonImpactBuffer) return Promise.resolve(cannonImpactBuffer);
+    if(cannonImpactBufferPromise) return cannonImpactBufferPromise;
+
+    cannonImpactBufferPromise=fetch("./assets/sounds/cannonImpact.mp3")
+      .then(response=>{
+        if(!response.ok) throw new Error(`Failed to load cannonImpact.mp3: ${response.status}`);
+        return response.arrayBuffer();
+      })
+      .then(data=>context.decodeAudioData(data))
+      .then(buffer=>{
+        cannonImpactBuffer=buffer;
+        return buffer;
+      })
+      .catch(error=>{
+        console.warn(error);
+        cannonImpactBufferPromise=null;
+        return null;
+      });
+
+    return cannonImpactBufferPromise;
+  }
+
+  function loadGiantFootstepBuffer(){
+    if(!context || !supported) return null;
+    if(giantFootstepBuffer) return Promise.resolve(giantFootstepBuffer);
+    if(giantFootstepBufferPromise) return giantFootstepBufferPromise;
+
+    giantFootstepBufferPromise=fetch("./assets/sounds/GiantWalking.mp3")
+      .then(response=>{
+        if(!response.ok) throw new Error(`Failed to load GiantWalking.mp3: ${response.status}`);
+        return response.arrayBuffer();
+      })
+      .then(data=>context.decodeAudioData(data))
+      .then(buffer=>{
+        giantFootstepBuffer=buffer;
+        return buffer;
+      })
+      .catch(error=>{
+        console.warn(error);
+        giantFootstepBufferPromise=null;
+        return null;
+      });
+
+    return giantFootstepBufferPromise;
+  }
+
   function resume(){
     ensureContext();
     if(context && context.state==="suspended") context.resume();
@@ -158,69 +266,6 @@ export function createMotorAudio(cars){
   window.addEventListener("click",resume);
   window.addEventListener("gamepadconnected",resume);
 
-  function makePulse(motor,time,frequency,amount,brightness){
-    let osc=context.createOscillator();
-    let body=context.createOscillator();
-    let stomp=context.createOscillator();
-    let stompGain=context.createGain();
-    let clack=context.createBufferSource();
-    let clackFilter=context.createBiquadFilter();
-    let clackGain=context.createGain();
-    let filter=context.createBiquadFilter();
-    let gain=context.createGain();
-    let bodyGain=context.createGain();
-    let duration=0.16+amount*0.06;
-
-    clack.buffer=noiseBuffer || createNoiseBuffer();
-    clackFilter.type="bandpass";
-    clackFilter.frequency.setValueAtTime(brightness*1.15,time);
-    clackFilter.Q.setValueAtTime(5.8,time);
-    clackGain.gain.setValueAtTime(0.0001,time);
-    clackGain.gain.exponentialRampToValueAtTime(0.095*amount,time+0.003);
-    clackGain.gain.exponentialRampToValueAtTime(0.0001,time+0.09);
-
-    osc.type="triangle";
-    body.type="sine";
-    stomp.type="sine";
-    filter.type="bandpass";
-    filter.frequency.setValueAtTime(brightness,time);
-    filter.Q.setValueAtTime(3.2,time);
-    osc.frequency.setValueAtTime(frequency,time);
-    body.frequency.setValueAtTime(frequency*0.42,time);
-    stomp.frequency.setValueAtTime(32,time);
-    stomp.frequency.exponentialRampToValueAtTime(18,time+0.18);
-
-    gain.gain.setValueAtTime(0.0001,time);
-    gain.gain.exponentialRampToValueAtTime(0.14*amount,time+0.012);
-    gain.gain.exponentialRampToValueAtTime(0.0001,time+duration);
-    bodyGain.gain.setValueAtTime(0.0001,time);
-    bodyGain.gain.exponentialRampToValueAtTime(0.3*amount,time+0.012);
-    bodyGain.gain.exponentialRampToValueAtTime(0.0001,time+duration*1.4);
-    stompGain.gain.setValueAtTime(0.0001,time);
-    stompGain.gain.exponentialRampToValueAtTime(0.22*amount,time+0.01);
-    stompGain.gain.exponentialRampToValueAtTime(0.0001,time+0.34);
-
-    osc.connect(filter);
-    filter.connect(gain);
-    body.connect(bodyGain);
-    stomp.connect(stompGain);
-    clack.connect(clackFilter);
-    clackFilter.connect(clackGain);
-    gain.connect(motor.pan || motor.output);
-    bodyGain.connect(motor.pan || motor.output);
-    stompGain.connect(motor.pan || motor.output);
-    clackGain.connect(motor.pan || motor.output);
-
-    osc.start(time);
-    body.start(time);
-    stomp.start(time);
-    clack.start(time);
-    osc.stop(time+duration+0.02);
-    body.stop(time+duration*1.5);
-    stomp.stop(time+0.36);
-    clack.stop(time+0.1);
-  }
-
   function update(){
     if(!context || context.state!=="running") return;
 
@@ -229,23 +274,17 @@ export function createMotorAudio(cars){
       let car=motor.car;
       let speedRatio=clamp(Math.abs(car.speed || 0)/0.38,0,1);
       let throttle=clamp(Math.max(0,car.throttleInput || 0),0,1);
-      let reverse=car.throttleInput<0 ? 1 : 0;
       let disabled=car.health<=0;
       let onGround=car.onGround!==false;
       let airborne=car.airborne===true;
       let mechMode=(car.morphProgress || 0)<0.35 && (car.jetProgress || 0)<0.35;
       let offroad=clamp(((car.surfaceDistance || 0)-34)/72,0,1);
       let slip=clamp(car.slipAmount || 0,0,1);
-      let walking=mechMode && onGround && !disabled && speedRatio>0.04;
       let targetAirRev=airborne && !disabled ? 1 : 0;
       motor.airRev+=(targetAirRev-motor.airRev)*(targetAirRev>motor.airRev ? 0.055 : 0.022);
 
-      let stepRate=0.9+speedRatio*1.18+throttle*0.18-reverse*0.1;
-      let pulseInterval=1/Math.max(0.55,stepRate);
       let idleFrequency=disabled ? 26 : 32+speedRatio*18+throttle*8+motor.airRev*58;
       let idleGain=disabled ? 0.004 : mechMode ? 0.003 : 0.016+speedRatio*0.016+throttle*0.012+motor.airRev*0.014;
-      let brightness=170+speedRatio*360+offroad*170+motor.airRev*260;
-      let amount=disabled ? 0 : 1.25+speedRatio*0.95+offroad*0.45;
 
       motor.idleOsc.frequency.setTargetAtTime(idleFrequency,now,0.07);
       motor.idleFilter.frequency.setTargetAtTime(130+speedRatio*170+throttle*80+motor.airRev*180,now,0.08);
@@ -258,18 +297,7 @@ export function createMotorAudio(cars){
 
       if(disabled) continue;
       if(motor.nextPulseTime<now) motor.nextPulseTime=now;
-      if(!walking){
-        motor.nextPulseTime=now+0.08;
-        continue;
-      }
-
-      let scheduleUntil=now+0.08;
-      while(motor.nextPulseTime<scheduleUntil){
-        let jitter=Math.sin(motor.nextPulseTime*37+car.gamepadIndex)*0.0016;
-        let pulseFrequency=34+speedRatio*42+offroad*16+motor.airRev*42;
-        makePulse(motor,motor.nextPulseTime+jitter,pulseFrequency,amount,brightness);
-        motor.nextPulseTime+=pulseInterval;
-      }
+      motor.nextPulseTime=now+0.08;
     }
   }
 
@@ -277,55 +305,28 @@ export function createMotorAudio(cars){
     ensureContext();
     if(!context || !supported) return;
     if(context.state==="suspended") context.resume();
+    if(!rocketLaunchBuffer){
+      loadRocketLaunchBuffer();
+      return;
+    }
 
     let motor=motors.find(item=>item.car===car);
     let destination=motor ? (motor.pan || motor.output) : master;
     let time=context.currentTime+0.01;
-    let noise=context.createBufferSource();
-    let noiseFilter=context.createBiquadFilter();
-    let noiseGain=context.createGain();
-    let swooshFilter=context.createBiquadFilter();
-    let swooshGain=context.createGain();
-    let punch=context.createOscillator();
-    let punchGain=context.createGain();
+    let source=context.createBufferSource();
+    let gain=context.createGain();
 
-    noise.buffer=noiseBuffer || createNoiseBuffer();
-    noiseFilter.type="bandpass";
-    noiseFilter.frequency.setValueAtTime(1280,time);
-    noiseFilter.frequency.exponentialRampToValueAtTime(220,time+0.48);
-    noiseFilter.Q.setValueAtTime(1.35,time);
-    noiseGain.gain.setValueAtTime(0.0001,time);
-    noiseGain.gain.exponentialRampToValueAtTime(0.52,time+0.014);
-    noiseGain.gain.exponentialRampToValueAtTime(0.0001,time+0.68);
+    source.buffer=rocketLaunchBuffer;
+    source.playbackRate.setValueAtTime(0.98+Math.random()*0.04,time);
+    gain.gain.setValueAtTime(0.0001,time);
+    gain.gain.exponentialRampToValueAtTime(1,time+0.006);
+    gain.gain.setTargetAtTime(0.0001,time+0.1,0.42);
 
-    swooshFilter.type="highpass";
-    swooshFilter.frequency.setValueAtTime(1800,time);
-    swooshFilter.frequency.exponentialRampToValueAtTime(360,time+0.68);
-    swooshFilter.Q.setValueAtTime(0.8,time);
-    swooshGain.gain.setValueAtTime(0.0001,time);
-    swooshGain.gain.exponentialRampToValueAtTime(0.36,time+0.025);
-    swooshGain.gain.exponentialRampToValueAtTime(0.0001,time+0.9);
+    source.connect(gain);
+    gain.connect(destination);
 
-    punch.type="sawtooth";
-    punch.frequency.setValueAtTime(108,time);
-    punch.frequency.exponentialRampToValueAtTime(36,time+0.2);
-    punchGain.gain.setValueAtTime(0.0001,time);
-    punchGain.gain.exponentialRampToValueAtTime(0.22,time+0.008);
-    punchGain.gain.exponentialRampToValueAtTime(0.0001,time+0.24);
-
-    noise.connect(noiseFilter);
-    noiseFilter.connect(noiseGain);
-    noiseGain.connect(destination);
-    noise.connect(swooshFilter);
-    swooshFilter.connect(swooshGain);
-    swooshGain.connect(destination);
-    punch.connect(punchGain);
-    punchGain.connect(destination);
-
-    noise.start(time);
-    punch.start(time);
-    noise.stop(time+0.94);
-    punch.stop(time+0.26);
+    source.start(time);
+    source.stop(time+Math.min(rocketLaunchBuffer.duration,1.6));
   }
 
   function playCannonFire(car){
@@ -439,6 +440,58 @@ export function createMotorAudio(cars){
     noise.stop(time+1.5);
   }
 
+  function playRocketImpact(){
+    ensureContext();
+    if(!context || !supported) return;
+    if(context.state==="suspended") context.resume();
+    if(!rocketImpactBuffer){
+      loadRocketImpactBuffer();
+      return;
+    }
+
+    let time=context.currentTime+0.004;
+    let source=context.createBufferSource();
+    let gain=context.createGain();
+
+    source.buffer=rocketImpactBuffer;
+    source.playbackRate.setValueAtTime(0.98+Math.random()*0.04,time);
+    gain.gain.setValueAtTime(0.0001,time);
+    gain.gain.exponentialRampToValueAtTime(1,time+0.006);
+    gain.gain.setTargetAtTime(0.0001,time+0.1,0.42);
+
+    source.connect(gain);
+    gain.connect(master);
+
+    source.start(time);
+    source.stop(time+Math.min(rocketImpactBuffer.duration,1.8));
+  }
+
+  function playCannonImpact(){
+    ensureContext();
+    if(!context || !supported) return;
+    if(context.state==="suspended") context.resume();
+    if(!cannonImpactBuffer){
+      loadCannonImpactBuffer();
+      return;
+    }
+
+    let time=context.currentTime+0.004;
+    let source=context.createBufferSource();
+    let gain=context.createGain();
+
+    source.buffer=cannonImpactBuffer;
+    source.playbackRate.setValueAtTime(0.98+Math.random()*0.04,time);
+    gain.gain.setValueAtTime(0.0001,time);
+    gain.gain.exponentialRampToValueAtTime(1,time+0.006);
+    gain.gain.setTargetAtTime(0.0001,time+0.08,0.32);
+
+    source.connect(gain);
+    gain.connect(master);
+
+    source.start(time);
+    source.stop(time+Math.min(cannonImpactBuffer.duration,1.4));
+  }
+
   function playBombExplosion(){
     ensureContext();
     if(!context || !supported) return;
@@ -491,6 +544,35 @@ export function createMotorAudio(cars){
     sub.stop(time+2.3);
     body.stop(time+1.9);
     noise.stop(time+2.45);
+  }
+
+  function playGiantFootstep(intensity=1){
+    ensureContext();
+    if(!context || !supported) return;
+    if(context.state==="suspended") context.resume();
+
+    intensity=clamp(Number(intensity) || 0,0,1);
+    if(intensity<=0.01) return;
+    if(!giantFootstepBuffer){
+      loadGiantFootstepBuffer();
+      return;
+    }
+
+    let time=context.currentTime+0.004;
+    let source=context.createBufferSource();
+    let gain=context.createGain();
+
+    source.buffer=giantFootstepBuffer;
+    source.playbackRate.setValueAtTime(0.96+Math.random()*0.08,time);
+    gain.gain.setValueAtTime(0.0001,time);
+    gain.gain.exponentialRampToValueAtTime(1.45*intensity,time+0.01);
+    gain.gain.setTargetAtTime(0.0001,time+0.08,0.32);
+
+    source.connect(gain);
+    gain.connect(master);
+
+    source.start(time);
+    source.stop(time+Math.min(giantFootstepBuffer.duration,1.4));
   }
 
   function playLaserFire(){
@@ -556,7 +638,10 @@ export function createMotorAudio(cars){
     playRocketLaunch,
     playCannonFire,
     playExplosion,
+    playRocketImpact,
+    playCannonImpact,
     playBombExplosion,
+    playGiantFootstep,
     playLaserFire
   };
 }

@@ -6,6 +6,7 @@ export function createInput(){
     left:false,
     right:false,
     hasPosition:false,
+    locked:false,
     version:0
   };
   let gamepads=[];
@@ -27,11 +28,46 @@ export function createInput(){
   });
 
   function updateMousePosition(event){
-    mouse.x=event.clientX;
-    mouse.y=event.clientY;
+    if(mouse.locked){
+      mouse.x=Math.max(0,Math.min(window.innerWidth,mouse.x+(event.movementX || 0)));
+      mouse.y=Math.max(0,Math.min(window.innerHeight,mouse.y+(event.movementY || 0)));
+    }else{
+      mouse.x=event.clientX;
+      mouse.y=event.clientY;
+    }
     mouse.hasPosition=true;
     mouse.version++;
   }
+
+  function requestPointerLock(target=document.body){
+    if(!target || !target.requestPointerLock) return;
+    if(document.pointerLockElement===target) return;
+    try{
+      let request=target.requestPointerLock({unadjustedMovement:true});
+      if(request && request.catch){
+        request.catch(()=>{
+          try{
+            target.requestPointerLock();
+          }catch(error){}
+        });
+      }
+    }catch(error){
+      try{
+        target.requestPointerLock();
+      }catch(fallbackError){}
+    }
+  }
+
+  document.addEventListener("pointerlockchange",()=>{
+    let wasLocked=mouse.locked;
+    mouse.locked=document.pointerLockElement!=null;
+    if(mouse.locked && !wasLocked){
+      mouse.x=window.innerWidth*0.5;
+      mouse.y=window.innerHeight*0.5;
+      mouse.hasPosition=true;
+      mouse.version++;
+    }
+  });
 
   window.addEventListener("mousemove",updateMousePosition);
   window.addEventListener("mousedown",event=>{
@@ -118,6 +154,7 @@ export function createInput(){
   return {
     keys,
     mouse,
+    requestPointerLock,
     getGamepadControls,
     getGamepadFaceButtons,
     getGamepadAim

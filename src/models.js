@@ -453,82 +453,6 @@ export function loadLandingSpaceModel(){
   });
 }
 
-export function normalizePlanetaryStationModel(station){
-  let model=new THREE.Group();
-  let asset=new THREE.Group();
-  station.rotation.x=-Math.PI/2;
-  asset.add(station);
-  model.add(asset);
-  model.updateMatrixWorld(true);
-
-  let box=new THREE.Box3().setFromObject(model);
-  let size=new THREE.Vector3();
-  let center=new THREE.Vector3();
-  box.getSize(size);
-  box.getCenter(center);
-
-  let scale=68/Math.max(size.x,size.z,0.001);
-  model.scale.setScalar(scale);
-  model.updateMatrixWorld(true);
-
-  box.setFromObject(model);
-  box.getCenter(center);
-  asset.position.x-=center.x/scale;
-  asset.position.z-=center.z/scale;
-  model.updateMatrixWorld(true);
-
-  box.setFromObject(model);
-  asset.position.y-=box.min.y/scale;
-
-  model.traverse(child=>{
-    if(child.isMesh){
-      child.castShadow=true;
-      child.receiveShadow=true;
-      if(child.geometry) child.geometry.computeVertexNormals();
-      if(child.material){
-        let materials=Array.isArray(child.material) ? child.material : [child.material];
-        for(let material of materials){
-          material.side=THREE.FrontSide;
-          material.roughness=material.roughness ?? 0.64;
-          material.metalness=material.metalness ?? 0.22;
-          if(material.name==="color_4634441"){
-            if(material.emissive) material.emissive.set(0x174d1c);
-            material.emissiveIntensity=0.28;
-          }
-        }
-      }
-    }
-  });
-
-  return model;
-}
-
-export function loadPlanetaryStationModel(){
-  let mtlLoader=new MTLLoader();
-  mtlLoader.setPath("assets/planetaryStations/");
-
-  return new Promise((resolve,reject)=>{
-    mtlLoader.load(
-      "obj.mtl",
-      materials=>{
-        materials.preload();
-
-        let objLoader=new OBJLoader();
-        objLoader.setPath("assets/planetaryStations/");
-        objLoader.setMaterials(materials);
-        objLoader.load(
-          "tinker.obj",
-          object=>resolve(normalizePlanetaryStationModel(object)),
-          undefined,
-          reject
-        );
-      },
-      undefined,
-      reject
-    );
-  });
-}
-
 export function normalizeTradingOutpostModel(outpost){
   let model=new THREE.Group();
   let asset=new THREE.Group();
@@ -555,6 +479,64 @@ export function normalizeTradingOutpostModel(outpost){
 
   box.setFromObject(model);
   asset.position.y-=box.min.y/scale;
+  box.setFromObject(model);
+  box.getSize(size);
+
+  model.userData.footprintHalfX=size.x*0.5;
+  model.userData.footprintHalfZ=size.z*0.5;
+
+  model.updateMatrixWorld(true);
+  let wallBounds=new THREE.Box3();
+  let floorBounds=new THREE.Box3();
+  let hasWallBounds=false;
+  let hasFloorBounds=false;
+  let leftWallInnerX=-Infinity;
+  let rightWallInnerX=Infinity;
+  let minZWallInnerZ=-Infinity;
+  let maxZWallInnerZ=Infinity;
+  model.traverse(child=>{
+    if(!child.isMesh || !child.material) return;
+
+    let childBox=new THREE.Box3().setFromObject(child);
+    let childSize=new THREE.Vector3();
+    childBox.getSize(childSize);
+    let materials=Array.isArray(child.material) ? child.material : [child.material];
+    let materialNames=materials.map(material=>material && material.name);
+
+    if(materialNames.includes("color_7720667")){
+      wallBounds.union(childBox);
+      hasWallBounds=true;
+      if(childSize.x<childSize.z){
+        if(childBox.max.x<0) leftWallInnerX=Math.max(leftWallInnerX,childBox.max.x);
+        if(childBox.min.x>0) rightWallInnerX=Math.min(rightWallInnerX,childBox.min.x);
+      }else if(childSize.z<childSize.x){
+        if(childBox.max.z<0) minZWallInnerZ=Math.max(minZWallInnerZ,childBox.max.z);
+        if(childBox.min.z>0) maxZWallInnerZ=Math.min(maxZWallInnerZ,childBox.min.z);
+      }
+    }
+    if(childBox.min.y<2.1 && childSize.y<2.2 && (childSize.x>18 || childSize.z>18)){
+      floorBounds.union(childBox);
+      hasFloorBounds=true;
+    }
+  });
+
+  if(hasWallBounds || hasFloorBounds){
+    model.userData.tradingOutpostBounds={
+      wallMinX:hasWallBounds ? wallBounds.min.x : -model.userData.footprintHalfX,
+      wallMaxX:hasWallBounds ? wallBounds.max.x : model.userData.footprintHalfX,
+      wallMinZ:hasWallBounds ? wallBounds.min.z : -model.userData.footprintHalfZ,
+      wallMaxZ:hasWallBounds ? wallBounds.max.z : model.userData.footprintHalfZ,
+      wallLeftX:Number.isFinite(leftWallInnerX) ? leftWallInnerX : wallBounds.min.x,
+      wallRightX:Number.isFinite(rightWallInnerX) ? rightWallInnerX : wallBounds.max.x,
+      wallMinZInner:Number.isFinite(minZWallInnerZ) ? minZWallInnerZ : wallBounds.min.z,
+      wallMaxZInner:Number.isFinite(maxZWallInnerZ) ? maxZWallInnerZ : wallBounds.max.z,
+      floorMinX:hasFloorBounds ? floorBounds.min.x : -model.userData.footprintHalfX,
+      floorMaxX:hasFloorBounds ? floorBounds.max.x : model.userData.footprintHalfX,
+      floorMinZ:hasFloorBounds ? floorBounds.min.z : -model.userData.footprintHalfZ,
+      floorMaxZ:hasFloorBounds ? floorBounds.max.z : model.userData.footprintHalfZ,
+      floorY:hasFloorBounds ? floorBounds.max.y : 0
+    };
+  }
 
   model.traverse(child=>{
     if(child.isMesh){
