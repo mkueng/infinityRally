@@ -423,6 +423,7 @@ let scannedBossBases=new Set();
 let scannerKeyDown=false;
 let scannerCooldownMs=10000;
 let scannerReadyAt=0;
+let robotDamageZoneNames=["head","torso","leftArm","rightArm","leftLeg","rightLeg"];
 let mechGroundMaxSpeed=0.4;
 let mechAirMaxSpeed=0.9;
 let morphedCarSpeedMultiplier=4;
@@ -993,6 +994,8 @@ function createCarState(id,lateralOffset,controls,camera,gamepadIndex){
     lastWalkX:0,
     lastWalkZ:0,
     health:100,
+    damageZones:createRobotDamageState(),
+    damageFlashZones:createRobotDamageState(),
     lateralOffset
   };
 }
@@ -1182,6 +1185,8 @@ function createPauseMenu(audio){
 
   function update(time){
     if(overlay.style.display==="none") return;
+    let previewCar=activeCars().find(car=>car && car.group.visible && car.health>0) || playerCar;
+    applyRobotDamageVisuals(previewRobot,previewCar.damageZones);
     previewRobotPivot.rotation.y=time*0.00042;
     previewRobotPivot.rotation.x=Math.sin(time*0.0012)*0.035;
     previewRenderer.render(previewScene,previewCamera);
@@ -1547,13 +1552,148 @@ window.addEventListener("keydown",event=>{
   setGamePaused(!gamePaused);
 });
 
-function damageCar(car,amount){
+function damageCar(car,amount,hitPoint=null){
   if(healthDamageCooldown>0 || car.health<=0) return;
   let reducedAmount=Math.max(1,Math.ceil(amount*0.5));
   car.health=Math.max(0,car.health-reducedAmount);
+  addRobotDamage(car,reducedAmount,hitPoint);
   healthDamageCooldown=42;
   hud.updateHealthHud();
   if(activeCars().some(item=>item.health<=0)) showGameOver();
+}
+
+function createRobotDamageState(){
+  let state={};
+  for(let zone of robotDamageZoneNames) state[zone]=0;
+  return state;
+}
+
+function robotDamageZoneForMeshName(name=""){
+  if(name.includes("head") || name.includes("visor") || name.includes("neck") || name.includes("antenna")) return "head";
+  if(name.includes("torso") || name.includes("chest") || name.includes("cockpit") || name.includes("reactor") || name.includes("pelvis")) return "torso";
+  if(name.startsWith("left-")){
+    if(name.includes("shoulder") || name.includes("arm") || name.includes("elbow") || name.includes("forearm") || name.includes("hand") || name.includes("cannon")) return "leftArm";
+    if(name.includes("hip") || name.includes("leg") || name.includes("knee") || name.includes("shin") || name.includes("foot") || name.includes("toe") || name.includes("wheel") || name.includes("hub")) return "leftLeg";
+  }
+  if(name.startsWith("right-")){
+    if(name.includes("shoulder") || name.includes("arm") || name.includes("elbow") || name.includes("forearm") || name.includes("hand") || name.includes("cannon")) return "rightArm";
+    if(name.includes("hip") || name.includes("leg") || name.includes("knee") || name.includes("shin") || name.includes("foot") || name.includes("toe") || name.includes("wheel") || name.includes("hub")) return "rightLeg";
+  }
+  return null;
+}
+
+function prepareRobotDamageMaterial(mesh){
+  if(!mesh || !mesh.material || !mesh.material.color || mesh.userData.damageVisualReady) return;
+  mesh.material=mesh.material.clone();
+  mesh.userData.damageVisualReady=true;
+  mesh.userData.damageBaseColor=mesh.material.color.clone();
+  mesh.userData.damageBaseEmissive=mesh.material.emissive ? mesh.material.emissive.clone() : null;
+  mesh.userData.damageBaseEmissiveIntensity=Number.isFinite(mesh.material.emissiveIntensity) ? mesh.material.emissiveIntensity : 0;
+  mesh.userData.damageBaseRoughness=Number.isFinite(mesh.material.roughness) ? mesh.material.roughness : null;
+  mesh.userData.damageBaseMetalness=Number.isFinite(mesh.material.metalness) ? mesh.material.metalness : null;
+}
+
+function applyRobotDamageVisuals(robot,zones){
+  if(!robot || !zones) return;
+  let scorch=new THREE.Color(0x130b08);
+  let burn=new THREE.Color(0xff3d1f);
+
+  robot.traverse(child=>{
+    if(!child.isMesh) return;
+    let zone=robotDamageZoneForMeshName(child.name || "");
+    if(!zone) return;
+
+    prepareRobotDamageMaterial(child);
+    if(!child.userData.damageVisualReady) return;
+
+    let amount=clamp((zones[zone] || 0)/100,0,1);
+    child.material.color.copy(child.userData.damageBaseColor).lerp(scorch,amount*0.76);
+
+    if(child.material.emissive && child.userData.damageBaseEmissive){
+      child.material.emissive.copy(child.userData.damageBaseEmissive).lerp(burn,amount*0.42);
+      child.material.emissiveIntensity=child.userData.damageBaseEmissiveIntensity+amount*0.38;
+    }
+    if(child.userData.damageBaseRoughness!==null){
+      child.material.roughness=clamp(child.userData.damageBaseRoughness+amount*0.32,0,1);
+    }
+    if(child.userData.damageBaseMetalness!==null){
+      child.material.metalness=clamp(child.userData.damageBaseMetalness-amount*0.16,0,1);
+    }
+  });
+}
+
+function applyRobotHitFlashVisuals(robot,zones){
+  if(!robot || !zones) return;
+  let flash=new THREE.Color(0xfff1c8);
+  let flashEmissive=new THREE.Color(0xff6226);
+
+  robot.traverse(child=>{
+    if(!child.isMesh) return;
+    let zone=robotDamageZoneForMeshName(child.name || "");
+    if(!zone) return;
+
+    prepareRobotDamageMaterial(child);
+    if(!child.userData.damageVisualReady) return;
+
+    let amount=clamp((zones[zone] || 0)/100,0,1);
+    child.material.color.copy(child.userData.damageBaseColor).lerp(flash,amount*0.9);
+
+    if(child.material.emissive && child.userData.damageBaseEmissive){
+      child.material.emissive.copy(child.userData.damageBaseEmissive).lerp(flashEmissive,amount*0.8);
+      child.material.emissiveIntensity=child.userData.damageBaseEmissiveIntensity+amount*1.35;
+    }
+    if(child.userData.damageBaseRoughness!==null){
+      child.material.roughness=clamp(child.userData.damageBaseRoughness-amount*0.18,0,1);
+    }
+    if(child.userData.damageBaseMetalness!==null){
+      child.material.metalness=child.userData.damageBaseMetalness;
+    }
+  });
+}
+
+function robotDamageZoneFromHit(car,x,y,z){
+  if(!car) return "torso";
+  if(!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return "torso";
+
+  let rightX=Math.cos(car.angle || 0);
+  let rightZ=-Math.sin(car.angle || 0);
+  let lateral=(x-car.x)*rightX+(z-car.z)*rightZ;
+  let height=clamp((y-car.y)/Math.max(4.8,car.hitHeight || 5.2),0,1);
+  let side=lateral<0 ? "left" : "right";
+  let sideHit=Math.abs(lateral)>1.12;
+
+  if(height>0.78) return "head";
+  if(height>0.46) return sideHit ? `${side}Arm` : "torso";
+  return sideHit ? `${side}Leg` : "torso";
+}
+
+function addRobotDamage(car,amount,hitPoint=null){
+  if(!car) return;
+  if(!car.damageZones) car.damageZones=createRobotDamageState();
+  if(!car.damageFlashZones) car.damageFlashZones=createRobotDamageState();
+  let zone=hitPoint
+    ? robotDamageZoneFromHit(car,hitPoint.x,hitPoint.y,hitPoint.z)
+    : "torso";
+  car.damageZones[zone]=clamp((car.damageZones[zone] || 0)+amount*2.2,0,100);
+  car.damageFlashZones[zone]=100;
+  if(car.mechModel) applyRobotHitFlashVisuals(car.mechModel,car.damageFlashZones);
+}
+
+function repairRobotDamage(car,amount){
+  if(!car || !car.damageZones) return;
+  for(let zone of robotDamageZoneNames){
+    car.damageZones[zone]=Math.max(0,(car.damageZones[zone] || 0)-amount*1.25);
+  }
+}
+
+function updateRobotDamageFlashes(car){
+  if(!car || !car.mechModel) return;
+  if(!car.damageFlashZones) car.damageFlashZones=createRobotDamageState();
+
+  for(let zone of robotDamageZoneNames){
+    car.damageFlashZones[zone]=Math.max(0,(car.damageFlashZones[zone] || 0)-5.2);
+  }
+  applyRobotHitFlashVisuals(car.mechModel,car.damageFlashZones);
 }
 
 function addScore(amount){
@@ -1818,9 +1958,9 @@ function damageEnemy(enemy,amount){
   }
 }
 
-function damageActor(actor,amount){
+function damageActor(actor,amount,hitPoint=null){
   if(actor.isEnemy) damageEnemy(actor,amount);
-  else damageCar(actor,amount);
+  else damageCar(actor,amount,hitPoint);
 }
 
 function rattleActor(actor,amount=1){
@@ -2838,7 +2978,9 @@ function collectSupplyBox(box,car){
     car.clusterBombAmmo+=clusterBombSupplyAmount;
   }else{
     if(car.health>=100) return false;
+    let previousHealth=car.health;
     car.health=Math.min(100,car.health+healthSupplyAmount);
+    repairRobotDamage(car,car.health-previousHealth);
     hud.updateHealthHud();
   }
 
@@ -3901,7 +4043,7 @@ function updateRockets(){
           }
         }
         if(hitActor){
-          damageActor(hitActor,rocket.damage || 18);
+          damageActor(hitActor,rocket.damage || 18,{x:rocket.x,y:rocket.y,z:rocket.z});
           rattleActor(hitActor,1);
         }
         if(rocket.blastRadius){
@@ -3911,7 +4053,7 @@ function updateRockets(){
             let dx=actor.x-explosionX;
             let dz=actor.z-explosionZ;
             if(dx*dx+dz*dz<rocket.blastRadius*rocket.blastRadius){
-              damageActor(actor,Math.max(6,(rocket.damage || 18)*0.55));
+              damageActor(actor,Math.max(6,(rocket.damage || 18)*0.55),{x:explosionX,y:explosionY,z:explosionZ});
               rattleActor(actor,0.85);
             }
           }
@@ -4006,7 +4148,7 @@ function updateCannonBolts(){
           }
         }
         if(hitActor){
-          damageActor(hitActor,bolt.damage || 9);
+          damageActor(hitActor,bolt.damage || 9,{x:bolt.x,y:bolt.y,z:bolt.z});
           rattleActor(hitActor,0.72);
         }
       }
@@ -5023,7 +5165,7 @@ function updateBossBaseDefenses(){
         bossLaserPointB.set(target.x,target.y+2.1,target.z);
         spawnBossLaserBeam(bossLaserPointA,bossLaserPointB);
         if(motorAudio.playLaserFire) motorAudio.playLaserFire();
-        damageCar(target,7);
+        damageCar(target,7,{x:bossLaserPointB.x,y:bossLaserPointB.y,z:bossLaserPointB.z});
         rattleActor(target,0.45);
         turret.cooldown=72+Math.floor(Math.random()*38);
       }
@@ -5967,6 +6109,7 @@ function setupMorphModels(car,accentColor){
   car.aimCross=aimCross;
   car.headlights=headlights;
   updateVehicleHeadlights(car);
+  applyRobotHitFlashVisuals(car.mechModel,car.damageFlashZones || createRobotDamageState());
 }
 
 function attachBackPackToPlayerRobot(model){
@@ -7086,6 +7229,7 @@ function updateMorphVisual(car){
     car.mechModel.rotation.z+=Math.sin(performance.now()*0.049)*0.035*transformShake;
     if(jetP>0.001) applyJetFold(car.mechModel,jetP);
     else applyTransformerFold(car.mechModel,p);
+    updateRobotDamageFlashes(car);
   }
 
   if(car.carModel){
@@ -8427,6 +8571,12 @@ function startGame(mode,difficulty="medium"){
   scannedBossBases=new Set();
   scannerKeyDown=false;
   scannerReadyAt=0;
+  playerCar.damageZones=createRobotDamageState();
+  secondCar.damageZones=createRobotDamageState();
+  playerCar.damageFlashZones=createRobotDamageState();
+  secondCar.damageFlashZones=createRobotDamageState();
+  applyRobotHitFlashVisuals(playerCar.mechModel,playerCar.damageFlashZones);
+  applyRobotHitFlashVisuals(secondCar.mechModel,secondCar.damageFlashZones);
   clearSurfaceScanPulses();
   playerCar.lateralOffset=mode==="single" ? 0 : -4.2;
   secondCar.lateralOffset=4.2;
