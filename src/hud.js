@@ -1,7 +1,7 @@
 import { chunkSize } from "./constants.js";
 import { carSurfaceHeight } from "./terrain.js?v=no-ramps";
 
-export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStationState=()=>null,getScannedBossBases=()=>[],getPerformanceMode=()=>"full",getEnvironment=()=>({})}){
+export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStationState=()=>null,getScannedBossBases=()=>[],getScannedTradingOutposts=()=>[],getPerformanceMode=()=>"full",getEnvironment=()=>({})}){
   let panels=[];
   let gameOverOverlay;
   let mapUpdateFrame=0;
@@ -385,6 +385,8 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       bossStroke:rgba(colors.podEmissive || colors.pod,0.92,0xff6a42),
       scannedBossFill:rgba(colors.pod || colors.trim,0.34,0xff5c36),
       scannedBossStroke:rgba(colors.podEmissive || colors.pod,0.98,0xff6a42),
+      scannedOutpostFill:rgba(colors.water || colors.trim,0.32,0x8dfff2),
+      scannedOutpostStroke:rgba(colors.waterEmissive || colors.water || colors.trim,0.98,0xb9f4ff),
       stationFill:rgba(colors.trim || colors.water,0.36,0x8dfff2),
       stationStroke:rgba(colors.water || colors.trim,0.96,0xb9f4ff),
       clearedFill:rgba(colors.grass || colors.leaf,0.18,0x7cff78),
@@ -425,6 +427,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
 
     drawVillages(mapCtx,centerX,centerZ,radius,size,palette);
     drawStationMarker(mapCtx,getStationState(),centerX,centerZ,radius,size,palette);
+    drawScannedTradingOutposts(mapCtx,getScannedTradingOutposts(),centerX,centerZ,radius,size,palette);
     drawScannedBossBases(mapCtx,getScannedBossBases(),centerX,centerZ,radius,size,palette);
     drawEnemyDots(mapCtx,enemies,centerX,centerZ,radius,size);
     drawOtherCars(mapCtx,state,states,centerX,centerZ,radius,size,palette);
@@ -544,6 +547,48 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
 
       mapCtx.fillStyle=palette.scannedBossStroke;
       mapCtx.fillRect(p.x-2.5,p.y-2.5,5,5);
+    }
+  }
+
+  function drawScannedTradingOutposts(mapCtx,outposts,centerX,centerZ,radius,size,palette){
+    if(!outposts || !outposts.length) return;
+
+    let pulse=0.5+0.5*Math.sin(performance.now()*0.006);
+    for(let outpost of outposts){
+      if(!outpost) continue;
+
+      let p=mapToCanvas(outpost.x,outpost.z,centerX,centerZ,radius,size);
+      let margin=12;
+      let offMap=p.x<margin || p.x>size-margin || p.y<margin || p.y>size-margin;
+      if(offMap){
+        p.x=Math.max(margin,Math.min(size-margin,p.x));
+        p.y=Math.max(margin,Math.min(size-margin,p.y));
+      }
+
+      let outer=6.2+pulse*1.6;
+      mapCtx.save();
+      mapCtx.translate(p.x,p.y);
+      mapCtx.globalAlpha=offMap ? 0.7 : 1;
+      mapCtx.strokeStyle=palette.scannedOutpostStroke;
+      mapCtx.fillStyle=palette.scannedOutpostFill;
+      mapCtx.lineWidth=1.8;
+      mapCtx.beginPath();
+      mapCtx.arc(0,0,outer,0,Math.PI*2);
+      mapCtx.fill();
+      mapCtx.stroke();
+
+      mapCtx.strokeStyle=`rgba(245,255,249,${0.38+pulse*0.32})`;
+      mapCtx.lineWidth=1.15;
+      mapCtx.beginPath();
+      mapCtx.moveTo(-outer-2,0);
+      mapCtx.lineTo(outer+2,0);
+      mapCtx.moveTo(0,-outer-2);
+      mapCtx.lineTo(0,outer+2);
+      mapCtx.stroke();
+
+      mapCtx.fillStyle=palette.scannedOutpostStroke;
+      mapCtx.fillRect(-2,-2,4,4);
+      mapCtx.restore();
     }
   }
 

@@ -15,7 +15,7 @@ export function createMotorAudio(cars){
   let scannerBufferPromise=null;
   let supported=true;
   let sfxVolume=1;
-  let musicVolume=0.05;
+  let musicVolume=0.00;
   let paused=false;
   let backgroundMusic=new Audio("./assets/music/ROSpace.mp3");
   backgroundMusic.loop=true;

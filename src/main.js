@@ -2,7 +2,7 @@ import { THREE } from "./three.js";
 import { gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize, viewDistance, mothershipDropCount, mothershipDropInterval, mothershipDropLineSpacing, mothershipHoverDistance, mothershipHoverFrames, mothershipMinDelay, mothershipRandomDelay, mothershipRocketHits } from "./constants.js";
 import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=no-ramps";
 import { createInput } from "./input.js?v=scanner-bumper";
-import { createHud } from "./hud.js?v=scanner-mode";
+import { createHud } from "./hud.js?v=scanned-outposts";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=night-stars";
 import { createWorld } from "./world.js?v=landing-touchdown-back";
 import { createMotorAudio } from "./audio.js?v=scanner-mp3-quiet";
@@ -408,6 +408,7 @@ let tradingOutpostModel=null;
 let tradingOutpost=null;
 let tradingOutpostCollision=null;
 let tradingTerminalObject=null;
+let playerBaseTradingOutpost=null;
 let currentStartInfo=null;
 let jetUnlocked=false;
 let score=0;
@@ -420,6 +421,9 @@ let villageScoreAmount=1000;
 let scoredVillages=new WeakSet();
 let waterLevel=-20;
 let scannedBossBases=new Set();
+let rareTradingOutposts=new Map();
+let rareTradingOutpostRejectedKeys=new Set();
+let scannedTradingOutposts=new Map();
 let scannerKeyDown=false;
 let scannerCooldownMs=10000;
 let scannerReadyAt=0;
@@ -1474,6 +1478,7 @@ let hud=createHud({
     health:enemy.health
   })),
   getScannedBossBases:()=>Array.from(scannedBossBases).filter(base=>base && base.active!==false && base.health>0),
+  getScannedTradingOutposts:()=>Array.from(scannedTradingOutposts.values()),
   getStationState:()=>tradingOutpost ? ({
     x:tradingOutpost.position.x,
     z:tradingOutpost.position.z
@@ -7989,6 +7994,162 @@ function scanVisibleChunksForBossBases(){
   return found;
 }
 
+function objectInVisibleChunk(object){
+  if(!object || !Number.isFinite(object.x) || !Number.isFinite(object.z)) return false;
+
+  let objectCx=Math.floor(object.x/chunkSize);
+  let objectCz=Math.floor(object.z/chunkSize);
+  for(let car of activeCars()){
+    if(!car || !car.group.visible || car.health<=0) continue;
+
+    let carCx=Math.floor(car.x/chunkSize);
+    let carCz=Math.floor(car.z/chunkSize);
+    let visibleChunks=chunkViewDistanceForCar(car);
+    if(Math.abs(objectCx-carCx)<=visibleChunks && Math.abs(objectCz-carCz)<=visibleChunks) return true;
+  }
+
+  return false;
+}
+
+function scanVisibleChunksForTradingOutposts(){
+  let found=false;
+  for(let [key,outpost] of rareTradingOutposts){
+    if(!objectInVisibleChunk(outpost)) continue;
+    if(!scannedTradingOutposts.has(key)){
+      scannedTradingOutposts.set(key,{x:outpost.x,z:outpost.z});
+      found=true;
+    }
+  }
+  if(playerBaseTradingOutpost && objectInVisibleChunk(playerBaseTradingOutpost)){
+    let key="player-base-trading-outpost";
+    if(!scannedTradingOutposts.has(key)){
+      scannedTradingOutposts.set(key,{x:playerBaseTradingOutpost.x,z:playerBaseTradingOutpost.z});
+      found=true;
+    }
+  }
+
+  if(found && hud) hud.updateMapHud(true);
+  return found;
+}
+
+function clearPlayerBaseTradingOutpost(){
+  if(playerBaseTradingOutpost && playerBaseTradingOutpost.object){
+    scene.remove(playerBaseTradingOutpost.object);
+  }
+  playerBaseTradingOutpost=null;
+  scannedTradingOutposts.delete("player-base-trading-outpost");
+}
+
+function clearRareTradingOutposts(clearScanned=false){
+  for(let outpost of rareTradingOutposts.values()){
+    if(outpost && outpost.object) scene.remove(outpost.object);
+  }
+  rareTradingOutposts.clear();
+  rareTradingOutpostRejectedKeys.clear();
+  if(clearScanned) scannedTradingOutposts.clear();
+}
+
+function rareTradingOutpostCandidateForChunk(cx,cz){
+  if(!tradingOutpostModel) return null;
+  if(hash01(cx+931,cz-577)>0.1) return null;
+
+  let x=(cx+0.18+hash01(cx*7+13,cz*5-19)*0.64)*chunkSize;
+  let z=(cz+0.18+hash01(cx*11-29,cz*3+31)*0.64)*chunkSize;
+  let angle=hash01(cx-71,cz+151)*Math.PI*2;
+
+  if(tradingOutpost){
+    let dx=x-tradingOutpost.position.x;
+    let dz=z-tradingOutpost.position.z;
+    if(dx*dx+dz*dz<900*900) return null;
+  }
+
+  for(let base of world.bossBases || []){
+    if(!base || base.active===false) continue;
+    let dx=x-base.x;
+    let dz=z-base.z;
+    if(dx*dx+dz*dz<520*520) return null;
+  }
+
+  let info=tradingOutpostPlacementInfo(x,z,angle);
+  if(!info || !info.usable) return null;
+  return {...info,angle};
+}
+
+function updateRareTradingOutposts(){
+  if(!tradingOutpostModel || !world || !world.chunks) return;
+
+  for(let [key,outpost] of rareTradingOutposts){
+    if(!world.chunks.has(key)){
+      if(outpost && outpost.object) scene.remove(outpost.object);
+      rareTradingOutposts.delete(key);
+    }
+  }
+
+  for(let [key,chunk] of world.chunks){
+    if(rareTradingOutposts.has(key)) continue;
+    if(rareTradingOutpostRejectedKeys.has(key)) continue;
+    let candidate=rareTradingOutpostCandidateForChunk(chunk.cx,chunk.cz);
+    if(!candidate){
+      rareTradingOutpostRejectedKeys.add(key);
+      continue;
+    }
+
+    let object=tradingOutpostModel.clone(true);
+    object.position.set(candidate.x,candidate.y,candidate.z);
+    object.rotation.y=candidate.angle;
+    tintTradingOutpostForEnvironment(object);
+    scene.add(object);
+
+    rareTradingOutposts.set(key,{
+      key,
+      object,
+      x:candidate.x,
+      z:candidate.z
+    });
+  }
+}
+
+function placeTradingOutpostNearPlayerBaseStation(){
+  clearPlayerBaseTradingOutpost();
+  if(!tradingOutpostModel || !tradingOutpost) return;
+
+  let candidates=[];
+  let stationX=tradingOutpost.position.x;
+  let stationZ=tradingOutpost.position.z;
+  let baseAngle=tradingOutpost.rotation.y || 0;
+  for(let ring=0;ring<4;ring++){
+    let dist=180+ring*58;
+    let count=8+ring*2;
+    for(let i=0;i<count;i++){
+      let angle=baseAngle+Math.PI*0.18+(i/count)*Math.PI*2;
+      let x=stationX+Math.sin(angle)*dist;
+      let z=stationZ+Math.cos(angle)*dist;
+      let facing=angle+Math.PI;
+      let info=tradingOutpostPlacementInfo(x,z,facing);
+      if(!info || !info.usable) continue;
+
+      let score=info.range*120+info.maxSlope*900+Math.abs(dist-235)*0.05;
+      candidates.push({...info,angle:facing,score});
+    }
+  }
+
+  candidates.sort((a,b)=>a.score-b.score);
+  let chosen=candidates[0];
+  if(!chosen) return;
+
+  let object=tradingOutpostModel.clone(true);
+  object.position.set(chosen.x,chosen.y,chosen.z);
+  object.rotation.y=chosen.angle;
+  tintTradingOutpostForEnvironment(object);
+  scene.add(object);
+
+  playerBaseTradingOutpost={
+    object,
+    x:chosen.x,
+    z:chosen.z
+  };
+}
+
 function makeSurfaceScanLine(pointCount,material,renderOrder=24){
   let geometry=new THREE.BufferGeometry();
   let positions=new Float32Array(pointCount*3);
@@ -8137,6 +8298,7 @@ function updateScannerMode(){
     if(motorAudio.playScannerPulse) motorAudio.playScannerPulse();
     for(let car of activeCars()) spawnSurfaceScanPulse(car);
     scanVisibleChunksForBossBases();
+    scanVisibleChunksForTradingOutposts();
   }
   scannerKeyDown=scannerPressed;
 }
@@ -8181,6 +8343,7 @@ function chunkSignatureForCars(){
 }
 
 function fixedUpdateGame(){
+  updateRareTradingOutposts();
   updateScannerMode();
   for(let car of activeCars()){
     updateCar(car);
@@ -8287,6 +8450,7 @@ function loop(timestamp=performance.now()){
   hud.updateCompassHud();
   let chunkBudget=chunkBuildBudget();
   world.processChunkQueue(chunkBudget.items,false,chunkBudget.frameMs);
+  updateRareTradingOutposts();
   pauseMenu.update(timestamp);
   renderGame();
 }
@@ -8569,6 +8733,8 @@ function startGame(mode,difficulty="medium"){
   score=0;
   scoredVillages=new WeakSet();
   scannedBossBases=new Set();
+  clearRareTradingOutposts(true);
+  clearPlayerBaseTradingOutpost();
   scannerKeyDown=false;
   scannerReadyAt=0;
   playerCar.damageZones=createRobotDamageState();
@@ -8585,6 +8751,7 @@ function startGame(mode,difficulty="medium"){
   placeCarOnOpenField(secondCar,startInfo);
   spawnGiantTestRobot(startInfo);
   placeTradingOutpostNearStart(startInfo);
+  placeTradingOutpostNearPlayerBaseStation();
   world.placeTestBossBaseNearStart(playerCar.x,playerCar.z,playerCar.angle);
   spawnBossBaseGuards();
   setCarActive(playerCar,true);
@@ -8666,6 +8833,8 @@ loadTradingOutpostModel()
   .then(model=>{
     tradingOutpostModel=model;
     placeTradingOutpostNearStart(currentStartInfo);
+    placeTradingOutpostNearPlayerBaseStation();
+    updateRareTradingOutposts();
   })
   .catch(error=>{
     console.error("Failed to load trading outpost model:",error);
@@ -9040,6 +9209,7 @@ placeCarOnOpenField(playerCar,initialStartInfo);
 placeCarOnOpenField(secondCar,initialStartInfo);
 spawnGiantTestRobot(initialStartInfo);
 placeTradingOutpostNearStart(initialStartInfo);
+placeTradingOutpostNearPlayerBaseStation();
 world.placeTestBossBaseNearStart(playerCar.x,playerCar.z,playerCar.angle);
 playerCar.cameraYaw=playerCar.angle;
 secondCar.cameraYaw=secondCar.angle;

@@ -497,18 +497,18 @@ function clearBossBases(){
 function placeTestBossBaseNearStart(startX,startZ,startAngle=0){
   clearBossBases();
 
-  let minBossBaseStartDistance=3000;
+  let minBossBaseStartDistance=5200;
   let forwardX=Math.sin(startAngle);
   let forwardZ=Math.cos(startAngle);
   let rightX=Math.cos(startAngle);
   let rightZ=-Math.sin(startAngle);
   let best=null;
   let offsets=[
-    {forward:3100,side:920},
-    {forward:3800,side:-1050},
-    {forward:4500,side:600},
-    {forward:5200,side:-1250},
-    {forward:5900,side:950}
+    {forward:5600,side:1180},
+    {forward:6400,side:-1320},
+    {forward:7200,side:880},
+    {forward:8050,side:-1460},
+    {forward:8900,side:1260}
   ];
 
   for(let offset of offsets){
@@ -529,8 +529,8 @@ function placeTestBossBaseNearStart(startX,startZ,startAngle=0){
 
   if(!best){
     best={
-      x:startX+forwardX*3600+rightX*900,
-      z:startZ+forwardZ*3600+rightZ*900
+      x:startX+forwardX*6200+rightX*1180,
+      z:startZ+forwardZ*6200+rightZ*1180
     };
   }
 
