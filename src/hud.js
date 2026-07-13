@@ -1,7 +1,7 @@
 import { chunkSize } from "./constants.js";
 import { carSurfaceHeight } from "./terrain.js?v=no-ramps";
 
-export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStationState=()=>null,getPerformanceMode=()=>"full",getEnvironment=()=>({})}){
+export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStationState=()=>null,getScannedBossBases=()=>[],getPerformanceMode=()=>"full",getEnvironment=()=>({})}){
   let panels=[];
   let gameOverOverlay;
   let mapUpdateFrame=0;
@@ -383,6 +383,8 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       villageStroke:rgba(colors.trim || colors.shore,0.82,0xffe26f),
       bossFill:rgba(colors.pod || colors.trim,0.28,0xff5c36),
       bossStroke:rgba(colors.podEmissive || colors.pod,0.92,0xff6a42),
+      scannedBossFill:rgba(colors.pod || colors.trim,0.34,0xff5c36),
+      scannedBossStroke:rgba(colors.podEmissive || colors.pod,0.98,0xff6a42),
       stationFill:rgba(colors.trim || colors.water,0.36,0x8dfff2),
       stationStroke:rgba(colors.water || colors.trim,0.96,0xb9f4ff),
       clearedFill:rgba(colors.grass || colors.leaf,0.18,0x7cff78),
@@ -423,6 +425,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
 
     drawVillages(mapCtx,centerX,centerZ,radius,size,palette);
     drawStationMarker(mapCtx,getStationState(),centerX,centerZ,radius,size,palette);
+    drawScannedBossBases(mapCtx,getScannedBossBases(),centerX,centerZ,radius,size,palette);
     drawEnemyDots(mapCtx,enemies,centerX,centerZ,radius,size);
     drawOtherCars(mapCtx,state,states,centerX,centerZ,radius,size,palette);
 
@@ -503,6 +506,45 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     mapCtx.fillStyle=palette.stationStroke;
     mapCtx.fillRect(-2.5,-2.5,5,5);
     mapCtx.restore();
+  }
+
+  function drawScannedBossBases(mapCtx,bases,centerX,centerZ,radius,size,palette){
+    if(!bases || !bases.length) return;
+
+    let pulse=0.5+0.5*Math.sin(performance.now()*0.007);
+    for(let base of bases){
+      if(!base || base.health<=0 || base.active===false) continue;
+
+      let p=mapToCanvas(base.x,base.z,centerX,centerZ,radius,size);
+      let margin=13;
+      let offMap=p.x<margin || p.x>size-margin || p.y<margin || p.y>size-margin;
+      if(offMap){
+        p.x=Math.max(margin,Math.min(size-margin,p.x));
+        p.y=Math.max(margin,Math.min(size-margin,p.y));
+      }
+
+      let markerSize=13+pulse*2.5;
+      let half=markerSize*0.5;
+      mapCtx.save();
+      mapCtx.translate(p.x,p.y);
+      mapCtx.rotate(Math.PI*0.25);
+      mapCtx.globalAlpha=offMap ? 0.72 : 1;
+      mapCtx.fillStyle=palette.scannedBossFill;
+      mapCtx.strokeStyle=palette.scannedBossStroke;
+      mapCtx.lineWidth=2;
+      mapCtx.fillRect(-half,-half,markerSize,markerSize);
+      mapCtx.strokeRect(-half+0.5,-half+0.5,markerSize-1,markerSize-1);
+      mapCtx.restore();
+
+      mapCtx.strokeStyle=`rgba(255,245,210,${0.42+pulse*0.36})`;
+      mapCtx.lineWidth=1.2;
+      mapCtx.beginPath();
+      mapCtx.arc(p.x,p.y,10+pulse*4,0,Math.PI*2);
+      mapCtx.stroke();
+
+      mapCtx.fillStyle=palette.scannedBossStroke;
+      mapCtx.fillRect(p.x-2.5,p.y-2.5,5,5);
+    }
   }
 
   function drawOtherCars(mapCtx,state,states,centerX,centerZ,radius,size,palette){

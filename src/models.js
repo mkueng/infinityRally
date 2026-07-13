@@ -453,6 +453,105 @@ export function loadLandingSpaceModel(){
   });
 }
 
+function makeMissionOutpostTerminal(bounds){
+  let terminal=new THREE.Group();
+  terminal.name="missionOutpostTerminal";
+
+  let bodyMat=new THREE.MeshStandardMaterial({
+    name:"terminal_body",
+    color:0x263137,
+    roughness:0.58,
+    metalness:0.48
+  });
+  let darkMat=new THREE.MeshStandardMaterial({
+    name:"terminal_dark",
+    color:0x0c1114,
+    roughness:0.78,
+    metalness:0.34
+  });
+  let trimMat=new THREE.MeshStandardMaterial({
+    name:"terminal_trim",
+    color:0x8c9aa0,
+    roughness:0.42,
+    metalness:0.62
+  });
+  let screenMat=new THREE.MeshStandardMaterial({
+    name:"terminal_screen",
+    color:0x4df4ff,
+    emissive:0x20d6ff,
+    emissiveIntensity:1.8,
+    roughness:0.12,
+    metalness:0.04
+  });
+  let amberMat=new THREE.MeshStandardMaterial({
+    name:"terminal_amber_light",
+    color:0xffb13d,
+    emissive:0xff7a18,
+    emissiveIntensity:1.25,
+    roughness:0.25,
+    metalness:0.12
+  });
+
+  function box(name,w,h,d,material,x,y,z,rx=0,ry=0,rz=0){
+    let mesh=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),material);
+    mesh.name=name;
+    mesh.position.set(x,y,z);
+    mesh.rotation.set(rx,ry,rz);
+    mesh.castShadow=true;
+    mesh.receiveShadow=true;
+    terminal.add(mesh);
+    return mesh;
+  }
+
+  function cyl(name,radius,depth,material,x,y,z,rx=0,ry=0,rz=0,segments=18){
+    let mesh=new THREE.Mesh(new THREE.CylinderGeometry(radius,radius,depth,segments),material);
+    mesh.name=name;
+    mesh.position.set(x,y,z);
+    mesh.rotation.set(rx,ry,rz);
+    mesh.castShadow=true;
+    mesh.receiveShadow=true;
+    terminal.add(mesh);
+    return mesh;
+  }
+
+  let floorY=Number.isFinite(bounds.floorY) ? bounds.floorY : 0;
+  let floorMinZ=Number.isFinite(bounds.floorMinZ) ? bounds.floorMinZ : -18;
+  let floorMaxZ=Number.isFinite(bounds.floorMaxZ) ? bounds.floorMaxZ : 18;
+  let floorMinX=Number.isFinite(bounds.floorMinX) ? bounds.floorMinX : -20;
+  let floorMaxX=Number.isFinite(bounds.floorMaxX) ? bounds.floorMaxX : 20;
+  let usableHalfX=Math.max(10,Math.min(Math.abs(floorMinX),Math.abs(floorMaxX)));
+  let depth=Math.max(16,floorMaxZ-floorMinZ);
+  let z=floorMinZ+Math.min(12,depth*0.24);
+  let x=Math.min(usableHalfX-7,Math.max(-usableHalfX+7,-usableHalfX*0.36));
+
+  terminal.position.set(x,floorY,z);
+  terminal.rotation.y=0;
+
+  box("terminal_base",5.8,1.1,4.2,bodyMat,0,0.55,0);
+  box("terminal_column",2.4,3.6,2.2,darkMat,0,2.35,-0.18);
+  box("terminal_console_slab",6.8,0.7,4.1,bodyMat,0,4.15,0.45,-0.22,0,0);
+  box("terminal_screen_frame",5.9,3.4,0.5,bodyMat,0,5.95,-1.05,-0.34,0,0);
+  box("terminal_screen",4.95,2.35,0.12,screenMat,0,6.03,-1.34,-0.34,0,0);
+  box("terminal_keyboard",5.6,0.18,1.35,darkMat,0,4.65,1.36,-0.22,0,0);
+
+  for(let i=0;i<5;i++){
+    box(`terminal_key_${i}`,0.62,0.14,0.34,trimMat,-1.75+i*0.88,4.8,1.12,-0.22,0,0);
+  }
+
+  cyl("terminal_left_handle",0.18,3.4,trimMat,-3.55,5.18,-0.18,0,0,0,14);
+  cyl("terminal_right_handle",0.18,3.4,trimMat,3.55,5.18,-0.18,0,0,0,14);
+  cyl("terminal_status_light_a",0.28,0.18,amberMat,-2.35,4.92,1.95,Math.PI/2,0,0,16);
+  cyl("terminal_status_light_b",0.2,0.16,screenMat,2.55,4.9,1.94,Math.PI/2,0,0,16);
+  cyl("terminal_floor_cable",0.1,5.4,darkMat,2.8,0.15,-1.1,Math.PI/2,0,0,10);
+
+  let glow=new THREE.PointLight(0x35eaff,1.25,18,2.2);
+  glow.name="terminal_screen_glow";
+  glow.position.set(0,6.2,-1.0);
+  terminal.add(glow);
+
+  return terminal;
+}
+
 export function normalizeTradingOutpostModel(outpost){
   let model=new THREE.Group();
   let asset=new THREE.Group();
@@ -538,6 +637,8 @@ export function normalizeTradingOutpostModel(outpost){
     };
   }
 
+  model.add(makeMissionOutpostTerminal(model.userData.tradingOutpostBounds || {}));
+
   model.traverse(child=>{
     if(child.isMesh){
       child.castShadow=true;
@@ -586,6 +687,76 @@ export function loadTradingOutpostModel(){
         objLoader.load(
           "tinker.obj",
           object=>resolve(normalizeTradingOutpostModel(object)),
+          undefined,
+          reject
+        );
+      },
+      undefined,
+      reject
+    );
+  });
+}
+
+export function normalizeBackPackModel(backPack){
+  let model=new THREE.Group();
+  let asset=new THREE.Group();
+  backPack.rotation.x=-Math.PI/2;
+  asset.add(backPack);
+  model.add(asset);
+  model.updateMatrixWorld(true);
+
+  let box=new THREE.Box3().setFromObject(model);
+  let size=new THREE.Vector3();
+  let center=new THREE.Vector3();
+  box.getSize(size);
+  box.getCenter(center);
+
+  let scale=1.82/Math.max(size.x,size.y,size.z,0.001);
+  model.scale.setScalar(scale);
+  model.updateMatrixWorld(true);
+
+  box.setFromObject(model);
+  box.getCenter(center);
+  asset.position.x-=center.x/scale;
+  asset.position.y-=center.y/scale;
+  asset.position.z-=center.z/scale;
+
+  model.traverse(child=>{
+    if(child.isMesh){
+      child.castShadow=true;
+      child.receiveShadow=true;
+      if(child.geometry) child.geometry.computeVertexNormals();
+      if(child.material){
+        let materials=Array.isArray(child.material) ? child.material : [child.material];
+        for(let material of materials){
+          material.side=THREE.FrontSide;
+          material.roughness=material.roughness ?? 0.58;
+          material.metalness=material.metalness ?? 0.28;
+        }
+      }
+    }
+  });
+
+  model.name="player-backpack";
+  return model;
+}
+
+export function loadBackPackModel(){
+  let mtlLoader=new MTLLoader();
+  mtlLoader.setPath("assets/backPacks/");
+
+  return new Promise((resolve,reject)=>{
+    mtlLoader.load(
+      "obj.mtl",
+      materials=>{
+        materials.preload();
+
+        let objLoader=new OBJLoader();
+        objLoader.setPath("assets/backPacks/");
+        objLoader.setMaterials(materials);
+        objLoader.load(
+          "tinker.obj",
+          object=>resolve(normalizeBackPackModel(object)),
           undefined,
           reject
         );

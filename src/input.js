@@ -128,13 +128,15 @@ export function createInput(){
   function getGamepadFaceButtons(index){
     let pads=navigator.getGamepads ? navigator.getGamepads() : gamepads;
     let pad=pads[index];
-    if(!pad) return {a:false,b:false,x:false,y:false,leftTrigger:false,rightTrigger:false};
+    if(!pad) return {a:false,b:false,x:false,y:false,leftBumper:false,rightBumper:false,leftTrigger:false,rightTrigger:false};
 
     return {
       a:buttonValue(pad.buttons[0])>0.35,
       b:buttonValue(pad.buttons[1])>0.35,
       x:buttonValue(pad.buttons[2])>0.35,
       y:buttonValue(pad.buttons[3])>0.35,
+      leftBumper:buttonValue(pad.buttons[4])>0.35,
+      rightBumper:buttonValue(pad.buttons[5])>0.35,
       leftTrigger:buttonValue(pad.buttons[6])>0.35,
       rightTrigger:buttonValue(pad.buttons[7])>0.35
     };
