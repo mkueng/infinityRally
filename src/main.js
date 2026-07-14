@@ -165,6 +165,7 @@ let baseFogFar=3600;
 let jetFogAmount=0;
 let lastSkyWeatherIntensity=-1;
 let lastSkyNightAmount=-1;
+let lastSkyDreamAmount=-1;
 let hemiLight=null;
 let sun=null;
 let headlightNightAmount=0;
@@ -172,9 +173,24 @@ let hemiNightColor=new THREE.Color(0x6f86c8);
 let hemiGroundNightColor=new THREE.Color(0x07101b);
 let sunNightColor=new THREE.Color(0x9db8ff);
 let fogNightColor=new THREE.Color(0x081226);
+let dreamFogColor=new THREE.Color(0xdac6ff);
+let dreamHemiColor=new THREE.Color(0xe6ceff);
+let dreamGroundColor=new THREE.Color(0x2b1b4d);
+let dreamSunColor=new THREE.Color(0xffd8f4);
 const stormSkyStops=["#040711","#09121e","#172534","#2f3c45","#5f6660"];
 const nightSkyStops=["#02040c","#071121","#0d1930","#18223c","#26304a"];
+const dreamSkyStops=["#100521","#38235f","#7f62bf","#d6aeff","#fff5ff"];
 const dayNightCycleMs=360000;
+let dreamDimension=false;
+let dreamTransition=0;
+let dreamTarget=0;
+const randomPortalChunkProbability=0.025;
+const randomPortalMinSpacing=chunkSize*3.0;
+let portals=[];
+let randomPortals=new Map();
+let randomPortalRejectedKeys=new Set();
+let dreamMistGroup=null;
+let dreamMistPlanes=[];
 
 function randomRange(min,max){
   return min+Math.random()*(max-min);
@@ -233,7 +249,10 @@ function blendHexColor(from,to,amount){
 function weatherSkyStops(){
   let sky=currentEnvironment.sky || ["#12072b","#33145f","#9c416f","#f08c71","#ffd3a5"];
   let stormAmount=Math.pow(Math.max(0,Math.min(1,rainIntensity)),0.72)*0.82;
-  return sky.map((color,index)=>blendHexColor(color,stormSkyStops[index] || stormSkyStops[stormSkyStops.length-1],stormAmount));
+  let weatherStops=sky.map((color,index)=>blendHexColor(color,stormSkyStops[index] || stormSkyStops[stormSkyStops.length-1],stormAmount));
+  let dreamAmount=smoothStep(dreamTransition)*0.92;
+  if(dreamAmount<=0.001) return weatherStops;
+  return weatherStops.map((color,index)=>blendHexColor(color,dreamSkyStops[index] || dreamSkyStops[dreamSkyStops.length-1],dreamAmount));
 }
 
 function timeOfDaySkyStops(now=performance.now()){
@@ -245,9 +264,14 @@ function updateSkyForWeather(force=false,now=performance.now()){
   let weatherBucket=Math.round(rainIntensity*24)/24;
   let nightState=dayNightState(now);
   let nightBucket=Math.round(nightState.nightAmount*32)/32;
-  if(!force && Math.abs(weatherBucket-lastSkyWeatherIntensity)<0.001 && Math.abs(nightBucket-lastSkyNightAmount)<0.001) return;
+  let dreamBucket=Math.round(dreamTransition*32)/32;
+  if(!force
+    && Math.abs(weatherBucket-lastSkyWeatherIntensity)<0.001
+    && Math.abs(nightBucket-lastSkyNightAmount)<0.001
+    && Math.abs(dreamBucket-lastSkyDreamAmount)<0.001) return;
   lastSkyWeatherIntensity=weatherBucket;
   lastSkyNightAmount=nightBucket;
+  lastSkyDreamAmount=dreamBucket;
   if(scene.background && scene.background.dispose) scene.background.dispose();
   scene.background=makeSkyTexture({...currentEnvironment,sky:timeOfDaySkyStops(now)});
 }
@@ -255,6 +279,7 @@ function updateSkyForWeather(force=false,now=performance.now()){
 function refreshSceneEnvironment(){
   lastSkyWeatherIntensity=-1;
   lastSkyNightAmount=-1;
+  lastSkyDreamAmount=-1;
   updateSkyForWeather(true);
   scene.fog=new THREE.Fog(currentEnvironment.fog || 0x7b4771,baseFogNear,baseFogFar);
 }
@@ -270,6 +295,12 @@ function updateDayNight(now=performance.now(),forceSky=false){
     hemiLight.intensity=(0.42+day*0.93)*rainDim;
     hemiLight.color.set(0xffb8d4).lerp(hemiNightColor,night*0.82);
     hemiLight.groundColor.set(0x21484d).lerp(hemiGroundNightColor,night*0.72);
+    if(dreamTransition>0.001){
+      let dreamLight=smoothStep(dreamTransition);
+      hemiLight.intensity*=1+dreamLight*0.28;
+      hemiLight.color.lerp(dreamHemiColor,dreamLight*0.82);
+      hemiLight.groundColor.lerp(dreamGroundColor,dreamLight*0.9);
+    }
   }
 
   if(sun){
@@ -278,14 +309,24 @@ function updateDayNight(now=performance.now(),forceSky=false){
     sun.position.set(Math.cos(sunAngle)*5.5,1.2+sunLift*8.5,Math.sin(sunAngle)*5.5);
     sun.intensity=(0.22+day*1.83)*rainDim;
     sun.color.set(0xffd29b).lerp(sunNightColor,night*0.92);
+    if(dreamTransition>0.001){
+      let dreamLight=smoothStep(dreamTransition);
+      sun.intensity*=1-dreamLight*0.18;
+      sun.color.lerp(dreamSunColor,dreamLight*0.86);
+    }
   }
 
   if(scene.fog){
-    scene.fog.color.set(currentEnvironment.fog || 0x7b4771).lerp(fogNightColor,night*0.72);
+    let dreamFog=smoothStep(dreamTransition);
+    scene.fog.color.set(currentEnvironment.fog || 0x7b4771).lerp(fogNightColor,night*0.72).lerp(dreamFogColor,dreamFog*0.9);
     let fogNear=baseFogNear-rainIntensity*120-night*120;
     let fogFar=baseFogFar-rainIntensity*650-night*450-jetFogAmount*700;
-    scene.fog.near=Math.max(520,fogNear);
-    scene.fog.far=Math.max(scene.fog.near+650,fogFar);
+    let normalNear=Math.max(520,fogNear);
+    let normalFar=Math.max(normalNear+650,fogFar);
+    let dreamNear=45;
+    let dreamFar=520;
+    scene.fog.near=normalNear+(dreamNear-normalNear)*dreamFog;
+    scene.fog.far=normalFar+(dreamFar-normalFar)*dreamFog;
   }
 
   updateSkyForWeather(forceSky,now);
@@ -652,6 +693,71 @@ let teleportSparkMat=new THREE.PointsMaterial({
   depthTest:true,
   blending:THREE.AdditiveBlending
 });
+let portalRingGeo=new THREE.TorusGeometry(1,0.055,18,128);
+let portalCoreGeo=new THREE.CircleGeometry(1,96);
+let portalHaloGeo=new THREE.TorusGeometry(1,0.018,12,128);
+let portalRingMat=new THREE.MeshBasicMaterial({
+  color:0xd6a8ff,
+  transparent:true,
+  opacity:0.88,
+  depthWrite:false,
+  depthTest:true,
+  blending:THREE.AdditiveBlending
+});
+let portalCoreMat=new THREE.MeshBasicMaterial({
+  color:0x8ceaff,
+  transparent:true,
+  opacity:0.26,
+  depthWrite:false,
+  depthTest:true,
+  side:THREE.DoubleSide,
+  blending:THREE.AdditiveBlending
+});
+let portalSparkMat=new THREE.PointsMaterial({
+  color:0xf4d6ff,
+  size:0.22,
+  transparent:true,
+  opacity:0.88,
+  depthWrite:false,
+  depthTest:true,
+  blending:THREE.AdditiveBlending
+});
+let dreamMistGeo=new THREE.PlaneGeometry(1,1);
+let dreamMistMat=new THREE.MeshPhysicalMaterial({
+  color:0xeaf6ff,
+  metalness:1,
+  roughness:0.06,
+  clearcoat:1,
+  clearcoatRoughness:0.035,
+  emissive:0x18344c,
+  emissiveIntensity:0.08,
+  transparent:true,
+  opacity:0,
+  depthWrite:false,
+  depthTest:true,
+  side:THREE.DoubleSide
+});
+let dreamMirrorEdgeGeo=new THREE.EdgesGeometry(dreamMistGeo);
+let dreamMirrorEdgeMat=new THREE.LineBasicMaterial({
+  color:0xf7fdff,
+  transparent:true,
+  opacity:0,
+  depthWrite:false,
+  depthTest:true,
+  blending:THREE.AdditiveBlending
+});
+let dreamMirrorGlintGeo=new THREE.PlaneGeometry(0.08,1.24);
+let dreamMirrorGlintMat=new THREE.MeshBasicMaterial({
+  color:0xffffff,
+  transparent:true,
+  opacity:0,
+  depthWrite:false,
+  depthTest:true,
+  side:THREE.DoubleSide,
+  blending:THREE.AdditiveBlending
+});
+let dreamFogSpriteTexture=null;
+let dreamFogPointMat=null;
 let rockDebris=[];
 let rockDebrisGeo=new THREE.DodecahedronGeometry(1,0);
 let rockDebrisMat=new THREE.MeshStandardMaterial({color:0x4c3a5b,roughness:0.96,metalness:0.08});
@@ -865,6 +971,374 @@ function activeCars(){
 
 function displayCars(){
   return gameMode==="single" ? [playerCar] : [secondCar,playerCar];
+}
+
+function isPlayerActor(actor){
+  return !!actor && cars.includes(actor);
+}
+
+function playerInvisibleToEnemies(car){
+  return dreamDimension && isPlayerActor(car);
+}
+
+function playerCombatSuppressed(actor){
+  return dreamDimension && isPlayerActor(actor);
+}
+
+function enemyTargetableCars(){
+  if(dreamDimension) return [];
+  return activeCars().filter(car=>car && car.health>0 && car.group && car.group.visible);
+}
+
+function portalSurfaceY(x,z){
+  let y=drivingSurfaceHeight(x,z);
+  if(waterDepthAt(x,z)>0.3) y=Math.max(y,waterLevel+0.1);
+  return y;
+}
+
+function createPortal(x,z,yaw=0,options={}){
+  let surfaceY=portalSurfaceY(x,z);
+  let radius=options.radius || 8.5;
+  let height=radius*1.74;
+  let group=new THREE.Group();
+  group.position.set(x,surfaceY+height*0.52,z);
+  group.rotation.y=yaw;
+  group.userData={
+    x,
+    z,
+    yaw,
+    key:options.key || null,
+    randomPortal:!!options.randomPortal,
+    radius:radius*0.95,
+    visualRadius:radius,
+    height,
+    phase:Math.random()*Math.PI*2,
+    cooldown:0
+  };
+
+  let ring=new THREE.Mesh(portalRingGeo,portalRingMat.clone());
+  ring.scale.set(radius,height*0.5,radius);
+  ring.renderOrder=28;
+  group.add(ring);
+
+  let halo=new THREE.Mesh(portalHaloGeo,portalRingMat.clone());
+  halo.material.color.set(0x7ff8ff);
+  halo.material.opacity=0.58;
+  halo.scale.set(radius*1.22,height*0.61,radius*1.22);
+  halo.renderOrder=27;
+  group.add(halo);
+
+  let core=new THREE.Mesh(portalCoreGeo,portalCoreMat.clone());
+  core.scale.set(radius*0.86,height*0.43,1);
+  core.renderOrder=26;
+  group.add(core);
+
+  let sparkCount=120;
+  let sparkPositions=new Float32Array(sparkCount*3);
+  let sparkData=[];
+  for(let i=0;i<sparkCount;i++){
+    let angle=Math.random()*Math.PI*2;
+    let ringBias=0.72+Math.random()*0.42;
+    sparkPositions[i*3]=Math.cos(angle)*radius*ringBias;
+    sparkPositions[i*3+1]=(Math.random()-0.5)*height*0.9;
+    sparkPositions[i*3+2]=(Math.random()-0.5)*0.32;
+    sparkData.push({
+      angle,
+      radius:radius*ringBias,
+      y:(Math.random()-0.5)*height*0.9,
+      speed:0.35+Math.random()*1.25,
+      phase:Math.random()*Math.PI*2
+    });
+  }
+  let sparkGeo=new THREE.BufferGeometry();
+  sparkGeo.setAttribute("position",new THREE.BufferAttribute(sparkPositions,3));
+  let sparks=new THREE.Points(sparkGeo,portalSparkMat.clone());
+  sparks.renderOrder=29;
+  group.add(sparks);
+
+  group.userData.ring=ring;
+  group.userData.halo=halo;
+  group.userData.core=core;
+  group.userData.sparks=sparks;
+  group.userData.sparkPositions=sparkPositions;
+  group.userData.sparkData=sparkData;
+  portals.push(group);
+  scene.add(group);
+  return group;
+}
+
+function disposePortal(portal){
+  if(!portal) return;
+  let index=portals.indexOf(portal);
+  if(index>=0) portals.splice(index,1);
+  scene.remove(portal);
+  portal.traverse(child=>{
+    if(child.geometry && child.geometry !== portalRingGeo && child.geometry !== portalCoreGeo && child.geometry !== portalHaloGeo){
+      child.geometry.dispose();
+    }
+    if(child.material){
+      if(Array.isArray(child.material)){
+        for(let material of child.material) material.dispose();
+      }else{
+        child.material.dispose();
+      }
+    }
+  });
+}
+
+function consumePortal(portal){
+  if(!portal || !portal.userData) return;
+  let key=portal.userData.key;
+  if(key && randomPortals.get(key)===portal){
+    randomPortals.delete(key);
+    randomPortalRejectedKeys.add(key);
+  }
+  disposePortal(portal);
+}
+
+function spawnPortalPulse(portal){
+  if(!portal || !portal.userData) return;
+  let data=portal.userData;
+  let surfaceY=portalSurfaceY(data.x,data.z);
+  spawnRadiusExplosion(data.x,surfaceY+data.height*0.42,data.z,28,false);
+}
+
+function setDreamDimension(enabled,portal=null){
+  dreamDimension=!!enabled;
+  dreamTarget=dreamDimension ? 1 : 0;
+  lastSkyDreamAmount=-1;
+  if(portal) spawnPortalPulse(portal);
+}
+
+function createDreamMist(){
+  if(dreamMistGroup) return;
+  let canvas=document.createElement("canvas");
+  canvas.width=96;
+  canvas.height=96;
+  let ctx=canvas.getContext("2d");
+  let gradient=ctx.createRadialGradient(48,48,0,48,48,48);
+  gradient.addColorStop(0,"rgba(255,255,255,0.72)");
+  gradient.addColorStop(0.34,"rgba(226,214,255,0.32)");
+  gradient.addColorStop(0.68,"rgba(188,232,255,0.12)");
+  gradient.addColorStop(1,"rgba(255,255,255,0)");
+  ctx.fillStyle=gradient;
+  ctx.fillRect(0,0,96,96);
+  dreamFogSpriteTexture=new THREE.CanvasTexture(canvas);
+  dreamFogSpriteTexture.needsUpdate=true;
+  dreamFogPointMat=new THREE.PointsMaterial({
+    color:0xe8ddff,
+    map:dreamFogSpriteTexture,
+    transparent:true,
+    opacity:0,
+    size:32,
+    sizeAttenuation:true,
+    depthWrite:false,
+    depthTest:true,
+    blending:THREE.NormalBlending
+  });
+
+  dreamMistGroup=new THREE.Group();
+  dreamMistGroup.visible=false;
+  dreamMistPlanes=[];
+  let count=210;
+  let positions=new Float32Array(count*3);
+  let geometry=new THREE.BufferGeometry();
+  for(let i=0;i<count;i++){
+    let angle=Math.random()*Math.PI*2;
+    let dist=Math.pow(Math.random(),0.72)*74;
+    let y=1.8+Math.random()*17;
+    positions[i*3]=Math.cos(angle)*dist;
+    positions[i*3+1]=y;
+    positions[i*3+2]=Math.sin(angle)*dist;
+    dreamMistPlanes.push({
+      angle:(i/count)*Math.PI*2+Math.random()*0.55,
+      dist,
+      y,
+      speed:0.025+Math.random()*0.075,
+      bob:0.6+Math.random()*1.9,
+      phase:Math.random()*Math.PI*2
+    });
+  }
+  geometry.setAttribute("position",new THREE.BufferAttribute(positions,3));
+  let fogPoints=new THREE.Points(geometry,dreamFogPointMat);
+  fogPoints.renderOrder=17;
+  dreamMistGroup.userData.fogPoints=fogPoints;
+  dreamMistGroup.add(fogPoints);
+  scene.add(dreamMistGroup);
+}
+
+function dreamMistCenter(){
+  let visibleCars=activeCars().filter(car=>car && car.group && car.group.visible && car.health>0);
+  if(visibleCars.length===0) return {x:px,z:pz};
+  let x=0;
+  let z=0;
+  for(let car of visibleCars){
+    x+=car.x;
+    z+=car.z;
+  }
+  return {x:x/visibleCars.length,z:z/visibleCars.length};
+}
+
+function updateDreamMist(now=performance.now()){
+  if(!dreamMistGroup) createDreamMist();
+  let amount=smoothStep(dreamTransition);
+  dreamMistGroup.visible=amount>0.015;
+  if(!dreamMistGroup.visible) return;
+  let center=dreamMistCenter();
+  dreamMistGroup.position.set(center.x,0,center.z);
+  let fogPoints=dreamMistGroup.userData.fogPoints;
+  if(!fogPoints) return;
+  let positions=fogPoints.geometry.attributes.position.array;
+  for(let i=0;i<dreamMistPlanes.length;i++){
+    let data=dreamMistPlanes[i];
+    let drift=now*0.001*data.speed;
+    let angle=data.angle+drift;
+    let breathe=0.76+Math.sin(now*0.0015+data.phase)*0.24;
+    positions[i*3]=Math.cos(angle)*data.dist*breathe;
+    positions[i*3+1]=data.y+Math.sin(now*0.0018+data.phase)*data.bob;
+    positions[i*3+2]=Math.sin(angle)*data.dist*breathe;
+  }
+  fogPoints.geometry.attributes.position.needsUpdate=true;
+  fogPoints.material.opacity=0.72*amount;
+  fogPoints.material.size=42+amount*30;
+}
+
+function updateDreamDimensionVisuals(now=performance.now()){
+  let before=dreamTransition;
+  dreamTransition+=(dreamTarget-dreamTransition)*0.045;
+  if(Math.abs(dreamTransition-dreamTarget)<0.001) dreamTransition=dreamTarget;
+  if(Math.abs(before-dreamTransition)>0.002) lastSkyDreamAmount=-1;
+  updateDreamMist(now);
+}
+
+function animatePortal(portal,now){
+  let data=portal.userData;
+  data.cooldown=Math.max(0,(data.cooldown || 0)-1);
+  let t=now*0.001+data.phase;
+  let pulse=1+Math.sin(t*2.8)*0.045;
+  portal.position.y=portalSurfaceY(data.x,data.z)+data.height*0.52+Math.sin(t*1.7)*0.26;
+  if(data.ring){
+    data.ring.rotation.z+=0.012;
+    data.ring.scale.set(data.visualRadius*pulse,data.height*0.5*pulse,data.visualRadius*pulse);
+    data.ring.material.color.set(dreamDimension ? 0x9df7ff : 0xd6a8ff);
+    data.ring.material.opacity=0.78+Math.sin(t*4.1)*0.1;
+  }
+  if(data.halo){
+    data.halo.rotation.z-=0.008;
+    data.halo.scale.set(data.visualRadius*(1.18+Math.sin(t*2.2)*0.08),data.height*(0.59+Math.cos(t*2.5)*0.035),data.visualRadius*(1.18+Math.sin(t*2.2)*0.08));
+    data.halo.material.opacity=0.34+Math.sin(t*3.2)*0.1;
+  }
+  if(data.core){
+    data.core.rotation.z+=0.006;
+    data.core.material.color.set(dreamDimension ? 0xffcdf6 : 0x8ceaff);
+    data.core.material.opacity=0.2+Math.sin(t*5.3)*0.045;
+  }
+  if(data.sparks && data.sparkPositions && data.sparkData){
+    for(let i=0;i<data.sparkData.length;i++){
+      let spark=data.sparkData[i];
+      let a=spark.angle+t*spark.speed;
+      let wobble=0.86+Math.sin(t*3.7+spark.phase)*0.14;
+      data.sparkPositions[i*3]=Math.cos(a)*spark.radius*wobble;
+      data.sparkPositions[i*3+1]=spark.y+Math.sin(t*2.4+spark.phase)*0.55;
+      data.sparkPositions[i*3+2]=Math.sin(t*6.2+spark.phase)*0.18;
+    }
+    data.sparks.geometry.attributes.position.needsUpdate=true;
+    data.sparks.material.opacity=0.72+Math.sin(t*4.6)*0.12;
+  }
+}
+
+function portalWarpDestination(portal,car){
+  let data=portal.userData || {};
+  let baseX=Number.isFinite(data.x) ? data.x : car.x;
+  let baseZ=Number.isFinite(data.z) ? data.z : car.z;
+  let baseYaw=Number.isFinite(data.yaw) ? data.yaw : car.angle || 0;
+  let portalKeySeed=hash01(Math.floor(baseX/chunkSize)+177,Math.floor(baseZ/chunkSize)-313);
+  let preferredDirection=baseYaw+(portalKeySeed-0.5)*Math.PI*1.6;
+  let distances=[chunkSize*5.5,chunkSize*7.2,chunkSize*4.4,chunkSize*8.6,chunkSize*3.6];
+
+  for(let ring=0;ring<distances.length;ring++){
+    let distance=distances[ring];
+    let attempts=14;
+    for(let i=0;i<attempts;i++){
+      let spread=(i===0 ? 0 : ((i%2===0 ? 1 : -1)*Math.ceil(i/2))*0.34);
+      let angle=preferredDirection+spread+ring*0.47;
+      let x=baseX+Math.sin(angle)*distance;
+      let z=baseZ+Math.cos(angle)*distance;
+      if(!portalPlacementUsable(x,z)) continue;
+      if(groundHoleAt(x,z)) continue;
+      return {x,z,angle};
+    }
+  }
+
+  let fallbackDistance=chunkSize*4.5;
+  return {
+    x:baseX+Math.sin(preferredDirection)*fallbackDistance,
+    z:baseZ+Math.cos(preferredDirection)*fallbackDistance,
+    angle:preferredDirection
+  };
+}
+
+function warpCarThroughPortal(car,portal){
+  let destination=portalWarpDestination(portal,car);
+  car.x=destination.x;
+  car.z=destination.z;
+  car.angle=destination.angle;
+  car.velAngle=destination.angle;
+  car.cameraYaw=destination.angle;
+  car.speed=0;
+  car.turnVelocity=0;
+  car.speedDelta=0;
+  car.throttleEase=0;
+  car.turnInputEase=0;
+  car.y=surfaceHeightForActor(car,car.x,car.z);
+  car.surfaceDistance=roadDistance(car.x,car.z);
+  car.lastWalkX=car.x;
+  car.lastWalkZ=car.z;
+  car.vy=0;
+  car.onGround=true;
+  car.airborne=false;
+  car.portalCooldown=120;
+  car.group.position.set(car.x,car.y,car.z);
+  car.group.rotation.y=car.angle;
+  car.group.rotation.x=0;
+  car.group.rotation.z=0;
+  if(car.shadow) car.shadow.update({carX:car.x,carZ:car.z,carY:car.y,surfaceY:car.y,carVelAngle:car.velAngle || car.angle});
+  if(world && world.updateChunksForCenters && world.processChunkQueue){
+    world.updateChunksForCenters([{x:car.x,z:car.z,viewDistance:chunkViewDistanceForCar(car)}]);
+    world.processChunkQueue(36,true);
+    lastChunkSignature=chunkSignatureForCars();
+  }
+}
+
+function triggerPortalForCar(portal,car){
+  if(!portal || !car) return;
+  let data=portal.userData;
+  data.cooldown=90;
+  spawnPortalPulse(portal);
+  warpCarThroughPortal(car,portal);
+  spawnPortalPulse({userData:{x:car.x,z:car.z,height:data.height || 14}});
+  setDreamDimension(!dreamDimension);
+  consumePortal(portal);
+}
+
+function updatePortals(now=performance.now()){
+  if(portals.length===0) return;
+  for(let car of cars){
+    if(car && car.portalCooldown>0) car.portalCooldown--;
+  }
+  for(let portal of portals){
+    animatePortal(portal,now);
+    let data=portal.userData;
+    for(let car of activeCars()){
+      if(!car || car.health<=0 || !car.group || !car.group.visible || car.portalCooldown>0 || data.cooldown>0) continue;
+      let dx=car.x-data.x;
+      let dz=car.z-data.z;
+      if(dx*dx+dz*dz<data.radius*data.radius){
+        triggerPortalForCar(portal,car);
+        break;
+      }
+    }
+  }
 }
 
 function rainRenderingSuspendedByJet(){
@@ -2049,6 +2523,8 @@ function collidesWithOtherCars(car,nextX,nextZ){
   for(let other of combatActors()){
     if(other===car) continue;
     if(!other.active && other.isEnemy) continue;
+    if(playerInvisibleToEnemies(car) && other.isEnemy) continue;
+    if(car.isEnemy && playerInvisibleToEnemies(other)) continue;
     let dx=nextX-other.x;
     let dz=nextZ-other.z;
     let minGap=(car.collisionRadius || 1.8)+(other.collisionRadius || 1.8);
@@ -3413,6 +3889,7 @@ function rocketTargetPoint(target){
 function fireRocket(car){
   if(gameOver || car.health<=0 || car.rocketCooldown>0) return;
   if(car.jetMode || car.jetProgress>0.35) return;
+  if(playerCombatSuppressed(car)) return;
   if(!car.isEnemy && actorInsideBuilding(car)) return;
 
   let mesh=makeRocketMesh();
@@ -3695,6 +4172,7 @@ function fireCannon(car){
   if(gameOver || car.health<=0 || car.cannonCooldown>0) return false;
   if(car.morphed || car.morphProgress>0.35) return false;
   if(car.jetMode || car.jetProgress>0.35) return false;
+  if(playerCombatSuppressed(car)) return false;
   if(!car.isEnemy && actorInsideBuilding(car)) return false;
   if(!car.isEnemy && car.cannonAmmo<=0) return false;
 
@@ -3750,6 +4228,7 @@ function fireCannon(car){
 function fireClusterBomb(car){
   if(gameOver || car.health<=0 || car.clusterBombCooldown>0) return false;
   if(!(car.jetMode || car.jetProgress>0.65)) return false;
+  if(playerCombatSuppressed(car)) return false;
   if(!car.isEnemy && actorInsideBuilding(car)) return false;
   if(!car.isEnemy && car.clusterBombAmmo<=0) return false;
 
@@ -3827,6 +4306,7 @@ function damageBossBasesInRadius(x,y,z,radius){
 
 function detonateClusterBomb(owner,x,y,z){
   spawnRadiusExplosion(x,y,z,clusterBombRadius,false);
+  let suppressDamage=playerCombatSuppressed(owner);
 
   for(let i=0;i<12;i++){
     let angle=(i/12)*Math.PI*2+Math.random()*0.28;
@@ -3837,38 +4317,40 @@ function detonateClusterBomb(owner,x,y,z){
     spawnRocketExplosion(bx,by,bz,false);
   }
 
-  let destroyed=destroyObstaclesInRadius(x,z,clusterBombRadius);
-  damageBossBasesInRadius(x,y,z,clusterBombRadius);
-  let debrisCount=0;
-  for(let obstacle of destroyed){
-    if(debrisCount>=42) break;
-    if(obstacle.type==="rock" || obstacle.type==="smallRock" || obstacle.type==="building" || obstacle.type==="wall" || obstacle.type==="turret"){
-      spawnRockDebris(
-        obstacle.x,
-        drivingSurfaceHeight(obstacle.x,obstacle.z)+Math.max(0.8,(obstacle.r || 2)*0.35),
-        obstacle.z,
-        obstacle
-      );
-      debrisCount++;
+  if(!suppressDamage){
+    let destroyed=destroyObstaclesInRadius(x,z,clusterBombRadius);
+    damageBossBasesInRadius(x,y,z,clusterBombRadius);
+    let debrisCount=0;
+    for(let obstacle of destroyed){
+      if(debrisCount>=42) break;
+      if(obstacle.type==="rock" || obstacle.type==="smallRock" || obstacle.type==="building" || obstacle.type==="wall" || obstacle.type==="turret"){
+        spawnRockDebris(
+          obstacle.x,
+          drivingSurfaceHeight(obstacle.x,obstacle.z)+Math.max(0.8,(obstacle.r || 2)*0.35),
+          obstacle.z,
+          obstacle
+        );
+        debrisCount++;
+      }
     }
-  }
 
-  for(let enemy of activeEnemies()){
-    let dx=enemy.x-x;
-    let dz=enemy.z-z;
-    if(dx*dx+dz*dz<=clusterBombRadius*clusterBombRadius){
-      damageEnemy(enemy,enemy.health);
-      rattleActor(enemy,1);
+    for(let enemy of activeEnemies()){
+      let dx=enemy.x-x;
+      let dz=enemy.z-z;
+      if(dx*dx+dz*dz<=clusterBombRadius*clusterBombRadius){
+        damageEnemy(enemy,enemy.health);
+        rattleActor(enemy,1);
+      }
     }
-  }
 
-  for(let i=supplyBoxes.length-1;i>=0;i--){
-    let box=supplyBoxes[i];
-    let dx=box.position.x-x;
-    let dz=box.position.z-z;
-    if(dx*dx+dz*dz<=clusterBombRadius*clusterBombRadius){
-      scene.remove(box);
-      supplyBoxes.splice(i,1);
+    for(let i=supplyBoxes.length-1;i>=0;i--){
+      let box=supplyBoxes[i];
+      let dx=box.position.x-x;
+      let dz=box.position.z-z;
+      if(dx*dx+dz*dz<=clusterBombRadius*clusterBombRadius){
+        scene.remove(box);
+        supplyBoxes.splice(i,1);
+      }
     }
   }
 
@@ -3947,6 +4429,7 @@ function updateRockets(){
   for(let i=rockets.length-1;i>=0;i--){
     let rocket=rockets[i];
     rocket.age++;
+    let playerDamageSuppressed=playerCombatSuppressed(rocket.owner);
 
     if(!rocket.ballistic && rocket.targetActor && rocket.targetActor.active && rocket.targetActor.health>0){
       let targetPoint=rocketTargetPoint(rocket.targetActor);
@@ -4024,6 +4507,8 @@ function updateRockets(){
       for(let actor of combatActors()){
         if(actor===rocket.owner) continue;
         if(rocket.owner.isEnemy && actor.isEnemy) continue;
+        if(rocket.owner.isEnemy && playerInvisibleToEnemies(actor)) continue;
+        if(playerDamageSuppressed) continue;
         let hitRadius=actor.collisionRadius ? Math.max(4.2,actor.collisionRadius+1.1) : 4.2;
         let hitHeight=actor.hitHeight || 4.2;
         let dx=rocket.x-actor.x;
@@ -4033,7 +4518,7 @@ function updateRockets(){
           break;
         }
       }
-      if(!rocket.owner.isEnemy){
+      if(!rocket.owner.isEnemy && !playerDamageSuppressed){
         mothershipHit=mothershipHitAlongSegment(prevX,prevY,prevZ,rocket.x,rocket.y,rocket.z,1.6);
       }
     }
@@ -4064,32 +4549,35 @@ function updateRockets(){
           ? Math.max(rocket.targetY,explosionSurfaceY+0.5)
           : Math.max(rocket.y,explosionSurfaceY+0.5);
         spawnRocketExplosion(explosionX,explosionY,explosionZ);
-        if(mothershipHit) damageMothership(explosionX,explosionY,explosionZ,1);
-        if(hitObstacle){
-          if(hitObstacle.type==="bossBase"){
-            damageBossBaseObstacle(hitObstacle,rocket.x,rocket.y,rocket.z,34);
-          }else if(hitObstacle.type==="rock" || hitObstacle.type==="smallRock" || hitObstacle.type==="building" || hitObstacle.type==="wall" || hitObstacle.type==="turret"){
-            if(hitObstacle.type==="building" || hitObstacle.type==="wall") spawnBuildingAmmoImpact(hitObstacle,rocket.x,rocket.y,rocket.z,34);
-            if(damageWorldObstacle(hitObstacle,34)){
-              spawnRockDebris(hitObstacle.x,explosionY,hitObstacle.z,hitObstacle);
+        if(!playerDamageSuppressed){
+          if(mothershipHit) damageMothership(explosionX,explosionY,explosionZ,1);
+          if(hitObstacle){
+            if(hitObstacle.type==="bossBase"){
+              damageBossBaseObstacle(hitObstacle,rocket.x,rocket.y,rocket.z,34);
+            }else if(hitObstacle.type==="rock" || hitObstacle.type==="smallRock" || hitObstacle.type==="building" || hitObstacle.type==="wall" || hitObstacle.type==="turret"){
+              if(hitObstacle.type==="building" || hitObstacle.type==="wall") spawnBuildingAmmoImpact(hitObstacle,rocket.x,rocket.y,rocket.z,34);
+              if(damageWorldObstacle(hitObstacle,34)){
+                spawnRockDebris(hitObstacle.x,explosionY,hitObstacle.z,hitObstacle);
+              }
+            }else{
+              destroyWorldObstacle(hitObstacle);
             }
-          }else{
-            destroyWorldObstacle(hitObstacle);
           }
-        }
-        if(hitActor){
-          damageActor(hitActor,rocket.damage || 18,{x:rocket.x,y:rocket.y,z:rocket.z});
-          rattleActor(hitActor,1);
-        }
-        if(rocket.blastRadius){
-          for(let actor of combatActors()){
-            if(actor===rocket.owner || actor===hitActor) continue;
-            if(rocket.owner.isEnemy && actor.isEnemy) continue;
-            let dx=actor.x-explosionX;
-            let dz=actor.z-explosionZ;
-            if(dx*dx+dz*dz<rocket.blastRadius*rocket.blastRadius){
-              damageActor(actor,Math.max(6,(rocket.damage || 18)*0.55),{x:explosionX,y:explosionY,z:explosionZ});
-              rattleActor(actor,0.85);
+          if(hitActor){
+            damageActor(hitActor,rocket.damage || 18,{x:rocket.x,y:rocket.y,z:rocket.z});
+            rattleActor(hitActor,1);
+          }
+          if(rocket.blastRadius){
+            for(let actor of combatActors()){
+              if(actor===rocket.owner || actor===hitActor) continue;
+              if(rocket.owner.isEnemy && actor.isEnemy) continue;
+              if(rocket.owner.isEnemy && playerInvisibleToEnemies(actor)) continue;
+              let dx=actor.x-explosionX;
+              let dz=actor.z-explosionZ;
+              if(dx*dx+dz*dz<rocket.blastRadius*rocket.blastRadius){
+                damageActor(actor,Math.max(6,(rocket.damage || 18)*0.55),{x:explosionX,y:explosionY,z:explosionZ});
+                rattleActor(actor,0.85);
+              }
             }
           }
         }
@@ -4103,6 +4591,7 @@ function updateCannonBolts(){
   for(let i=cannonBolts.length-1;i>=0;i--){
     let bolt=cannonBolts[i];
     bolt.age++;
+    let playerDamageSuppressed=playerCombatSuppressed(bolt.owner);
 
     let prevX=bolt.x;
     let prevY=bolt.y;
@@ -4138,6 +4627,8 @@ function updateCannonBolts(){
         if(actor===bolt.owner) continue;
         if(bolt.owner.isStationDefense && !actor.isEnemy) continue;
         if(bolt.owner.isEnemy && actor.isEnemy) continue;
+        if(bolt.owner.isEnemy && playerInvisibleToEnemies(actor)) continue;
+        if(playerDamageSuppressed) continue;
         let hitRadius=actor.collisionRadius ? Math.max(3.6,actor.collisionRadius+0.6) : 3.6;
         let hitHeight=actor.hitHeight || 4.0;
         let dx=bolt.x-actor.x;
@@ -4147,7 +4638,7 @@ function updateCannonBolts(){
           break;
         }
       }
-      if(!bolt.owner.isEnemy){
+      if(!bolt.owner.isEnemy && !playerDamageSuppressed){
         mothershipHit=mothershipHitAlongSegment(prevX,prevY,prevZ,bolt.x,bolt.y,bolt.z,0.95);
       }
     }
@@ -4169,22 +4660,24 @@ function updateCannonBolts(){
           ? mothershipHit.y
           : Math.max(bolt.y,surfaceY+0.45);
         spawnRocketExplosion(explosionX,explosionY,explosionZ,true,"cannon");
-        if(mothershipHit) damageMothership(explosionX,explosionY,explosionZ,0.4);
-        if(hitObstacle){
-          if(hitObstacle.type==="bossBase"){
-            damageBossBaseObstacle(hitObstacle,bolt.x,bolt.y,bolt.z,13);
-          }else if(hitObstacle.type==="rock" || hitObstacle.type==="smallRock" || hitObstacle.type==="building" || hitObstacle.type==="wall" || hitObstacle.type==="turret"){
-            if(hitObstacle.type==="building" || hitObstacle.type==="wall") spawnBuildingAmmoImpact(hitObstacle,bolt.x,bolt.y,bolt.z,13);
-            if(damageWorldObstacle(hitObstacle,13)){
-              spawnRockDebris(hitObstacle.x,explosionY,hitObstacle.z,hitObstacle);
+        if(!playerDamageSuppressed){
+          if(mothershipHit) damageMothership(explosionX,explosionY,explosionZ,0.4);
+          if(hitObstacle){
+            if(hitObstacle.type==="bossBase"){
+              damageBossBaseObstacle(hitObstacle,bolt.x,bolt.y,bolt.z,13);
+            }else if(hitObstacle.type==="rock" || hitObstacle.type==="smallRock" || hitObstacle.type==="building" || hitObstacle.type==="wall" || hitObstacle.type==="turret"){
+              if(hitObstacle.type==="building" || hitObstacle.type==="wall") spawnBuildingAmmoImpact(hitObstacle,bolt.x,bolt.y,bolt.z,13);
+              if(damageWorldObstacle(hitObstacle,13)){
+                spawnRockDebris(hitObstacle.x,explosionY,hitObstacle.z,hitObstacle);
+              }
+            }else{
+              destroyWorldObstacle(hitObstacle);
             }
-          }else{
-            destroyWorldObstacle(hitObstacle);
           }
-        }
-        if(hitActor){
-          damageActor(hitActor,bolt.damage || 9,{x:bolt.x,y:bolt.y,z:bolt.z});
-          rattleActor(hitActor,0.72);
+          if(hitActor){
+            damageActor(hitActor,bolt.damage || 9,{x:bolt.x,y:bolt.y,z:bolt.z});
+            rattleActor(hitActor,0.72);
+          }
         }
       }
       removeCannonBolt(i);
@@ -4244,8 +4737,7 @@ function nearestActivePlayer(enemy){
   let best=null;
   let bestDist=Infinity;
 
-  for(let car of activeCars()){
-    if(car.health<=0 || !car.group.visible) continue;
+  for(let car of enemyTargetableCars()){
     let dx=car.x-enemy.x;
     let dz=car.z-enemy.z;
     let distSq=dx*dx+dz*dz;
@@ -4271,8 +4763,7 @@ function playerSpawnDistanceSq(x,z){
 
 function playerDistanceSqForEnemy(enemy){
   let best=Infinity;
-  for(let car of activeCars()){
-    if(car.health<=0 || !car.group.visible) continue;
+  for(let car of enemyTargetableCars()){
     let dx=enemy.x-car.x;
     let dz=enemy.z-car.z;
     best=Math.min(best,dx*dx+dz*dz);
@@ -5036,8 +5527,7 @@ function updateVillageTurrets(){
     let target=null;
     let bestDistSq=Infinity;
 
-    for(let car of activeCars()){
-      if(car.health<=0 || !car.group.visible) continue;
+    for(let car of enemyTargetableCars()){
       let dx=car.x-turret.x;
       let dz=car.z-turret.z;
       let distSq=dx*dx+dz*dz;
@@ -5163,8 +5653,7 @@ function updateBossBaseDefenses(){
 
     base.reinforcementCooldown=Math.max(0,(base.reinforcementCooldown || 0)-1);
 
-    for(let car of activeCars()){
-      if(car.health<=0 || !car.group.visible) continue;
+    for(let car of enemyTargetableCars()){
       let dx=car.x-base.x;
       let dz=car.z-base.z;
       if(dx*dx+dz*dz<330*330){
@@ -5179,8 +5668,7 @@ function updateBossBaseDefenses(){
       turret.object.updateWorldMatrix(true,false);
       turret.object.getWorldPosition(bossLaserPointA);
 
-      for(let car of activeCars()){
-        if(car.health<=0 || !car.group.visible) continue;
+      for(let car of enemyTargetableCars()){
         let dx=car.x-bossLaserPointA.x;
         let dz=car.z-bossLaserPointA.z;
         let distSq=dx*dx+dz*dz;
@@ -8174,6 +8662,94 @@ function updateRareTradingOutposts(){
   }
 }
 
+function portalPlacementUsable(x,z){
+  if(waterDepthAt(x,z)>0.45) return false;
+  if(world.collidesWithObstacles(x,z)) return false;
+
+  let centerY=drivingSurfaceHeight(x,z);
+  let samples=[
+    [9,0],
+    [-9,0],
+    [0,9],
+    [0,-9],
+    [6,6],
+    [-6,6],
+    [6,-6],
+    [-6,-6]
+  ];
+  let minY=centerY;
+  let maxY=centerY;
+  for(let sample of samples){
+    let sx=x+sample[0];
+    let sz=z+sample[1];
+    if(waterDepthAt(sx,sz)>0.45) return false;
+    if(world.collidesWithObstacles(sx,sz)) return false;
+    let y=drivingSurfaceHeight(sx,sz);
+    minY=Math.min(minY,y);
+    maxY=Math.max(maxY,y);
+  }
+  if(maxY-minY>3.2) return false;
+
+  for(let portal of portals){
+    let data=portal.userData || {};
+    let dx=x-data.x;
+    let dz=z-data.z;
+    if(dx*dx+dz*dz<randomPortalMinSpacing*randomPortalMinSpacing) return false;
+  }
+
+  return true;
+}
+
+function randomPortalCandidateForChunk(cx,cz,key){
+  if(hash01(cx+1531,cz-911)>randomPortalChunkProbability) return null;
+
+  for(let attempt=0;attempt<5;attempt++){
+    let x=(cx+0.16+hash01(cx*19+attempt*97,cz*23-attempt*41)*0.68)*chunkSize;
+    let z=(cz+0.16+hash01(cx*31-attempt*53,cz*17+attempt*89)*0.68)*chunkSize;
+    let yaw=hash01(cx*43+attempt*11,cz*47-attempt*13)*Math.PI*2;
+    if(!portalPlacementUsable(x,z)) continue;
+    return {key,x,z,yaw};
+  }
+
+  return null;
+}
+
+function updateRandomPortals(){
+  if(!world || !world.chunks) return;
+
+  for(let [key,portal] of randomPortals){
+    if(!world.chunks.has(key)){
+      disposePortal(portal);
+      randomPortals.delete(key);
+    }
+  }
+
+  for(let [key,chunk] of world.chunks){
+    if(randomPortals.has(key)) continue;
+    if(randomPortalRejectedKeys.has(key)) continue;
+    let candidate=randomPortalCandidateForChunk(chunk.cx,chunk.cz,key);
+    if(!candidate){
+      randomPortalRejectedKeys.add(key);
+      continue;
+    }
+
+    let portal=createPortal(candidate.x,candidate.z,candidate.yaw,{
+      key,
+      randomPortal:true,
+      radius:8.5
+    });
+    randomPortals.set(key,portal);
+  }
+}
+
+function clearRandomPortals(){
+  for(let portal of randomPortals.values()){
+    disposePortal(portal);
+  }
+  randomPortals.clear();
+  randomPortalRejectedKeys.clear();
+}
+
 function placeTradingOutpostNearPlayerBaseStation(){
   clearPlayerBaseTradingOutpost();
   if(!tradingOutpostModel || !tradingOutpost) return;
@@ -8409,6 +8985,7 @@ function chunkSignatureForCars(){
 
 function fixedUpdateGame(){
   updateRareTradingOutposts();
+  updateRandomPortals();
   updateScannerMode();
   for(let car of activeCars()){
     updateCar(car);
@@ -8433,6 +9010,8 @@ function fixedUpdateGame(){
   updateBossLaserBeams();
   updateJetFogAmount();
   updateGiantTestRobot();
+  updatePortals();
+  updateDreamDimensionVisuals();
   updateWeather();
   world.updateWind(performance.now(),rainIntensity);
   for(let car of cars) updateVehicleHeadlights(car);
@@ -8458,6 +9037,8 @@ function loop(timestamp=performance.now()){
     fixedAccumulator=0;
     updateCameras();
     world.processChunkQueue(4,true);
+    updatePortals(timestamp);
+    updateDreamDimensionVisuals(timestamp);
     updateWeather();
     world.updateWind(timestamp,rainIntensity);
     for(let car of cars) updateVehicleHeadlights(car);
@@ -8517,6 +9098,7 @@ function loop(timestamp=performance.now()){
   let chunkBudget=chunkBuildBudget();
   world.processChunkQueue(chunkBudget.items,false,chunkBudget.frameMs);
   updateRareTradingOutposts();
+  updateRandomPortals();
   pauseMenu.update(timestamp);
   renderGame();
 }
@@ -8802,6 +9384,7 @@ function startGame(mode,difficulty="medium"){
   scoredVillages=new WeakSet();
   scannedBossBases=new Set();
   clearRareTradingOutposts(true);
+  clearRandomPortals();
   clearPlayerBaseTradingOutpost();
   scannerKeyDown=false;
   scannerReadyAt=0;
@@ -9310,6 +9893,7 @@ updateCameras();
 lastChunkSignature=chunkSignatureForCars();
 world.updateChunksForCenters(chunkCentersForActiveCars());
 world.processChunkQueue(80,true);
+updateRandomPortals();
 clouds.makeClouds();
 birds.makeBirds();
 loop();
