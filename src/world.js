@@ -248,6 +248,12 @@ function createChunkWorker(){
 
   try{
     let worker=new Worker(new URL("./chunkWorker.js",import.meta.url),{type:"module"});
+    let template=makeTerrainVertexTemplate();
+    worker.postMessage({
+      type:"setTerrainTemplate",
+      localX:template.localX,
+      localZ:template.localZ
+    },[template.localX.buffer,template.localZ.buffer]);
     worker.onmessage=event=>{
       let message=event.data || {};
       if(message.generation!==chunkWorkerGeneration) return;
@@ -280,6 +286,22 @@ function createChunkWorker(){
 }
 
 chunkWorker=createChunkWorker();
+
+function makeTerrainVertexTemplate(){
+  let geo=new THREE.PlaneGeometry(chunkSize,chunkSize,segments,segments);
+  geo.rotateX(-Math.PI/2);
+  let pos=geo.attributes.position;
+  let localX=new Float32Array(pos.count);
+  let localZ=new Float32Array(pos.count);
+
+  for(let i=0;i<pos.count;i++){
+    localX[i]=pos.getX(i);
+    localZ[i]=pos.getZ(i);
+  }
+
+  geo.dispose();
+  return {localX,localZ};
+}
 
 function chunkKey(cx,cz){
   return cx+","+cz;
@@ -747,14 +769,14 @@ function obstacleAlongSegment3D(fromX,fromY,fromZ,toX,toY,toZ,padding=0){
         let radius=(isBossBase
           ? Math.max(4,obstacle.r)
           : isRock
-          ? Math.max(2.0,(obstacle.visualRadius || obstacle.r)*1.15)
+          ? Math.max(2.6,(obstacle.visualRadius || obstacle.r)*1.55)
           : isBuilding
           ? Math.max(2.0,(obstacle.visualRadius || obstacle.r)*0.9)
           : Math.max(1.2,obstacle.r*0.72))+padding;
         let verticalRadius=(isBossBase
           ? Math.max(4,(obstacle.visualHeight || obstacle.height || obstacle.r)*0.52)
           : isRock
-          ? Math.max(1.2,(obstacle.visualHeight || obstacle.height || obstacle.r)*0.72)
+          ? Math.max(1.8,(obstacle.visualHeight || obstacle.height || obstacle.r)*0.96)
           : isBuilding
           ? Math.max(2.0,(obstacle.visualHeight || obstacle.height || obstacle.r)*0.52)
           : Math.max(1.0,obstacle.r*0.65))+padding;
@@ -1407,7 +1429,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
 
     if(wy<-18) continue;
     if(roadDistance(wx,wz)<40) continue;
-    if(pointInHole(holes,wx,wz,scale+4)) continue;
+    if(pointInHole(holes,wx,wz,Math.max(7.5,scale*2.4))) continue;
 
     colliders.push({
       x:wx,
@@ -1416,8 +1438,8 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
       z:wz,
       r:2.1+scale*0.55,
       height:Math.max(1.0,scale*1.1),
-      visualRadius:Math.max(scale,scale*0.8),
-      visualHeight:Math.max(1.0,scale*1.6),
+      visualRadius:Math.max(1.6,scale*1.24),
+      visualHeight:Math.max(1.25,scale*1.82),
       type:scale<1.65 ? "smallRock" : "rock",
       instances:[{mesh:rocks,index:rockUsed}]
     });
@@ -1504,7 +1526,6 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   let porchUsed=0;
   let wallUsed=0;
   let streetUsed=0;
-  let r01=(a,b)=>rand(a,b)*0.5+0.5;
   let villageCenters=[];
 
   for(let v=0;v<villagesPerChunk;v++){

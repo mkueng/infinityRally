@@ -1,7 +1,9 @@
-import { chunkSize, segments } from "./constants.js";
+import { chunkSize } from "./constants.js";
 import { groundHeight, rand, roadDistance, setWorldSeed } from "./terrain.js?v=no-ramps";
 
 const waterLevel=-20;
+let terrainLocalX=null;
+let terrainLocalZ=null;
 
 function r01(a,b){
   return rand(a,b)*0.5+0.5;
@@ -123,6 +125,9 @@ function holesForChunk(cx,cz,cityMode=false){
 
 function buildTerrainChunk(message){
   setWorldSeed(message.seed,message.terrainProfile || {});
+  if(!terrainLocalX || !terrainLocalZ || terrainLocalX.length!==terrainLocalZ.length){
+    throw new Error("Chunk worker has no terrain vertex template.");
+  }
 
   let cx=message.cx;
   let cz=message.cz;
@@ -135,51 +140,45 @@ function buildTerrainChunk(message){
   let holeColor=colorComponents(0x09070a);
 
   let holes=holesForChunk(cx,cz,!!message.cityMode);
-  let grid=segments+1;
-  let vertexCount=grid*grid;
+  let vertexCount=terrainLocalX.length;
   let heights=new Float32Array(vertexCount);
   let colors=new Float32Array(vertexCount*3);
   let chunkHasWater=false;
 
-  for(let iy=0;iy<grid;iy++){
-    let localZ=iy/segments*chunkSize-chunkSize*0.5;
-    for(let ix=0;ix<grid;ix++){
-      let index=iy*grid+ix;
-      let localX=ix/segments*chunkSize-chunkSize*0.5;
-      let wx=localX+cx*chunkSize;
-      let wz=localZ+cz*chunkSize;
-      let baseH=groundHeight(wx,wz);
-      let h=baseH;
-      let holeAmount=0;
+  for(let index=0;index<vertexCount;index++){
+    let wx=terrainLocalX[index]+cx*chunkSize;
+    let wz=terrainLocalZ[index]+cz*chunkSize;
+    let baseH=groundHeight(wx,wz);
+    let h=baseH;
+    let holeAmount=0;
 
-      for(let hole of holes){
-        let depth=holeDepthAt(hole,wx,wz);
-        if(depth>0){
-          h-=depth;
-          holeAmount=Math.max(holeAmount,depth/Math.max(0.001,hole.depth));
-        }
+    for(let hole of holes){
+      let depth=holeDepthAt(hole,wx,wz);
+      if(depth>0){
+        h-=depth;
+        holeAmount=Math.max(holeAmount,depth/Math.max(0.001,hole.depth));
       }
-
-      if(baseH<waterLevel){
-        chunkHasWater=true;
-        h=Math.min(h,waterLevel-0.55);
-      }
-
-      heights[index]=h;
-
-      if(holeAmount>0){
-        let wallShade=0.18+Math.min(0.82,holeAmount)*0.22;
-        writeColor(colors,index,holeColor,lowColor,wallShade);
-      }else if(h<waterLevel) writeColor(colors,index,underwaterColor);
-      else if(h<waterLevel+2.7) writeColor(colors,index,shoreColor);
-      else if(h<waterLevel+5.4){
-        let t=(h-(waterLevel+2.7))/2.7;
-        writeColor(colors,index,shoreColor,lowColor,t);
-      }
-      else if(h<15) writeColor(colors,index,lowColor);
-      else if(h<30) writeColor(colors,index,midColor);
-      else writeColor(colors,index,highColor);
     }
+
+    if(baseH<waterLevel){
+      chunkHasWater=true;
+      h=Math.min(h,waterLevel-0.55);
+    }
+
+    heights[index]=h;
+
+    if(holeAmount>0){
+      let wallShade=0.18+Math.min(0.82,holeAmount)*0.22;
+      writeColor(colors,index,holeColor,lowColor,wallShade);
+    }else if(h<waterLevel) writeColor(colors,index,underwaterColor);
+    else if(h<waterLevel+2.7) writeColor(colors,index,shoreColor);
+    else if(h<waterLevel+5.4){
+      let t=(h-(waterLevel+2.7))/2.7;
+      writeColor(colors,index,shoreColor,lowColor,t);
+    }
+    else if(h<15) writeColor(colors,index,lowColor);
+    else if(h<30) writeColor(colors,index,midColor);
+    else writeColor(colors,index,highColor);
   }
 
   return {heights,colors,holes,chunkHasWater};
@@ -187,6 +186,11 @@ function buildTerrainChunk(message){
 
 self.onmessage=event=>{
   let message=event.data || {};
+  if(message.type==="setTerrainTemplate"){
+    terrainLocalX=message.localX;
+    terrainLocalZ=message.localZ;
+    return;
+  }
   if(message.type!=="buildTerrain") return;
 
   try{
