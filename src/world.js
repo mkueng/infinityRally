@@ -19,6 +19,12 @@ export function createWorld(scene,options={}){
   let activeTurrets=[];
   let activeChunkBuild=null;
   let lastChunkBuildTime=0;
+  let chunkWorker=null;
+  let chunkWorkerJobId=1;
+  let chunkWorkerGeneration=1;
+  let chunkWorkerResults=new Map();
+  let chunkWorkerTerrainSeed=0;
+  let chunkWorkerTerrainProfile={};
   let getDifficulty=typeof options.getDifficulty==="function" ? options.getDifficulty : ()=>"medium";
   let defaultEnvironment={
     colors:{
@@ -236,6 +242,44 @@ function applyEnvironment(environment={}){
 }
 
 applyEnvironment(currentEnvironment);
+
+function createChunkWorker(){
+  if(options.disableChunkWorker || typeof Worker==="undefined") return null;
+
+  try{
+    let worker=new Worker(new URL("./chunkWorker.js",import.meta.url),{type:"module"});
+    worker.onmessage=event=>{
+      let message=event.data || {};
+      if(message.generation!==chunkWorkerGeneration) return;
+      if(message.type==="terrainBuilt"){
+        chunkWorkerResults.set(message.id,message);
+      }else if(message.type==="terrainError"){
+        console.warn("Chunk worker failed; falling back to main-thread chunk generation.",message.message || message.key || "");
+        chunkWorker=null;
+        if(activeChunkBuild && activeChunkBuild.workerJobId===message.id){
+          activeChunkBuild.waitingForWorker=false;
+          activeChunkBuild.workerError=true;
+          activeChunkBuild.generator=makeChunk(activeChunkBuild.cx,activeChunkBuild.cz,null);
+        }
+      }
+    };
+    worker.onerror=event=>{
+      console.warn("Chunk worker unavailable; falling back to main-thread chunk generation.",event && event.message ? event.message : event);
+      chunkWorker=null;
+      if(activeChunkBuild && activeChunkBuild.waitingForWorker){
+        activeChunkBuild.waitingForWorker=false;
+        activeChunkBuild.workerError=true;
+        activeChunkBuild.generator=makeChunk(activeChunkBuild.cx,activeChunkBuild.cz,null);
+      }
+    };
+    return worker;
+  }catch(error){
+    console.warn("Chunk worker unavailable; falling back to main-thread chunk generation.",error);
+    return null;
+  }
+}
+
+chunkWorker=createChunkWorker();
 
 function chunkKey(cx,cz){
   return cx+","+cz;
@@ -883,23 +927,6 @@ function holesForChunk(cx,cz,cityMode=false){
   return holes;
 }
 
-function prepareTreasureColorShift(object){
-  if(!object) return;
-  object.traverse(child=>{
-    if(!child.isMesh || !child.material) return;
-
-    let materials=Array.isArray(child.material) ? child.material : [child.material];
-    let shifted=materials.map(material=>{
-      let clone=material.clone();
-      if(clone.color) clone.userData.baseColor=clone.color.clone();
-      if(clone.emissive) clone.userData.baseEmissive=clone.emissive.clone();
-      clone.userData.baseEmissiveIntensity=Number.isFinite(clone.emissiveIntensity) ? clone.emissiveIntensity : 0;
-      return clone;
-    });
-    child.material=Array.isArray(child.material) ? shifted : shifted[0];
-  });
-}
-
 function makeTreasureChestForHole(hole,cx,cz,index){
   if(!hole || !treasureChestModels.length) return null;
   if(r01(cx*1759+index*97,cz*2441-index*43)>treasureHoleChance) return null;
@@ -922,10 +949,8 @@ function makeTreasureChestForHole(hole,cx,cz,index){
       child.receiveShadow=true;
     }
   });
-  prepareTreasureColorShift(chest);
 
   treasure.add(chest);
-  treasure.userData.colorShiftSeed=r01(cx*1201+index*67,cz*1567-index*29)*Math.PI*2;
   treasure.userData.x=hole.x;
   treasure.userData.z=hole.z;
   treasure.userData.r=Math.max(3.2,Math.min(8,hole.innerR*0.42));
@@ -1082,7 +1107,7 @@ function makeLandingRing(surface,parent=scene){
   return ring;
 }
 
-function* makeChunk(cx,cz){
+function* makeChunk(cx,cz,precomputedTerrain=null){
   let chunkRoot=new THREE.Group();
   let envColors=environmentColors();
   let vegetation=environmentVegetation();
@@ -1093,10 +1118,12 @@ function* makeChunk(cx,cz){
   let landingSpaces=[];
   let landingSurfaces=[];
   let landingRings=[];
-  let holes=holesForChunk(cx,cz,cityMode);
+  let holes=precomputedTerrain && Array.isArray(precomputedTerrain.holes)
+    ? precomputedTerrain.holes
+    : holesForChunk(cx,cz,cityMode);
   let holeMeshes=[];
   let treasureChests=[];
-  let chunkHasWater=false;
+  let chunkHasWater=!!(precomputedTerrain && precomputedTerrain.chunkHasWater);
   let geo=new THREE.PlaneGeometry(chunkSize,chunkSize,segments,segments);
   geo.rotateX(-Math.PI/2);
 
@@ -1105,42 +1132,50 @@ function* makeChunk(cx,cz){
   let lowColor=new THREE.Color(envColors.low);
   let holeColor=new THREE.Color(0x09070a);
 
-  for(let i=0;i<pos.count;i++){
-    let wx=pos.getX(i)+cx*chunkSize;
-    let wz=pos.getZ(i)+cz*chunkSize;
-    let baseH=groundHeight(wx,wz);
-    let h=baseH;
-    let holeAmount=0;
+  if(precomputedTerrain && precomputedTerrain.heights && precomputedTerrain.colors){
+    let heights=precomputedTerrain.heights;
+    for(let i=0;i<pos.count && i<heights.length;i++){
+      pos.setY(i,heights[i]);
+    }
+    colors=precomputedTerrain.colors;
+  }else{
+    for(let i=0;i<pos.count;i++){
+      let wx=pos.getX(i)+cx*chunkSize;
+      let wz=pos.getZ(i)+cz*chunkSize;
+      let baseH=groundHeight(wx,wz);
+      let h=baseH;
+      let holeAmount=0;
 
-    for(let hole of holes){
-      let depth=holeDepthAt(hole,wx,wz);
-      if(depth>0){
-        h-=depth;
-        holeAmount=Math.max(holeAmount,depth/Math.max(0.001,hole.depth));
+      for(let hole of holes){
+        let depth=holeDepthAt(hole,wx,wz);
+        if(depth>0){
+          h-=depth;
+          holeAmount=Math.max(holeAmount,depth/Math.max(0.001,hole.depth));
+        }
       }
+
+      if(baseH<waterLevel){
+        chunkHasWater=true;
+        h=Math.min(h,waterLevel-0.55);
+      }
+
+      pos.setY(i,h);
+
+      if(holeAmount>0){
+        let wallShade=0.18+Math.min(0.82,holeAmount)*0.22;
+        vertexColor.set(holeColor).lerp(lowColor,wallShade);
+      }else if(h<waterLevel) vertexColor.set(envColors.underwater);
+      else if(h<waterLevel+2.7) vertexColor.set(envColors.shore);
+      else if(h<waterLevel+5.4){
+        let t=(h-(waterLevel+2.7))/2.7;
+        vertexColor.set(envColors.shore).lerp(lowColor,t);
+      }
+      else if(h<15) vertexColor.set(envColors.low);
+      else if(h<30) vertexColor.set(envColors.mid);
+      else vertexColor.set(envColors.high);
+
+      colors.push(vertexColor.r,vertexColor.g,vertexColor.b);
     }
-
-    if(baseH<waterLevel){
-      chunkHasWater=true;
-      h=Math.min(h,waterLevel-0.55);
-    }
-
-    pos.setY(i,h);
-
-    if(holeAmount>0){
-      let wallShade=0.18+Math.min(0.82,holeAmount)*0.22;
-      vertexColor.set(holeColor).lerp(lowColor,wallShade);
-    }else if(h<waterLevel) vertexColor.set(envColors.underwater);
-    else if(h<waterLevel+2.7) vertexColor.set(envColors.shore);
-    else if(h<waterLevel+5.4){
-      let t=(h-(waterLevel+2.7))/2.7;
-      vertexColor.set(envColors.shore).lerp(lowColor,t);
-    }
-    else if(h<15) vertexColor.set(envColors.low);
-    else if(h<30) vertexColor.set(envColors.mid);
-    else vertexColor.set(envColors.high);
-
-    colors.push(vertexColor.r,vertexColor.g,vertexColor.b);
   }
 
   geo.setAttribute("color",new THREE.Float32BufferAttribute(colors,3));
@@ -2065,17 +2100,44 @@ function collidersInRadius(x,z,radius){
   return found;
 }
 
-function startNextChunkBuild(){
+function startNextChunkBuild(useWorker=true){
   while(chunkQueue.length>0){
     let item=chunkQueue.shift();
     if(chunks.has(item.key) || !neededChunks.has(item.key)) continue;
+
+    let detail=cloneChunkDetail(chunkDetails.get(item.key));
+    if(useWorker && chunkWorker){
+      let id=chunkWorkerJobId++;
+      activeChunkBuild={
+        cx:item.cx,
+        cz:item.cz,
+        key:item.key,
+        detail,
+        waitingForWorker:true,
+        workerJobId:id,
+        generation:chunkWorkerGeneration
+      };
+      chunkWorker.postMessage({
+        type:"buildTerrain",
+        id,
+        key:item.key,
+        generation:chunkWorkerGeneration,
+        cx:item.cx,
+        cz:item.cz,
+        cityMode:chunkHasCityDistrict(item.cx,item.cz),
+        colors:environmentColors(),
+        seed:chunkWorkerTerrainSeed,
+        terrainProfile:chunkWorkerTerrainProfile
+      });
+      return true;
+    }
 
     activeChunkBuild={
       cx:item.cx,
       cz:item.cz,
       key:item.key,
-      detail:cloneChunkDetail(chunkDetails.get(item.key)),
-      generator:makeChunk(item.cx,item.cz)
+      detail,
+      generator:makeChunk(item.cx,item.cz,null)
     };
     return true;
   }
@@ -2111,12 +2173,27 @@ function processChunkQueue(maxItems=1,immediate=false,maxFrameMs=2){
     let now=performance.now();
     if(!immediate && processed>0 && now>=deadline) break;
 
-    if(!activeChunkBuild && !startNextChunkBuild()) break;
+    if(!activeChunkBuild && !startNextChunkBuild(!immediate)) break;
     if(!activeChunkBuild) break;
 
     lastChunkBuildTime=now;
 
     let job=activeChunkBuild;
+    if(job.waitingForWorker){
+      if(immediate){
+        chunkWorkerGeneration++;
+        chunkWorkerResults.clear();
+        job.waitingForWorker=false;
+        job.generator=makeChunk(job.cx,job.cz,null);
+      }else{
+        let workerResult=chunkWorkerResults.get(job.workerJobId);
+        if(!workerResult) break;
+        chunkWorkerResults.delete(job.workerJobId);
+        job.waitingForWorker=false;
+        job.generator=makeChunk(job.cx,job.cz,workerResult);
+      }
+    }
+
     let result=job.generator.next();
 
     if(result.done){
@@ -2149,14 +2226,18 @@ function updateWind(time,rainIntensity=0){
 }
 
 function resetChunks(){
+  chunkWorkerGeneration++;
+  chunkWorkerResults.clear();
   if(activeChunkBuild){
     let job=activeChunkBuild;
     activeChunkBuild=null;
-    let result=job.generator.next();
-    while(!result.done){
-      result=job.generator.next();
+    if(job.generator){
+      let result=job.generator.next();
+      while(!result.done){
+        result=job.generator.next();
+      }
+      if(result.value) disposeChunk(result.value);
     }
-    if(result.value) disposeChunk(result.value);
   }
 
   for(let chunk of chunks.values()){
@@ -2176,6 +2257,13 @@ function resetChunks(){
   activeChunkBuild=null;
   lastChunkBuildTime=0;
   clearBossBases();
+}
+
+function setWorkerTerrain(seed,profile={}){
+  chunkWorkerTerrainSeed=Number.isFinite(seed) ? seed : 0;
+  chunkWorkerTerrainProfile={...(profile || {})};
+  chunkWorkerGeneration++;
+  chunkWorkerResults.clear();
 }
 
 function setLandingSpaceModel(model){
@@ -2217,36 +2305,6 @@ function setTreasureChestModels(models=[]){
       if(!chest) continue;
       chunk.treasureChests.push(chest);
       (chunk.root || scene).add(chest);
-    }
-  }
-}
-
-function updateTreasureColors(now=performance.now()){
-  let t=now*0.0016;
-  let tint=new THREE.Color();
-  let glow=new THREE.Color();
-  for(let chunk of chunks.values()){
-    if(!chunk || !chunk.treasureChests) continue;
-
-    for(let chest of chunk.treasureChests){
-      let phase=t+(chest.userData.colorShiftSeed || 0);
-      tint.setHSL((phase*0.18)%1,0.88,0.58);
-      glow.setHSL((phase*0.18+0.08)%1,0.95,0.5);
-
-      chest.traverse(child=>{
-        if(!child.isMesh || !child.material) return;
-
-        let materials=Array.isArray(child.material) ? child.material : [child.material];
-        for(let material of materials){
-          if(material.color && material.userData.baseColor){
-            material.color.copy(material.userData.baseColor).lerp(tint,0.48);
-          }
-          if(material.emissive && material.userData.baseEmissive){
-            material.emissive.copy(material.userData.baseEmissive).lerp(glow,0.76);
-            material.emissiveIntensity=(material.userData.baseEmissiveIntensity || 0)+0.34+Math.sin(phase*2.4)*0.12;
-          }
-        }
-      });
     }
   }
 }
@@ -2371,9 +2429,9 @@ function holeSurfaceHeightAt(x,z){
     updateWind,
     processChunkQueue,
     setEnvironment:applyEnvironment,
+    setWorkerTerrain,
     setLandingSpaceModel,
     setTreasureChestModels,
-    updateTreasureColors,
     collectTreasureAt,
     landingSurfaceAt,
     landingSurfaceHeightAt,

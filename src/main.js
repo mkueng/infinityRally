@@ -8435,7 +8435,6 @@ function fixedUpdateGame(){
   updateGiantTestRobot();
   updateWeather();
   world.updateWind(performance.now(),rainIntensity);
-  if(world.updateTreasureColors) world.updateTreasureColors(performance.now());
   for(let car of cars) updateVehicleHeadlights(car);
   motorAudio.update();
   updateCameras();
@@ -9294,7 +9293,9 @@ function placeTradingOutpostNearStart(startInfo){
   scene.add(tradingOutpost);
 }
 
-setWorldSeed(Math.random()*100000,currentEnvironment.terrain || {});
+let terrainSeed=Math.random()*100000;
+setWorldSeed(terrainSeed,currentEnvironment.terrain || {});
+if(world.setWorkerTerrain) world.setWorkerTerrain(terrainSeed,currentEnvironment.terrain || {});
 let initialStartInfo=findSafeFieldStart([playerCar.lateralOffset,0,secondCar.lateralOffset]);
 placeCarOnOpenField(playerCar,initialStartInfo);
 placeCarOnOpenField(secondCar,initialStartInfo);
