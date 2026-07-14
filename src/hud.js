@@ -1,6 +1,9 @@
 import { chunkSize } from "./constants.js";
 import { carSurfaceHeight } from "./terrain.js?v=no-ramps";
 
+const mapHudSize=216;
+const speedHudScale=1.2;
+
 export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStationState=()=>null,getScannedBossBases=()=>[],getScannedTradingOutposts=()=>[],getPerformanceMode=()=>"full",getEnvironment=()=>({})}){
   let panels=[];
   let gameOverOverlay;
@@ -64,10 +67,10 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "position:fixed",
       "top:50px",
       `left:calc(${panelOffset(panel)} + 18px)`,
+      `transform:scale(${speedHudScale})`,
+      "transform-origin:top left",
       "width:122px",
       "height:228px",
-      "background:rgba(20,28,34,0.42)",
-      "box-shadow:0 4px 14px rgba(0,0,0,0.2)",
       "z-index:10",
       "overflow:hidden",
       "font-family:Arial,sans-serif",
@@ -284,8 +287,9 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "position:fixed",
       "top:50px",
       `right:${panel.side==="left" ? "calc(50% + 18px)" : "18px"}`,
-      "width:180px",
-      "height:180px",
+      `width:${mapHudSize}px`,
+      `height:${mapHudSize}px`,
+      "border-radius:50%",
       "background:rgba(20,28,34,0.42)",
       "box-shadow:0 4px 14px rgba(0,0,0,0.2)",
       "z-index:10",
@@ -294,9 +298,9 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     ].join(";");
 
     let mapCanvas=document.createElement("canvas");
-    mapCanvas.width=180;
-    mapCanvas.height=180;
-    mapCanvas.style.cssText="display:block;width:180px;height:180px";
+    mapCanvas.width=mapHudSize;
+    mapCanvas.height=mapHudSize;
+    mapCanvas.style.cssText=`display:block;width:${mapHudSize}px;height:${mapHudSize}px;border-radius:50%`;
     let mapCtx=mapCanvas.getContext("2d");
     mapHud.appendChild(mapCanvas);
     document.body.appendChild(mapHud);
@@ -406,6 +410,10 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     let palette=mapPalette();
 
     mapCtx.clearRect(0,0,size,size);
+    mapCtx.save();
+    mapCtx.beginPath();
+    mapCtx.arc(size*0.5,size*0.5,size*0.5,0,Math.PI*2);
+    mapCtx.clip();
     let cells=getPerformanceMode()==="split" ? 32 : 48;
     let cellSize=size/cells;
     for(let gy=0;gy<cells;gy++){
@@ -420,10 +428,6 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
         mapCtx.fillRect(gx*cellSize,gy*cellSize,cellSize+1,cellSize+1);
       }
     }
-
-    mapCtx.strokeStyle=palette.border;
-    mapCtx.lineWidth=1;
-    mapCtx.strokeRect(0.5,0.5,size-1,size-1);
 
     drawVillages(mapCtx,centerX,centerZ,radius,size,palette);
     drawStationMarker(mapCtx,getStationState(),centerX,centerZ,radius,size,palette);
@@ -446,6 +450,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     mapCtx.closePath();
     mapCtx.fill();
     mapCtx.stroke();
+    mapCtx.restore();
     mapCtx.restore();
   }
 
