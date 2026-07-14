@@ -6,162 +6,85 @@ import { createHud } from "./hud.js?v=scanned-outposts";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=night-stars";
 import { createWorld } from "./world.js?v=landing-touchdown-back";
 import { createMotorAudio } from "./audio.js?v=scanner-mp3-quiet";
+import { worldEnvironments } from "./environments.js";
+import { difficultySettings } from "./gameConfig.js";
 import { loadBackPackModel, loadBaseStationModel, loadCarModel, loadJetModel, loadLandingSpaceModel, loadTradingOutpostModel, loadTreasureChestModels, makeMechModel } from "./models.js?v=base-station";
 import { makeSkyTexture } from "./textures.js?v=night-stars";
+import { createPortalSystem } from "./portals.js";
+import { approach, clamp, clamp01, hash01, randomRange, smoothStep } from "./utils.js";
 
-const worldEnvironments=[
-  {
-    name:"alien dusk",
-    terrain:{heightScale:1,hillScale:1,mountainScale:1,baseHeight:0,roadWave1:220,roadWave2:80,roadWave3:25,roadFrequencyScale:1},
-    sky:["#12072b","#33145f","#9c416f","#f08c71","#ffd3a5"],
-    fog:0x7b4771,
-    colors:{
-      underwater:0x8f5a6c,shore:0xd6b25a,low:0x8b3852,mid:0x5a3b70,high:0x3f3456,
-      water:0x20ffd4,waterEmissive:0x036f6d,bark:0x24133a,barkEmissive:0x12061f,
-      leaf:0xb66cff,leafEmissive:0x5a22c9,pod:0xff6bd6,podEmissive:0xff2ca8,
-      grass:0x9df58d,grassEmissive:0x173d18,rock:0x3f334b,wall:0x5a526d,roof:0x322b45,trim:0xa78fbd,brick:0x714060
-    },
-    groundTexture:{base:"#6f2d46",dark:[55,20,70],bright:[150,70,55],streak:"104,255,213"},
-    rainChance:0.24,
-    rainIntensity:[0.18,0.42],
-    vegetation:{treeClusters:2,treesPerCluster:8,treeClusterRadius:25,crownsPerTree:7,podsPerTree:4,trunkHeightBase:1,trunkHeightVariance:0.34,trunkWidthBase:0.72,trunkWidthVariance:0.34,leanAmount:0.18,crownBaseScale:1.25,crownScaleStep:0.08,crownSpreadBase:1.1,crownSpreadVariance:2.4,crownLiftBase:9.1,crownLiftStep:0.28,crownWidthScale:1,crownFlatness:1,crownDepthScale:1,podScaleBase:0.42,podScaleVariance:0.34,podLiftBase:7.1,podLiftVariance:1.6,podElongation:1.35,grassClusters:20,grassPerCluster:400,grassClusterRadius:10}
-  },
-  {
-    name:"crystal frost",
-    terrain:{heightScale:0.9,hillScale:1.15,mountainScale:1.35,baseHeight:-1,roadWave1:170,roadWave2:115,roadWave3:34,roadFrequencyScale:0.88},
-    sky:["#06182b","#123b5a","#5a8db2","#d2b4c8","#fff1dd"],
-    fog:0x7fa3b9,
-    colors:{
-      underwater:0x315970,shore:0xc8d9cf,low:0x5f8b94,mid:0x6b7daa,high:0xc7d8db,
-      water:0x7ff8ff,waterEmissive:0x0f6d80,bark:0x243340,barkEmissive:0x081318,
-      leaf:0x9fd8ff,leafEmissive:0x195a70,pod:0xe8fbff,podEmissive:0x64d7ff,
-      grass:0xb8ffdf,grassEmissive:0x1f5c4c,rock:0x5f6f84,wall:0x697d8a,roof:0x2f4559,trim:0xc2d6dc,brick:0x506879
-    },
-    groundTexture:{base:"#496b7d",dark:[38,58,76],bright:[132,170,180],streak:"210,255,255"},
-    rainChance:0.18,
-    rainIntensity:[0.12,0.32],
-    vegetation:{treeClusters:2,treesPerCluster:7,treeClusterRadius:24,crownsPerTree:5,podsPerTree:3,trunkHeightBase:1.28,trunkHeightVariance:0.45,trunkWidthBase:0.52,trunkWidthVariance:0.22,leanAmount:0.09,crownBaseScale:1.05,crownScaleStep:0.04,crownSpreadBase:0.65,crownSpreadVariance:1.2,crownLiftBase:10.6,crownLiftStep:0.92,crownWidthScale:0.74,crownFlatness:1.65,crownDepthScale:0.74,podScaleBase:0.28,podScaleVariance:0.22,podLiftBase:9.4,podLiftVariance:2.4,podElongation:2.15,grassClusters:16,grassPerCluster:320,grassClusterRadius:11}
-  },
-  {
-    name:"ember badlands",
-    terrain:{heightScale:1.08,hillScale:0.95,mountainScale:1.5,baseHeight:1.5,roadWave1:260,roadWave2:70,roadWave3:42,roadFrequencyScale:1.12},
-    sky:["#1d0612","#55151b","#9c3824","#f08b3e","#ffe0a8"],
-    fog:0x9b5140,
-    colors:{
-      underwater:0x5d2530,shore:0xffb45f,low:0xa85233,mid:0x7a3a3a,high:0x4d3440,
-      water:0xff8c45,waterEmissive:0x8a2d08,bark:0x321b18,barkEmissive:0x170604,
-      leaf:0xd78f38,leafEmissive:0x6f2d08,pod:0xffdf6a,podEmissive:0xb85a00,
-      grass:0xdfb65a,grassEmissive:0x5f3608,rock:0x5b3a35,wall:0x72544b,roof:0x3c2529,trim:0xd29a65,brick:0x8f4c38
-    },
-    groundTexture:{base:"#733823",dark:[72,31,25],bright:[172,83,44],streak:"255,185,86"},
-    rainChance:0.08,
-    rainIntensity:[0.1,0.24],
-    vegetation:{treeClusters:1,treesPerCluster:7,treeClusterRadius:28,crownsPerTree:4,podsPerTree:6,trunkHeightBase:0.82,trunkHeightVariance:0.22,trunkWidthBase:1.05,trunkWidthVariance:0.42,leanAmount:0.34,crownBaseScale:0.96,crownScaleStep:0.12,crownSpreadBase:1.8,crownSpreadVariance:3.8,crownLiftBase:6.8,crownLiftStep:0.08,crownWidthScale:1.55,crownFlatness:0.52,crownDepthScale:1.35,podScaleBase:0.32,podScaleVariance:0.42,podLiftBase:5.8,podLiftVariance:1.2,podElongation:1.05,grassClusters:12,grassPerCluster:260,grassClusterRadius:12}
-  },
-  {
-    name:"dschungel canopy",
-    terrain:{heightScale:0.78,hillScale:1.55,mountainScale:0.62,baseHeight:-2.5,roadWave1:130,roadWave2:145,roadWave3:48,roadFrequencyScale:1.28},
-    sky:["#05190f","#0d3b22","#1f7144","#79a867","#ffe4a3"],
-    fog:0x2f744d,
-    colors:{
-      underwater:0x123f39,shore:0x8fac55,low:0x1f6f3d,mid:0x2d8a4b,high:0x537846,
-      water:0x2effb8,waterEmissive:0x087a51,bark:0x1d2814,barkEmissive:0x071006,
-      leaf:0x38c751,leafEmissive:0x0d5c20,pod:0xff5bbb,podEmissive:0x9c1268,
-      grass:0x75ff6a,grassEmissive:0x1b6d18,rock:0x2f4d3c,wall:0x4e6747,roof:0x253921,trim:0x9cc779,brick:0x4f7241
-    },
-    groundTexture:{base:"#275f35",dark:[24,70,36],bright:[86,150,62],streak:"124,255,120"},
-    rainChance:0.72,
-    rainIntensity:[0.38,0.82],
-    vegetation:{treeClusters:3,treesPerCluster:8,treeClusterRadius:34,crownsPerTree:7,podsPerTree:3,trunkHeightBase:1.55,trunkHeightVariance:0.58,trunkWidthBase:0.64,trunkWidthVariance:0.28,leanAmount:0.24,crownBaseScale:1.45,crownScaleStep:0.045,crownSpreadBase:2.0,crownSpreadVariance:3.2,crownLiftBase:11.2,crownLiftStep:0.42,crownWidthScale:1.35,crownFlatness:0.78,crownDepthScale:1.35,podScaleBase:0.26,podScaleVariance:0.2,podLiftBase:8.8,podLiftVariance:3.2,podElongation:1.8,grassClusters:24,grassPerCluster:300,grassClusterRadius:15}
-  },
-  {
-    name:"dschungel wetlands",
-    terrain:{heightScale:0.62,hillScale:1.25,mountainScale:0.35,baseHeight:-4.2,roadWave1:155,roadWave2:128,roadWave3:36,roadFrequencyScale:1.05},
-    sky:["#071712","#123d36","#2c6f5f","#82a95e","#f3d98e"],
-    fog:0x315f50,
-    colors:{
-      underwater:0x0f3834,shore:0x6f8a42,low:0x24583a,mid:0x34704a,high:0x476b43,
-      water:0x35e6aa,waterEmissive:0x0a6048,bark:0x172412,barkEmissive:0x071006,
-      leaf:0x2fae4f,leafEmissive:0x0a4d1d,pod:0xf0d75f,podEmissive:0x736600,
-      grass:0x8be65d,grassEmissive:0x255d13,rock:0x33493c,wall:0x4d6352,roof:0x21382a,trim:0x8ebf75,brick:0x486a4b
-    },
-    groundTexture:{base:"#24543c",dark:[20,62,45],bright:[80,132,70],streak:"94,230,154"},
-    rainChance:0.88,
-    rainIntensity:[0.48,0.96],
-    vegetation:{treeClusters:4,treesPerCluster:7,treeClusterRadius:38,crownsPerTree:6,podsPerTree:4,trunkHeightBase:1.2,trunkHeightVariance:0.38,trunkWidthBase:0.9,trunkWidthVariance:0.35,leanAmount:0.42,crownBaseScale:1.28,crownScaleStep:0.06,crownSpreadBase:2.7,crownSpreadVariance:2.9,crownLiftBase:8.4,crownLiftStep:0.18,crownWidthScale:1.75,crownFlatness:0.48,crownDepthScale:1.55,podScaleBase:0.22,podScaleVariance:0.22,podLiftBase:6.2,podLiftVariance:2.1,podElongation:1.2,grassClusters:25,grassPerCluster:280,grassClusterRadius:18}
-  },
-  {
-    name:"storm archipelago",
-    terrain:{heightScale:0.52,hillScale:1.05,mountainScale:0.48,baseHeight:-5.6,roadWave1:190,roadWave2:132,roadWave3:52,roadFrequencyScale:0.92},
-    sky:["#03111f","#063756","#18707b","#69a7a8","#f0dca9"],
-    fog:0x2d7180,
-    colors:{
-      underwater:0x0a3044,shore:0xd4c06f,low:0x1d6d74,mid:0x2c8b80,high:0x5d7f73,
-      water:0x22d7ff,waterEmissive:0x045f78,bark:0x17313b,barkEmissive:0x041119,
-      leaf:0x43d7a2,leafEmissive:0x0a5f48,pod:0xffcf67,podEmissive:0xa65f00,
-      grass:0x90e68c,grassEmissive:0x1f5f25,rock:0x355365,wall:0x557477,roof:0x223548,trim:0x9fd6cc,brick:0x486569
-    },
-    groundTexture:{base:"#2f6b69",dark:[22,64,72],bright:[92,156,130],streak:"98,230,255"},
-    rainChance:0.94,
-    rainIntensity:[0.42,1],
-    vegetation:{treeClusters:2,treesPerCluster:6,treeClusterRadius:42,crownsPerTree:5,podsPerTree:5,trunkHeightBase:1.05,trunkHeightVariance:0.52,trunkWidthBase:0.72,trunkWidthVariance:0.32,leanAmount:0.55,crownBaseScale:1.08,crownScaleStep:0.08,crownSpreadBase:2.6,crownSpreadVariance:3.4,crownLiftBase:7.8,crownLiftStep:0.22,crownWidthScale:1.6,crownFlatness:0.56,crownDepthScale:1.45,podScaleBase:0.3,podScaleVariance:0.28,podLiftBase:6.7,podLiftVariance:2.5,podElongation:1.35,grassClusters:18,grassPerCluster:240,grassClusterRadius:20}
-  },
-  {
-    name:"violet mesas",
-    terrain:{heightScale:1.16,hillScale:0.72,mountainScale:1.82,baseHeight:3.2,roadWave1:285,roadWave2:62,roadWave3:58,roadFrequencyScale:1.18},
-    sky:["#100b24","#2f2462","#724b98","#c9798f","#ffe1ba"],
-    fog:0x76548a,
-    colors:{
-      underwater:0x3f315f,shore:0xcaa66d,low:0x674e8b,mid:0x895d89,high:0xb08b82,
-      water:0xb474ff,waterEmissive:0x4e1b8d,bark:0x2d2138,barkEmissive:0x100719,
-      leaf:0xff8fd0,leafEmissive:0x8a2c68,pod:0x8dfff2,podEmissive:0x0ebdb2,
-      grass:0xd0a6ff,grassEmissive:0x46306d,rock:0x6b5274,wall:0x7d667f,roof:0x3c2b4e,trim:0xdfb3d6,brick:0x86605f
-    },
-    groundTexture:{base:"#67487c",dark:[58,42,80],bright:[152,96,132],streak:"226,168,240"},
-    rainChance:0.16,
-    rainIntensity:[0.08,0.28],
-    vegetation:{treeClusters:1,treesPerCluster:6,treeClusterRadius:30,crownsPerTree:4,podsPerTree:5,trunkHeightBase:1.42,trunkHeightVariance:0.62,trunkWidthBase:0.46,trunkWidthVariance:0.18,leanAmount:0.12,crownBaseScale:0.82,crownScaleStep:0.1,crownSpreadBase:0.9,crownSpreadVariance:1.6,crownLiftBase:12.8,crownLiftStep:1.1,crownWidthScale:0.68,crownFlatness:1.9,crownDepthScale:0.72,podScaleBase:0.34,podScaleVariance:0.28,podLiftBase:10.6,podLiftVariance:3.1,podElongation:2.4,grassClusters:10,grassPerCluster:220,grassClusterRadius:13}
-  },
-  {
-    name:"ash bloom",
-    terrain:{heightScale:0.96,hillScale:1.34,mountainScale:1.08,baseHeight:0.4,roadWave1:210,roadWave2:105,roadWave3:44,roadFrequencyScale:0.98},
-    sky:["#07090c","#20242a","#5d6861","#b17d67","#f2c99a"],
-    fog:0x697067,
-    colors:{
-      underwater:0x263642,shore:0xa79368,low:0x4e5f58,mid:0x66705a,high:0x8b8170,
-      water:0x78cfd1,waterEmissive:0x1c6266,bark:0x1e1e20,barkEmissive:0x08080a,
-      leaf:0x9ee36d,leafEmissive:0x385d16,pod:0xff7a5c,podEmissive:0xbd2a12,
-      grass:0xb7d879,grassEmissive:0x3d4f18,rock:0x565b5c,wall:0x6f7268,roof:0x2b3034,trim:0xd4b36f,brick:0x766150
-    },
-    groundTexture:{base:"#555a4f",dark:[50,52,52],bright:[134,130,94],streak:"255,132,92"},
-    rainChance:0.32,
-    rainIntensity:[0.16,0.48],
-    vegetation:{treeClusters:2,treesPerCluster:7,treeClusterRadius:31,crownsPerTree:6,podsPerTree:6,trunkHeightBase:0.92,trunkHeightVariance:0.34,trunkWidthBase:0.82,trunkWidthVariance:0.38,leanAmount:0.3,crownBaseScale:1.18,crownScaleStep:0.075,crownSpreadBase:1.55,crownSpreadVariance:2.5,crownLiftBase:8.2,crownLiftStep:0.34,crownWidthScale:1.25,crownFlatness:0.82,crownDepthScale:1.18,podScaleBase:0.38,podScaleVariance:0.32,podLiftBase:6.8,podLiftVariance:1.9,podElongation:1.05,grassClusters:15,grassPerCluster:260,grassClusterRadius:14}
-  },
-  {
-    name:"neon city",
-    city:true,
-    terrain:{heightScale:0.42,hillScale:0.55,mountainScale:0.18,baseHeight:-1.4,roadWave1:95,roadWave2:48,roadWave3:18,roadFrequencyScale:0.72},
-    sky:["#050812","#101a2c","#203858","#57728a","#d6c2a2"],
-    fog:0x26384c,
-    colors:{
-      underwater:0x111a24,shore:0x58606a,low:0x303842,mid:0x3e4650,high:0x555d66,
-      water:0x4dc7ff,waterEmissive:0x0a5270,bark:0x1c2025,barkEmissive:0x05070a,
-      leaf:0x607060,leafEmissive:0x121c10,pod:0x86dfff,podEmissive:0x1d8fb8,
-      grass:0x5f705e,grassEmissive:0x101b12,rock:0x343a42,wall:0x4b5563,roof:0x202733,trim:0x8aa0b8,brick:0x333b45,street:0x171b20
-    },
-    groundTexture:{base:"#343b43",dark:[25,30,36],bright:[88,96,104],streak:"90,185,255"},
-    rainChance:0.52,
-    rainIntensity:[0.18,0.58],
-    vegetation:{treeClusters:0,treesPerCluster:1,treeClusterRadius:16,crownsPerTree:1,podsPerTree:0,trunkHeightBase:0.8,trunkHeightVariance:0.1,trunkWidthBase:0.5,trunkWidthVariance:0.1,leanAmount:0.04,crownBaseScale:0.8,crownScaleStep:0.02,crownSpreadBase:0.4,crownSpreadVariance:0.5,crownLiftBase:5.2,crownLiftStep:0.1,crownWidthScale:0.65,crownFlatness:1.2,crownDepthScale:0.65,podScaleBase:0.2,podScaleVariance:0.1,podLiftBase:4.5,podLiftVariance:0.8,podElongation:1,grassClusters:2,grassPerCluster:60,grassClusterRadius:7}
-  }
-];
+const initialBaseFogNear=900;
+const initialBaseFogFar=3600;
+const dayNightCycleMs=360000;
+const dayNightPhaseOffset=0.18;
+const dayNightSunHorizonOffset=0.32;
+const dayNightTransitionRange=0.44;
+const defaultRainIntensityRange=[0.2,0.55];
+const weatherClearChanceFloor=0.08;
+const weatherClearChanceBase=0.72;
+const weatherClearWetnessScale=0.64;
+const weatherDrizzleChanceMax=0.36;
+const weatherDrizzleChanceBase=0.12;
+const weatherDrizzleWetnessScale=0.28;
+const weatherRainChanceMax=0.34;
+const weatherRainChanceBase=0.08;
+const weatherRainWetnessScale=0.26;
+const weatherDrizzleIntensityScale=0.45;
+const weatherRainIntensityScale=0.82;
+const weatherStormIntensityScale=1.18;
+const weatherChangeMinMs=18000;
+const weatherChangeMaxMs=46000;
+const weatherEase=0.006;
+const weatherSnapThreshold=0.003;
+const stormSkyRainExponent=0.72;
+const stormSkyBlend=0.82;
+const dreamSkyBlend=0.92;
+const nightSkyBlend=0.88;
+const weatherSkyBucketSteps=24;
+const nightSkyBucketSteps=32;
+const dreamSkyBucketSteps=32;
+const skyBucketChangeThreshold=0.001;
+const rainLightDim=0.24;
+const fogNightBlend=0.72;
+const fogDreamBlend=0.9;
+const dreamVisualThreshold=0.001;
+const hemiDayColor=0xffb8d4;
+const hemiGroundDayColor=0x21484d;
+const hemiInitialIntensity=1.35;
+const hemiBaseIntensity=0.42;
+const hemiDayIntensityRange=0.93;
+const hemiNightColorBlend=0.82;
+const hemiNightGroundBlend=0.72;
+const hemiDreamIntensityBoost=0.28;
+const hemiDreamColorBlend=0.82;
+const hemiDreamGroundBlend=0.9;
+const sunDayColor=0xffd29b;
+const sunInitialIntensity=2.05;
+const sunInitialPosition=[-3.5,6.5,2.2];
+const sunOrbitRadius=5.5;
+const sunBaseHeight=1.2;
+const sunLiftHeight=8.5;
+const sunBaseIntensity=0.22;
+const sunDayIntensityRange=1.83;
+const sunNightColorBlend=0.92;
+const sunDreamIntensityReduction=0.18;
+const sunDreamColorBlend=0.86;
+const rainFogNearReduction=120;
+const nightFogNearReduction=120;
+const rainFogFarReduction=650;
+const nightFogFarReduction=450;
+const jetFogFarReduction=700;
+const minNormalFogNear=520;
+const minNormalFogDepth=650;
+const dreamFogNear=45;
+const dreamFogFar=520;
+
 let currentEnvironment=worldEnvironments[Math.floor(Math.random()*worldEnvironments.length)];
 let rainIntensity=0;
 let weatherTargetIntensity=0;
 let nextWeatherChange=0;
-let baseFogNear=900;
-let baseFogFar=3600;
+let baseFogNear=initialBaseFogNear;
+let baseFogFar=initialBaseFogFar;
 let jetFogAmount=0;
 let lastSkyWeatherIntensity=-1;
 let lastSkyNightAmount=-1;
@@ -180,30 +103,20 @@ let dreamSunColor=new THREE.Color(0xffd8f4);
 const stormSkyStops=["#040711","#09121e","#172534","#2f3c45","#5f6660"];
 const nightSkyStops=["#02040c","#071121","#0d1930","#18223c","#26304a"];
 const dreamSkyStops=["#100521","#38235f","#7f62bf","#d6aeff","#fff5ff"];
-const dayNightCycleMs=360000;
-let dreamDimension=false;
-let dreamTransition=0;
-let dreamTarget=0;
-const randomPortalChunkProbability=0.025;
-const randomPortalMinSpacing=chunkSize*3.0;
-let portals=[];
-let randomPortals=new Map();
-let randomPortalRejectedKeys=new Set();
-let dreamMistGroup=null;
-let dreamMistPlanes=[];
+let portalSystem=null;
 
-function randomRange(min,max){
-  return min+Math.random()*(max-min);
+function dreamTransitionAmount(){
+  return portalSystem ? portalSystem.getDreamTransition() : 0;
 }
 
-function clamp01(value){
-  return Math.max(0,Math.min(1,value));
+function inDreamDimension(){
+  return portalSystem ? portalSystem.isDreamDimension() : false;
 }
 
 function dayNightState(now=performance.now()){
-  let phase=(now/dayNightCycleMs+0.18)%1;
+  let phase=(now/dayNightCycleMs+dayNightPhaseOffset)%1;
   let sunHeight=Math.sin(phase*Math.PI*2);
-  let dayAmount=clamp01((sunHeight+0.32)/0.44);
+  let dayAmount=clamp01((sunHeight+dayNightSunHorizonOffset)/dayNightTransitionRange);
   dayAmount=dayAmount*dayAmount*(3-2*dayAmount);
   return {
     phase,
@@ -214,25 +127,25 @@ function dayNightState(now=performance.now()){
 }
 
 function randomRainIntensity(environment,scale=1){
-  let range=environment.rainIntensity || [0.2,0.55];
+  let range=environment.rainIntensity || defaultRainIntensityRange;
   return Math.max(0,Math.min(1,randomRange(range[0],range[1])*scale));
 }
 
 function chooseWeatherTarget(environment){
   let wetness=environment.rainChance || 0;
   let roll=Math.random();
-  let clearChance=Math.max(0.08,0.72-wetness*0.64);
-  let drizzleChance=Math.min(0.36,0.12+wetness*0.28);
-  let rainChance=Math.min(0.34,0.08+wetness*0.26);
+  let clearChance=Math.max(weatherClearChanceFloor,weatherClearChanceBase-wetness*weatherClearWetnessScale);
+  let drizzleChance=Math.min(weatherDrizzleChanceMax,weatherDrizzleChanceBase+wetness*weatherDrizzleWetnessScale);
+  let rainChance=Math.min(weatherRainChanceMax,weatherRainChanceBase+wetness*weatherRainWetnessScale);
 
   if(roll<clearChance) return 0;
-  if(roll<clearChance+drizzleChance) return randomRainIntensity(environment,0.45);
-  if(roll<clearChance+drizzleChance+rainChance) return randomRainIntensity(environment,0.82);
-  return randomRainIntensity(environment,1.18);
+  if(roll<clearChance+drizzleChance) return randomRainIntensity(environment,weatherDrizzleIntensityScale);
+  if(roll<clearChance+drizzleChance+rainChance) return randomRainIntensity(environment,weatherRainIntensityScale);
+  return randomRainIntensity(environment,weatherStormIntensityScale);
 }
 
 function scheduleNextWeatherChange(now=performance.now()){
-  nextWeatherChange=now+randomRange(18000,46000);
+  nextWeatherChange=now+randomRange(weatherChangeMinMs,weatherChangeMaxMs);
 }
 
 weatherTargetIntensity=chooseWeatherTarget(currentEnvironment);
@@ -248,27 +161,27 @@ function blendHexColor(from,to,amount){
 
 function weatherSkyStops(){
   let sky=currentEnvironment.sky || ["#12072b","#33145f","#9c416f","#f08c71","#ffd3a5"];
-  let stormAmount=Math.pow(Math.max(0,Math.min(1,rainIntensity)),0.72)*0.82;
+  let stormAmount=Math.pow(Math.max(0,Math.min(1,rainIntensity)),stormSkyRainExponent)*stormSkyBlend;
   let weatherStops=sky.map((color,index)=>blendHexColor(color,stormSkyStops[index] || stormSkyStops[stormSkyStops.length-1],stormAmount));
-  let dreamAmount=smoothStep(dreamTransition)*0.92;
+  let dreamAmount=smoothStep(dreamTransitionAmount())*dreamSkyBlend;
   if(dreamAmount<=0.001) return weatherStops;
   return weatherStops.map((color,index)=>blendHexColor(color,dreamSkyStops[index] || dreamSkyStops[dreamSkyStops.length-1],dreamAmount));
 }
 
 function timeOfDaySkyStops(now=performance.now()){
-  let nightAmount=dayNightState(now).nightAmount*0.88;
+  let nightAmount=dayNightState(now).nightAmount*nightSkyBlend;
   return weatherSkyStops().map((color,index)=>blendHexColor(color,nightSkyStops[index] || nightSkyStops[nightSkyStops.length-1],nightAmount));
 }
 
 function updateSkyForWeather(force=false,now=performance.now()){
-  let weatherBucket=Math.round(rainIntensity*24)/24;
+  let weatherBucket=Math.round(rainIntensity*weatherSkyBucketSteps)/weatherSkyBucketSteps;
   let nightState=dayNightState(now);
-  let nightBucket=Math.round(nightState.nightAmount*32)/32;
-  let dreamBucket=Math.round(dreamTransition*32)/32;
+  let nightBucket=Math.round(nightState.nightAmount*nightSkyBucketSteps)/nightSkyBucketSteps;
+  let dreamBucket=Math.round(dreamTransitionAmount()*dreamSkyBucketSteps)/dreamSkyBucketSteps;
   if(!force
-    && Math.abs(weatherBucket-lastSkyWeatherIntensity)<0.001
-    && Math.abs(nightBucket-lastSkyNightAmount)<0.001
-    && Math.abs(dreamBucket-lastSkyDreamAmount)<0.001) return;
+    && Math.abs(weatherBucket-lastSkyWeatherIntensity)<skyBucketChangeThreshold
+    && Math.abs(nightBucket-lastSkyNightAmount)<skyBucketChangeThreshold
+    && Math.abs(dreamBucket-lastSkyDreamAmount)<skyBucketChangeThreshold) return;
   lastSkyWeatherIntensity=weatherBucket;
   lastSkyNightAmount=nightBucket;
   lastSkyDreamAmount=dreamBucket;
@@ -288,45 +201,43 @@ function updateDayNight(now=performance.now(),forceSky=false){
   let state=dayNightState(now);
   let day=state.dayAmount;
   let night=state.nightAmount;
-  let rainDim=1-rainIntensity*0.24;
+  let rainDim=1-rainIntensity*rainLightDim;
   headlightNightAmount=night;
 
   if(hemiLight){
-    hemiLight.intensity=(0.42+day*0.93)*rainDim;
-    hemiLight.color.set(0xffb8d4).lerp(hemiNightColor,night*0.82);
-    hemiLight.groundColor.set(0x21484d).lerp(hemiGroundNightColor,night*0.72);
-    if(dreamTransition>0.001){
-      let dreamLight=smoothStep(dreamTransition);
-      hemiLight.intensity*=1+dreamLight*0.28;
-      hemiLight.color.lerp(dreamHemiColor,dreamLight*0.82);
-      hemiLight.groundColor.lerp(dreamGroundColor,dreamLight*0.9);
+    hemiLight.intensity=(hemiBaseIntensity+day*hemiDayIntensityRange)*rainDim;
+    hemiLight.color.set(hemiDayColor).lerp(hemiNightColor,night*hemiNightColorBlend);
+    hemiLight.groundColor.set(hemiGroundDayColor).lerp(hemiGroundNightColor,night*hemiNightGroundBlend);
+    if(dreamTransitionAmount()>dreamVisualThreshold){
+      let dreamLight=smoothStep(dreamTransitionAmount());
+      hemiLight.intensity*=1+dreamLight*hemiDreamIntensityBoost;
+      hemiLight.color.lerp(dreamHemiColor,dreamLight*hemiDreamColorBlend);
+      hemiLight.groundColor.lerp(dreamGroundColor,dreamLight*hemiDreamGroundBlend);
     }
   }
 
   if(sun){
     let sunAngle=state.phase*Math.PI*2;
     let sunLift=Math.max(0,state.sunHeight);
-    sun.position.set(Math.cos(sunAngle)*5.5,1.2+sunLift*8.5,Math.sin(sunAngle)*5.5);
-    sun.intensity=(0.22+day*1.83)*rainDim;
-    sun.color.set(0xffd29b).lerp(sunNightColor,night*0.92);
-    if(dreamTransition>0.001){
-      let dreamLight=smoothStep(dreamTransition);
-      sun.intensity*=1-dreamLight*0.18;
-      sun.color.lerp(dreamSunColor,dreamLight*0.86);
+    sun.position.set(Math.cos(sunAngle)*sunOrbitRadius,sunBaseHeight+sunLift*sunLiftHeight,Math.sin(sunAngle)*sunOrbitRadius);
+    sun.intensity=(sunBaseIntensity+day*sunDayIntensityRange)*rainDim;
+    sun.color.set(sunDayColor).lerp(sunNightColor,night*sunNightColorBlend);
+    if(dreamTransitionAmount()>dreamVisualThreshold){
+      let dreamLight=smoothStep(dreamTransitionAmount());
+      sun.intensity*=1-dreamLight*sunDreamIntensityReduction;
+      sun.color.lerp(dreamSunColor,dreamLight*sunDreamColorBlend);
     }
   }
 
   if(scene.fog){
-    let dreamFog=smoothStep(dreamTransition);
-    scene.fog.color.set(currentEnvironment.fog || 0x7b4771).lerp(fogNightColor,night*0.72).lerp(dreamFogColor,dreamFog*0.9);
-    let fogNear=baseFogNear-rainIntensity*120-night*120;
-    let fogFar=baseFogFar-rainIntensity*650-night*450-jetFogAmount*700;
-    let normalNear=Math.max(520,fogNear);
-    let normalFar=Math.max(normalNear+650,fogFar);
-    let dreamNear=45;
-    let dreamFar=520;
-    scene.fog.near=normalNear+(dreamNear-normalNear)*dreamFog;
-    scene.fog.far=normalFar+(dreamFar-normalFar)*dreamFog;
+    let dreamFog=smoothStep(dreamTransitionAmount());
+    scene.fog.color.set(currentEnvironment.fog || 0x7b4771).lerp(fogNightColor,night*fogNightBlend).lerp(dreamFogColor,dreamFog*fogDreamBlend);
+    let fogNear=baseFogNear-rainIntensity*rainFogNearReduction-night*nightFogNearReduction;
+    let fogFar=baseFogFar-rainIntensity*rainFogFarReduction-night*nightFogFarReduction-jetFogAmount*jetFogFarReduction;
+    let normalNear=Math.max(minNormalFogNear,fogNear);
+    let normalFar=Math.max(normalNear+minNormalFogDepth,fogFar);
+    scene.fog.near=normalNear+(dreamFogNear-normalNear)*dreamFog;
+    scene.fog.far=normalFar+(dreamFogFar-normalFar)*dreamFog;
   }
 
   updateSkyForWeather(forceSky,now);
@@ -339,8 +250,8 @@ function updateWeather(){
     scheduleNextWeatherChange(now);
   }
 
-  rainIntensity+=(weatherTargetIntensity-rainIntensity)*0.006;
-  if(Math.abs(weatherTargetIntensity-rainIntensity)<0.003) rainIntensity=weatherTargetIntensity;
+  rainIntensity+=(weatherTargetIntensity-rainIntensity)*weatherEase;
+  if(Math.abs(weatherTargetIntensity-rainIntensity)<weatherSnapThreshold) rainIntensity=weatherTargetIntensity;
 
   updateDayNight(now);
 }
@@ -376,10 +287,10 @@ renderer.setScissorTest(true);
 document.body.appendChild(renderer.domElement);
 refreshSceneEnvironment();
 
-hemiLight=new THREE.HemisphereLight(0xffb8d4,0x21484d,1.35);
+hemiLight=new THREE.HemisphereLight(hemiDayColor,hemiGroundDayColor,hemiInitialIntensity);
 scene.add(hemiLight);
-sun=new THREE.DirectionalLight(0xffd29b,2.05);
-sun.position.set(-3.5,6.5,2.2);
+sun=new THREE.DirectionalLight(sunDayColor,sunInitialIntensity);
+sun.position.set(...sunInitialPosition);
 scene.add(sun);
 updateDayNight(performance.now(),true);
 
@@ -399,44 +310,6 @@ let gamePaused=false;
 let tradingScreenOpen=false;
 let gameMode="single";
 let gameDifficulty="medium";
-let difficultySettings={
-  easy:{
-    waveCount:0.38,
-    waveDelay:1.75,
-    patrolDelay:2.05,
-    speed:0.58,
-    fireDelay:1.55,
-    villageBudget:0.42,
-    hardFlight:false,
-    rocketAmmo:70,
-    carRocketAmmo:20,
-    cannonAmmo:500
-  },
-  medium:{
-    waveCount:1,
-    waveDelay:1,
-    patrolDelay:1,
-    speed:1,
-    fireDelay:1,
-    villageBudget:1,
-    hardFlight:false,
-    rocketAmmo:50,
-    carRocketAmmo:14,
-    cannonAmmo:300
-  },
-  hard:{
-    waveCount:1.65,
-    waveDelay:0.72,
-    patrolDelay:0.68,
-    speed:1.14,
-    fireDelay:0.5,
-    villageBudget:1.45,
-    hardFlight:true,
-    rocketAmmo:30,
-    carRocketAmmo:10,
-    cannonAmmo:200
-  }
-};
 let enemies=[];
 let enemyWaveDelay=0;
 let enemyPatrolDelay=900;
@@ -693,71 +566,6 @@ let teleportSparkMat=new THREE.PointsMaterial({
   depthTest:true,
   blending:THREE.AdditiveBlending
 });
-let portalRingGeo=new THREE.TorusGeometry(1,0.055,18,128);
-let portalCoreGeo=new THREE.CircleGeometry(1,96);
-let portalHaloGeo=new THREE.TorusGeometry(1,0.018,12,128);
-let portalRingMat=new THREE.MeshBasicMaterial({
-  color:0xd6a8ff,
-  transparent:true,
-  opacity:0.88,
-  depthWrite:false,
-  depthTest:true,
-  blending:THREE.AdditiveBlending
-});
-let portalCoreMat=new THREE.MeshBasicMaterial({
-  color:0x8ceaff,
-  transparent:true,
-  opacity:0.26,
-  depthWrite:false,
-  depthTest:true,
-  side:THREE.DoubleSide,
-  blending:THREE.AdditiveBlending
-});
-let portalSparkMat=new THREE.PointsMaterial({
-  color:0xf4d6ff,
-  size:0.22,
-  transparent:true,
-  opacity:0.88,
-  depthWrite:false,
-  depthTest:true,
-  blending:THREE.AdditiveBlending
-});
-let dreamMistGeo=new THREE.PlaneGeometry(1,1);
-let dreamMistMat=new THREE.MeshPhysicalMaterial({
-  color:0xeaf6ff,
-  metalness:1,
-  roughness:0.06,
-  clearcoat:1,
-  clearcoatRoughness:0.035,
-  emissive:0x18344c,
-  emissiveIntensity:0.08,
-  transparent:true,
-  opacity:0,
-  depthWrite:false,
-  depthTest:true,
-  side:THREE.DoubleSide
-});
-let dreamMirrorEdgeGeo=new THREE.EdgesGeometry(dreamMistGeo);
-let dreamMirrorEdgeMat=new THREE.LineBasicMaterial({
-  color:0xf7fdff,
-  transparent:true,
-  opacity:0,
-  depthWrite:false,
-  depthTest:true,
-  blending:THREE.AdditiveBlending
-});
-let dreamMirrorGlintGeo=new THREE.PlaneGeometry(0.08,1.24);
-let dreamMirrorGlintMat=new THREE.MeshBasicMaterial({
-  color:0xffffff,
-  transparent:true,
-  opacity:0,
-  depthWrite:false,
-  depthTest:true,
-  side:THREE.DoubleSide,
-  blending:THREE.AdditiveBlending
-});
-let dreamFogSpriteTexture=null;
-let dreamFogPointMat=null;
 let rockDebris=[];
 let rockDebrisGeo=new THREE.DodecahedronGeometry(1,0);
 let rockDebrisMat=new THREE.MeshStandardMaterial({color:0x4c3a5b,roughness:0.96,metalness:0.08});
@@ -786,21 +594,6 @@ let healthSupplyBandMat=new THREE.MeshStandardMaterial({color:0x7cff78,emissive:
 let boostSupplyBandMat=new THREE.MeshStandardMaterial({color:0xffe46f,emissive:0x7a5b00,emissiveIntensity:0.42,roughness:0.34,metalness:0.1});
 let jetSupplyBandMat=new THREE.MeshStandardMaterial({color:0x74e7ff,emissive:0x0e5e72,emissiveIntensity:0.62,roughness:0.24,metalness:0.12});
 let jetLogoMat=new THREE.MeshStandardMaterial({color:0xe8fbff,emissive:0x2fcfff,emissiveIntensity:0.58,roughness:0.22,metalness:0.18});
-
-function clamp(value,min,max){
-  return Math.max(min,Math.min(max,value));
-}
-
-function smoothStep(value){
-  value=clamp(value,0,1);
-  return value*value*(3-2*value);
-}
-
-function approach(value,target,amount){
-  if(value<target) return Math.min(target,value+amount);
-  if(value>target) return Math.max(target,value-amount);
-  return target;
-}
 
 function waterDepthAt(x,z){
   return waterLevel-groundHeight(x,z);
@@ -978,367 +771,16 @@ function isPlayerActor(actor){
 }
 
 function playerInvisibleToEnemies(car){
-  return dreamDimension && isPlayerActor(car);
+  return inDreamDimension() && isPlayerActor(car);
 }
 
 function playerCombatSuppressed(actor){
-  return dreamDimension && isPlayerActor(actor);
+  return inDreamDimension() && isPlayerActor(actor);
 }
 
 function enemyTargetableCars(){
-  if(dreamDimension) return [];
+  if(inDreamDimension()) return [];
   return activeCars().filter(car=>car && car.health>0 && car.group && car.group.visible);
-}
-
-function portalSurfaceY(x,z){
-  let y=drivingSurfaceHeight(x,z);
-  if(waterDepthAt(x,z)>0.3) y=Math.max(y,waterLevel+0.1);
-  return y;
-}
-
-function createPortal(x,z,yaw=0,options={}){
-  let surfaceY=portalSurfaceY(x,z);
-  let radius=options.radius || 8.5;
-  let height=radius*1.74;
-  let group=new THREE.Group();
-  group.position.set(x,surfaceY+height*0.52,z);
-  group.rotation.y=yaw;
-  group.userData={
-    x,
-    z,
-    yaw,
-    key:options.key || null,
-    randomPortal:!!options.randomPortal,
-    radius:radius*0.95,
-    visualRadius:radius,
-    height,
-    phase:Math.random()*Math.PI*2,
-    cooldown:0
-  };
-
-  let ring=new THREE.Mesh(portalRingGeo,portalRingMat.clone());
-  ring.scale.set(radius,height*0.5,radius);
-  ring.renderOrder=28;
-  group.add(ring);
-
-  let halo=new THREE.Mesh(portalHaloGeo,portalRingMat.clone());
-  halo.material.color.set(0x7ff8ff);
-  halo.material.opacity=0.58;
-  halo.scale.set(radius*1.22,height*0.61,radius*1.22);
-  halo.renderOrder=27;
-  group.add(halo);
-
-  let core=new THREE.Mesh(portalCoreGeo,portalCoreMat.clone());
-  core.scale.set(radius*0.86,height*0.43,1);
-  core.renderOrder=26;
-  group.add(core);
-
-  let sparkCount=120;
-  let sparkPositions=new Float32Array(sparkCount*3);
-  let sparkData=[];
-  for(let i=0;i<sparkCount;i++){
-    let angle=Math.random()*Math.PI*2;
-    let ringBias=0.72+Math.random()*0.42;
-    sparkPositions[i*3]=Math.cos(angle)*radius*ringBias;
-    sparkPositions[i*3+1]=(Math.random()-0.5)*height*0.9;
-    sparkPositions[i*3+2]=(Math.random()-0.5)*0.32;
-    sparkData.push({
-      angle,
-      radius:radius*ringBias,
-      y:(Math.random()-0.5)*height*0.9,
-      speed:0.35+Math.random()*1.25,
-      phase:Math.random()*Math.PI*2
-    });
-  }
-  let sparkGeo=new THREE.BufferGeometry();
-  sparkGeo.setAttribute("position",new THREE.BufferAttribute(sparkPositions,3));
-  let sparks=new THREE.Points(sparkGeo,portalSparkMat.clone());
-  sparks.renderOrder=29;
-  group.add(sparks);
-
-  group.userData.ring=ring;
-  group.userData.halo=halo;
-  group.userData.core=core;
-  group.userData.sparks=sparks;
-  group.userData.sparkPositions=sparkPositions;
-  group.userData.sparkData=sparkData;
-  portals.push(group);
-  scene.add(group);
-  return group;
-}
-
-function disposePortal(portal){
-  if(!portal) return;
-  let index=portals.indexOf(portal);
-  if(index>=0) portals.splice(index,1);
-  scene.remove(portal);
-  portal.traverse(child=>{
-    if(child.geometry && child.geometry !== portalRingGeo && child.geometry !== portalCoreGeo && child.geometry !== portalHaloGeo){
-      child.geometry.dispose();
-    }
-    if(child.material){
-      if(Array.isArray(child.material)){
-        for(let material of child.material) material.dispose();
-      }else{
-        child.material.dispose();
-      }
-    }
-  });
-}
-
-function consumePortal(portal){
-  if(!portal || !portal.userData) return;
-  let key=portal.userData.key;
-  if(key && randomPortals.get(key)===portal){
-    randomPortals.delete(key);
-    randomPortalRejectedKeys.add(key);
-  }
-  disposePortal(portal);
-}
-
-function spawnPortalPulse(portal){
-  if(!portal || !portal.userData) return;
-  let data=portal.userData;
-  let surfaceY=portalSurfaceY(data.x,data.z);
-  spawnRadiusExplosion(data.x,surfaceY+data.height*0.42,data.z,28,false);
-}
-
-function setDreamDimension(enabled,portal=null){
-  dreamDimension=!!enabled;
-  dreamTarget=dreamDimension ? 1 : 0;
-  lastSkyDreamAmount=-1;
-  if(portal) spawnPortalPulse(portal);
-}
-
-function createDreamMist(){
-  if(dreamMistGroup) return;
-  let canvas=document.createElement("canvas");
-  canvas.width=96;
-  canvas.height=96;
-  let ctx=canvas.getContext("2d");
-  let gradient=ctx.createRadialGradient(48,48,0,48,48,48);
-  gradient.addColorStop(0,"rgba(255,255,255,0.72)");
-  gradient.addColorStop(0.34,"rgba(226,214,255,0.32)");
-  gradient.addColorStop(0.68,"rgba(188,232,255,0.12)");
-  gradient.addColorStop(1,"rgba(255,255,255,0)");
-  ctx.fillStyle=gradient;
-  ctx.fillRect(0,0,96,96);
-  dreamFogSpriteTexture=new THREE.CanvasTexture(canvas);
-  dreamFogSpriteTexture.needsUpdate=true;
-  dreamFogPointMat=new THREE.PointsMaterial({
-    color:0xe8ddff,
-    map:dreamFogSpriteTexture,
-    transparent:true,
-    opacity:0,
-    size:32,
-    sizeAttenuation:true,
-    depthWrite:false,
-    depthTest:true,
-    blending:THREE.NormalBlending
-  });
-
-  dreamMistGroup=new THREE.Group();
-  dreamMistGroup.visible=false;
-  dreamMistPlanes=[];
-  let count=210;
-  let positions=new Float32Array(count*3);
-  let geometry=new THREE.BufferGeometry();
-  for(let i=0;i<count;i++){
-    let angle=Math.random()*Math.PI*2;
-    let dist=Math.pow(Math.random(),0.72)*74;
-    let y=1.8+Math.random()*17;
-    positions[i*3]=Math.cos(angle)*dist;
-    positions[i*3+1]=y;
-    positions[i*3+2]=Math.sin(angle)*dist;
-    dreamMistPlanes.push({
-      angle:(i/count)*Math.PI*2+Math.random()*0.55,
-      dist,
-      y,
-      speed:0.025+Math.random()*0.075,
-      bob:0.6+Math.random()*1.9,
-      phase:Math.random()*Math.PI*2
-    });
-  }
-  geometry.setAttribute("position",new THREE.BufferAttribute(positions,3));
-  let fogPoints=new THREE.Points(geometry,dreamFogPointMat);
-  fogPoints.renderOrder=17;
-  dreamMistGroup.userData.fogPoints=fogPoints;
-  dreamMistGroup.add(fogPoints);
-  scene.add(dreamMistGroup);
-}
-
-function dreamMistCenter(){
-  let visibleCars=activeCars().filter(car=>car && car.group && car.group.visible && car.health>0);
-  if(visibleCars.length===0) return {x:px,z:pz};
-  let x=0;
-  let z=0;
-  for(let car of visibleCars){
-    x+=car.x;
-    z+=car.z;
-  }
-  return {x:x/visibleCars.length,z:z/visibleCars.length};
-}
-
-function updateDreamMist(now=performance.now()){
-  if(!dreamMistGroup) createDreamMist();
-  let amount=smoothStep(dreamTransition);
-  dreamMistGroup.visible=amount>0.015;
-  if(!dreamMistGroup.visible) return;
-  let center=dreamMistCenter();
-  dreamMistGroup.position.set(center.x,0,center.z);
-  let fogPoints=dreamMistGroup.userData.fogPoints;
-  if(!fogPoints) return;
-  let positions=fogPoints.geometry.attributes.position.array;
-  for(let i=0;i<dreamMistPlanes.length;i++){
-    let data=dreamMistPlanes[i];
-    let drift=now*0.001*data.speed;
-    let angle=data.angle+drift;
-    let breathe=0.76+Math.sin(now*0.0015+data.phase)*0.24;
-    positions[i*3]=Math.cos(angle)*data.dist*breathe;
-    positions[i*3+1]=data.y+Math.sin(now*0.0018+data.phase)*data.bob;
-    positions[i*3+2]=Math.sin(angle)*data.dist*breathe;
-  }
-  fogPoints.geometry.attributes.position.needsUpdate=true;
-  fogPoints.material.opacity=0.72*amount;
-  fogPoints.material.size=42+amount*30;
-}
-
-function updateDreamDimensionVisuals(now=performance.now()){
-  let before=dreamTransition;
-  dreamTransition+=(dreamTarget-dreamTransition)*0.045;
-  if(Math.abs(dreamTransition-dreamTarget)<0.001) dreamTransition=dreamTarget;
-  if(Math.abs(before-dreamTransition)>0.002) lastSkyDreamAmount=-1;
-  updateDreamMist(now);
-}
-
-function animatePortal(portal,now){
-  let data=portal.userData;
-  data.cooldown=Math.max(0,(data.cooldown || 0)-1);
-  let t=now*0.001+data.phase;
-  let pulse=1+Math.sin(t*2.8)*0.045;
-  portal.position.y=portalSurfaceY(data.x,data.z)+data.height*0.52+Math.sin(t*1.7)*0.26;
-  if(data.ring){
-    data.ring.rotation.z+=0.012;
-    data.ring.scale.set(data.visualRadius*pulse,data.height*0.5*pulse,data.visualRadius*pulse);
-    data.ring.material.color.set(dreamDimension ? 0x9df7ff : 0xd6a8ff);
-    data.ring.material.opacity=0.78+Math.sin(t*4.1)*0.1;
-  }
-  if(data.halo){
-    data.halo.rotation.z-=0.008;
-    data.halo.scale.set(data.visualRadius*(1.18+Math.sin(t*2.2)*0.08),data.height*(0.59+Math.cos(t*2.5)*0.035),data.visualRadius*(1.18+Math.sin(t*2.2)*0.08));
-    data.halo.material.opacity=0.34+Math.sin(t*3.2)*0.1;
-  }
-  if(data.core){
-    data.core.rotation.z+=0.006;
-    data.core.material.color.set(dreamDimension ? 0xffcdf6 : 0x8ceaff);
-    data.core.material.opacity=0.2+Math.sin(t*5.3)*0.045;
-  }
-  if(data.sparks && data.sparkPositions && data.sparkData){
-    for(let i=0;i<data.sparkData.length;i++){
-      let spark=data.sparkData[i];
-      let a=spark.angle+t*spark.speed;
-      let wobble=0.86+Math.sin(t*3.7+spark.phase)*0.14;
-      data.sparkPositions[i*3]=Math.cos(a)*spark.radius*wobble;
-      data.sparkPositions[i*3+1]=spark.y+Math.sin(t*2.4+spark.phase)*0.55;
-      data.sparkPositions[i*3+2]=Math.sin(t*6.2+spark.phase)*0.18;
-    }
-    data.sparks.geometry.attributes.position.needsUpdate=true;
-    data.sparks.material.opacity=0.72+Math.sin(t*4.6)*0.12;
-  }
-}
-
-function portalWarpDestination(portal,car){
-  let data=portal.userData || {};
-  let baseX=Number.isFinite(data.x) ? data.x : car.x;
-  let baseZ=Number.isFinite(data.z) ? data.z : car.z;
-  let baseYaw=Number.isFinite(data.yaw) ? data.yaw : car.angle || 0;
-  let portalKeySeed=hash01(Math.floor(baseX/chunkSize)+177,Math.floor(baseZ/chunkSize)-313);
-  let preferredDirection=baseYaw+(portalKeySeed-0.5)*Math.PI*1.6;
-  let distances=[chunkSize*5.5,chunkSize*7.2,chunkSize*4.4,chunkSize*8.6,chunkSize*3.6];
-
-  for(let ring=0;ring<distances.length;ring++){
-    let distance=distances[ring];
-    let attempts=14;
-    for(let i=0;i<attempts;i++){
-      let spread=(i===0 ? 0 : ((i%2===0 ? 1 : -1)*Math.ceil(i/2))*0.34);
-      let angle=preferredDirection+spread+ring*0.47;
-      let x=baseX+Math.sin(angle)*distance;
-      let z=baseZ+Math.cos(angle)*distance;
-      if(!portalPlacementUsable(x,z)) continue;
-      if(groundHoleAt(x,z)) continue;
-      return {x,z,angle};
-    }
-  }
-
-  let fallbackDistance=chunkSize*4.5;
-  return {
-    x:baseX+Math.sin(preferredDirection)*fallbackDistance,
-    z:baseZ+Math.cos(preferredDirection)*fallbackDistance,
-    angle:preferredDirection
-  };
-}
-
-function warpCarThroughPortal(car,portal){
-  let destination=portalWarpDestination(portal,car);
-  car.x=destination.x;
-  car.z=destination.z;
-  car.angle=destination.angle;
-  car.velAngle=destination.angle;
-  car.cameraYaw=destination.angle;
-  car.speed=0;
-  car.turnVelocity=0;
-  car.speedDelta=0;
-  car.throttleEase=0;
-  car.turnInputEase=0;
-  car.y=surfaceHeightForActor(car,car.x,car.z);
-  car.surfaceDistance=roadDistance(car.x,car.z);
-  car.lastWalkX=car.x;
-  car.lastWalkZ=car.z;
-  car.vy=0;
-  car.onGround=true;
-  car.airborne=false;
-  car.portalCooldown=120;
-  car.group.position.set(car.x,car.y,car.z);
-  car.group.rotation.y=car.angle;
-  car.group.rotation.x=0;
-  car.group.rotation.z=0;
-  if(car.shadow) car.shadow.update({carX:car.x,carZ:car.z,carY:car.y,surfaceY:car.y,carVelAngle:car.velAngle || car.angle});
-  if(world && world.updateChunksForCenters && world.processChunkQueue){
-    world.updateChunksForCenters([{x:car.x,z:car.z,viewDistance:chunkViewDistanceForCar(car)}]);
-    world.processChunkQueue(36,true);
-    lastChunkSignature=chunkSignatureForCars();
-  }
-}
-
-function triggerPortalForCar(portal,car){
-  if(!portal || !car) return;
-  let data=portal.userData;
-  data.cooldown=90;
-  spawnPortalPulse(portal);
-  warpCarThroughPortal(car,portal);
-  spawnPortalPulse({userData:{x:car.x,z:car.z,height:data.height || 14}});
-  setDreamDimension(!dreamDimension);
-  consumePortal(portal);
-}
-
-function updatePortals(now=performance.now()){
-  if(portals.length===0) return;
-  for(let car of cars){
-    if(car && car.portalCooldown>0) car.portalCooldown--;
-  }
-  for(let portal of portals){
-    animatePortal(portal,now);
-    let data=portal.userData;
-    for(let car of activeCars()){
-      if(!car || car.health<=0 || !car.group || !car.group.visible || car.portalCooldown>0 || data.cooldown>0) continue;
-      let dx=car.x-data.x;
-      let dz=car.z-data.z;
-      if(dx*dx+dz*dz<data.radius*data.radius){
-        triggerPortalForCar(portal,car);
-        break;
-      }
-    }
-  }
 }
 
 function rainRenderingSuspendedByJet(){
@@ -1495,6 +937,24 @@ secondCar.group.visible=false;
 secondCar.shadow.setVisible(false);
 
 let world=createWorld(scene,{getDifficulty:()=>gameDifficulty,getEnvironment:()=>currentEnvironment});
+portalSystem=createPortalSystem({
+  scene,
+  waterLevel,
+  cars:()=>cars,
+  activeCars,
+  fallbackCenter:()=>({x:px,z:pz}),
+  drivingSurfaceHeight,
+  waterDepthAt,
+  surfaceHeightForActor,
+  roadDistance,
+  groundHoleAt,
+  getWorld:()=>world,
+  chunkViewDistanceForCar,
+  chunkSignatureForCars,
+  setLastChunkSignature:value=>{lastChunkSignature=value;},
+  spawnRadiusExplosion,
+  onDreamTransitionChange:()=>{lastSkyDreamAmount=-1;}
+});
 let clouds=createClouds(scene,()=>({carX:playerCar.x,carZ:playerCar.z}));
 let stars=createStars(scene,()=>{
   let visibleCars=cars.filter(car=>car.group.visible && car.health>0);
@@ -3306,11 +2766,6 @@ function updateRockDebris(){
       rockDebris.splice(i,1);
     }
   }
-}
-
-function hash01(a,b){
-  let value=Math.sin(a*127.1+b*311.7)*43758.5453;
-  return value-Math.floor(value);
 }
 
 function makeSupplyBox(type){
@@ -8662,94 +8117,6 @@ function updateRareTradingOutposts(){
   }
 }
 
-function portalPlacementUsable(x,z){
-  if(waterDepthAt(x,z)>0.45) return false;
-  if(world.collidesWithObstacles(x,z)) return false;
-
-  let centerY=drivingSurfaceHeight(x,z);
-  let samples=[
-    [9,0],
-    [-9,0],
-    [0,9],
-    [0,-9],
-    [6,6],
-    [-6,6],
-    [6,-6],
-    [-6,-6]
-  ];
-  let minY=centerY;
-  let maxY=centerY;
-  for(let sample of samples){
-    let sx=x+sample[0];
-    let sz=z+sample[1];
-    if(waterDepthAt(sx,sz)>0.45) return false;
-    if(world.collidesWithObstacles(sx,sz)) return false;
-    let y=drivingSurfaceHeight(sx,sz);
-    minY=Math.min(minY,y);
-    maxY=Math.max(maxY,y);
-  }
-  if(maxY-minY>3.2) return false;
-
-  for(let portal of portals){
-    let data=portal.userData || {};
-    let dx=x-data.x;
-    let dz=z-data.z;
-    if(dx*dx+dz*dz<randomPortalMinSpacing*randomPortalMinSpacing) return false;
-  }
-
-  return true;
-}
-
-function randomPortalCandidateForChunk(cx,cz,key){
-  if(hash01(cx+1531,cz-911)>randomPortalChunkProbability) return null;
-
-  for(let attempt=0;attempt<5;attempt++){
-    let x=(cx+0.16+hash01(cx*19+attempt*97,cz*23-attempt*41)*0.68)*chunkSize;
-    let z=(cz+0.16+hash01(cx*31-attempt*53,cz*17+attempt*89)*0.68)*chunkSize;
-    let yaw=hash01(cx*43+attempt*11,cz*47-attempt*13)*Math.PI*2;
-    if(!portalPlacementUsable(x,z)) continue;
-    return {key,x,z,yaw};
-  }
-
-  return null;
-}
-
-function updateRandomPortals(){
-  if(!world || !world.chunks) return;
-
-  for(let [key,portal] of randomPortals){
-    if(!world.chunks.has(key)){
-      disposePortal(portal);
-      randomPortals.delete(key);
-    }
-  }
-
-  for(let [key,chunk] of world.chunks){
-    if(randomPortals.has(key)) continue;
-    if(randomPortalRejectedKeys.has(key)) continue;
-    let candidate=randomPortalCandidateForChunk(chunk.cx,chunk.cz,key);
-    if(!candidate){
-      randomPortalRejectedKeys.add(key);
-      continue;
-    }
-
-    let portal=createPortal(candidate.x,candidate.z,candidate.yaw,{
-      key,
-      randomPortal:true,
-      radius:8.5
-    });
-    randomPortals.set(key,portal);
-  }
-}
-
-function clearRandomPortals(){
-  for(let portal of randomPortals.values()){
-    disposePortal(portal);
-  }
-  randomPortals.clear();
-  randomPortalRejectedKeys.clear();
-}
-
 function placeTradingOutpostNearPlayerBaseStation(){
   clearPlayerBaseTradingOutpost();
   if(!tradingOutpostModel || !tradingOutpost) return;
@@ -8985,7 +8352,7 @@ function chunkSignatureForCars(){
 
 function fixedUpdateGame(){
   updateRareTradingOutposts();
-  updateRandomPortals();
+  portalSystem.updateRandomPortals();
   updateScannerMode();
   for(let car of activeCars()){
     updateCar(car);
@@ -9010,8 +8377,8 @@ function fixedUpdateGame(){
   updateBossLaserBeams();
   updateJetFogAmount();
   updateGiantTestRobot();
-  updatePortals();
-  updateDreamDimensionVisuals();
+  portalSystem.updatePortals();
+  portalSystem.updateDreamDimensionVisuals();
   updateWeather();
   world.updateWind(performance.now(),rainIntensity);
   for(let car of cars) updateVehicleHeadlights(car);
@@ -9037,8 +8404,8 @@ function loop(timestamp=performance.now()){
     fixedAccumulator=0;
     updateCameras();
     world.processChunkQueue(4,true);
-    updatePortals(timestamp);
-    updateDreamDimensionVisuals(timestamp);
+    portalSystem.updatePortals(timestamp);
+    portalSystem.updateDreamDimensionVisuals(timestamp);
     updateWeather();
     world.updateWind(timestamp,rainIntensity);
     for(let car of cars) updateVehicleHeadlights(car);
@@ -9098,7 +8465,7 @@ function loop(timestamp=performance.now()){
   let chunkBudget=chunkBuildBudget();
   world.processChunkQueue(chunkBudget.items,false,chunkBudget.frameMs);
   updateRareTradingOutposts();
-  updateRandomPortals();
+  portalSystem.updateRandomPortals();
   pauseMenu.update(timestamp);
   renderGame();
 }
@@ -9384,7 +8751,7 @@ function startGame(mode,difficulty="medium"){
   scoredVillages=new WeakSet();
   scannedBossBases=new Set();
   clearRareTradingOutposts(true);
-  clearRandomPortals();
+  portalSystem.clearRandomPortals();
   clearPlayerBaseTradingOutpost();
   scannerKeyDown=false;
   scannerReadyAt=0;
@@ -9893,7 +9260,7 @@ updateCameras();
 lastChunkSignature=chunkSignatureForCars();
 world.updateChunksForCenters(chunkCentersForActiveCars());
 world.processChunkQueue(80,true);
-updateRandomPortals();
+portalSystem.updateRandomPortals();
 clouds.makeClouds();
 birds.makeBirds();
 loop();
