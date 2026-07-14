@@ -12,6 +12,8 @@ export function createWorld(scene,options={}){
   let bossBases=[];
   let bossBaseColliders=[];
   let landingSpaceModel=null;
+  let treasureChestModels=[];
+  let treasureHoleChance=0.24;
   let animatedLandingRings=[];
   let activeVillages=[];
   let activeTurrets=[];
@@ -135,6 +137,7 @@ grassMat.onBeforeCompile=shader=>{
 };
 let rockMat=new THREE.MeshStandardMaterial({color:0x3f334b,roughness:1,metalness:0.12});
 let gravelMat=new THREE.MeshStandardMaterial({color:0x5a5164,roughness:1,metalness:0.02});
+let holeMat=new THREE.MeshStandardMaterial({color:0x100d12,emissive:0x020105,emissiveIntensity:0.18,roughness:1,metalness:0});
 let buildingWallMat=new THREE.MeshStandardMaterial({color:0x5a526d,roughness:0.9,metalness:0.16});
 let buildingRoofMat=new THREE.MeshStandardMaterial({color:0x322b45,roughness:0.92,metalness:0.18});
 let windowMat=new THREE.MeshStandardMaterial({color:0x8dfff2,emissive:0x0bd1c4,emissiveIntensity:0.72,roughness:0.18});
@@ -153,6 +156,7 @@ let podGeo=new THREE.SphereGeometry(.72,8,6);
 let grassGeo=new THREE.ConeGeometry(.04,1.2,2);
 let rockGeo=new THREE.DodecahedronGeometry(1,0);
 let gravelGeo=new THREE.DodecahedronGeometry(1,0);
+let holeBottomGeo=new THREE.CircleGeometry(1,40);
 let buildingGeo=new THREE.BoxGeometry(1,1,1);
 let buildingRoofGeo=new THREE.CylinderGeometry(1.05,1.25,1,4);
 let windowGeo=new THREE.BoxGeometry(1,1,1);
@@ -213,6 +217,7 @@ function applyEnvironment(environment={}){
   setMaterialColor(grassMat,colors.grass,colors.grassEmissive);
   setMaterialColor(rockMat,colors.rock);
   setMaterialColor(gravelMat,mixHexColor(colors.rock,colors.shore,0.36));
+  setMaterialColor(holeMat,mixHexColor(colors.roof || colors.rock,colors.bark || colors.low,0.62),mixHexColor(colors.barkEmissive || colors.bark || colors.rock,colors.roof || colors.low,0.75));
   setMaterialColor(buildingWallMat,colors.wall);
   setMaterialColor(buildingRoofMat,colors.roof);
   setMaterialColor(chimneyMat,colors.roof);
@@ -814,6 +819,123 @@ function terrainPatchOk(x,z,radius,maxHeight=24,maxRange=7){
   return minH>-12 && maxH<maxHeight && maxH-minH<maxRange;
 }
 
+function holeDepthAt(hole,x,z){
+  if(!hole) return 0;
+  let dx=x-hole.x;
+  let dz=z-hole.z;
+  let dist=Math.hypot(dx,dz);
+  if(dist>=hole.r) return 0;
+
+  let inner=hole.innerR || hole.r*0.34;
+  if(dist<=inner) return hole.depth;
+
+  let t=(dist-inner)/Math.max(0.001,hole.r-inner);
+  let rim=t*t*(3-2*t);
+  return hole.depth*(1-rim);
+}
+
+function pointInHole(holes,x,z,padding=0){
+  if(!holes) return null;
+  for(let hole of holes){
+    let radius=(hole.r || 0)+padding;
+    let dx=x-hole.x;
+    let dz=z-hole.z;
+    if(dx*dx+dz*dz<radius*radius) return hole;
+  }
+  return null;
+}
+
+function holesForChunk(cx,cz,cityMode=false){
+  let holes=[];
+  let firstRoll=r01(cx*1229+19,cz*1697-31);
+  let targetCount=cityMode
+    ? (firstRoll>0.72 ? 1 : 0)
+    : firstRoll>0.84 ? 3 : firstRoll>0.34 ? 2 : 1;
+
+  for(let i=0;i<targetCount;i++){
+    for(let attempt=0;attempt<18;attempt++){
+      let rx=r01(cx*2381+i*101+attempt*17,cz*997-i*67-attempt*11);
+      let rz=r01(cx*1471-i*53-attempt*23,cz*2063+i*83+attempt*13);
+      let x=cx*chunkSize+(rx-0.5)*chunkSize;
+      let z=cz*chunkSize+(rz-0.5)*chunkSize;
+      let y=groundHeight(x,z);
+      let radius=20+r01(cx*421+i*37+attempt,cz*733-i*19)*22;
+
+      if(y<waterLevel+4 || y>42) continue;
+      if(roadDistance(x,z)<44+radius*0.55) continue;
+      if(!terrainPatchOk(x,z,radius*1.18,46,10.5)) continue;
+      if(pointInHole(holes,x,z,radius*1.8)) continue;
+
+      let maxDepth=Math.max(3,y-waterLevel-2.2);
+      let depth=Math.min(maxDepth,7.5+r01(cx*887-i*7,cz*569+attempt*29)*10.5);
+      holes.push({
+        x,
+        z,
+        y,
+        r:radius,
+        innerR:radius*(0.32+r01(cx+i*5,cz-attempt*3)*0.1),
+        depth,
+        type:"hole"
+      });
+      break;
+    }
+  }
+
+  return holes;
+}
+
+function prepareTreasureColorShift(object){
+  if(!object) return;
+  object.traverse(child=>{
+    if(!child.isMesh || !child.material) return;
+
+    let materials=Array.isArray(child.material) ? child.material : [child.material];
+    let shifted=materials.map(material=>{
+      let clone=material.clone();
+      if(clone.color) clone.userData.baseColor=clone.color.clone();
+      if(clone.emissive) clone.userData.baseEmissive=clone.emissive.clone();
+      clone.userData.baseEmissiveIntensity=Number.isFinite(clone.emissiveIntensity) ? clone.emissiveIntensity : 0;
+      return clone;
+    });
+    child.material=Array.isArray(child.material) ? shifted : shifted[0];
+  });
+}
+
+function makeTreasureChestForHole(hole,cx,cz,index){
+  if(!hole || !treasureChestModels.length) return null;
+  if(r01(cx*1759+index*97,cz*2441-index*43)>treasureHoleChance) return null;
+
+  let modelIndex=Math.floor(r01(cx*313+index*41,cz*719-index*17)*treasureChestModels.length)%treasureChestModels.length;
+  let source=treasureChestModels[modelIndex];
+  if(!source) return null;
+
+  let treasure=new THREE.Group();
+  treasure.name="hole-treasure";
+
+  let chest=source.clone(true);
+  chest.name="hole-treasure-chest";
+  chest.position.set(hole.x,hole.y-hole.depth+0.72,hole.z);
+  chest.rotation.y=r01(cx*887+index*23,cz*463-index*31)*Math.PI*2;
+  chest.scale.multiplyScalar(Math.max(0.72,Math.min(1.12,hole.innerR/8.5)));
+  chest.traverse(child=>{
+    if(child.isMesh){
+      child.castShadow=true;
+      child.receiveShadow=true;
+    }
+  });
+  prepareTreasureColorShift(chest);
+
+  treasure.add(chest);
+  treasure.userData.colorShiftSeed=r01(cx*1201+index*67,cz*1567-index*29)*Math.PI*2;
+  treasure.userData.x=hole.x;
+  treasure.userData.z=hole.z;
+  treasure.userData.r=Math.max(3.2,Math.min(8,hole.innerR*0.42));
+  treasure.userData.treasureType=source.userData.treasureType || "common";
+  treasure.userData.collected=false;
+
+  return treasure;
+}
+
 function localColliderAt(colliders,x,z,padding=0){
   for(let obstacle of colliders){
     if(obstacle.destroyed || obstacle.type==="smallRock") continue;
@@ -826,7 +948,7 @@ function localColliderAt(colliders,x,z,padding=0){
   return null;
 }
 
-function landingSpacePointForChunk(cx,cz,colliders){
+function landingSpacePointForChunk(cx,cz,colliders,holes=[]){
   if(!landingSpaceModel) return null;
   if(r01(cx*953+17,cz*587-29)>0.055) return null;
 
@@ -840,6 +962,7 @@ function landingSpacePointForChunk(cx,cz,colliders){
     if(y<waterLevel+1.2 || y>30) continue;
     if(roadDistance(x,z)<74) continue;
     if(!terrainPatchOk(x,z,34,34,3.2)) continue;
+    if(pointInHole(holes,x,z,54)) continue;
     if(localColliderAt(colliders,x,z,44)) continue;
 
     return {
@@ -971,6 +1094,9 @@ function* makeChunk(cx,cz){
   let landingSpaces=[];
   let landingSurfaces=[];
   let landingRings=[];
+  let holes=holesForChunk(cx,cz,cityMode);
+  let holeMeshes=[];
+  let treasureChests=[];
   let chunkHasWater=false;
   let geo=new THREE.PlaneGeometry(chunkSize,chunkSize,segments,segments);
   geo.rotateX(-Math.PI/2);
@@ -978,11 +1104,21 @@ function* makeChunk(cx,cz){
   let pos=geo.attributes.position;
   let vertexColor=new THREE.Color();
   let lowColor=new THREE.Color(envColors.low);
+  let holeColor=new THREE.Color(0x09070a);
 
   for(let i=0;i<pos.count;i++){
     let wx=pos.getX(i)+cx*chunkSize;
     let wz=pos.getZ(i)+cz*chunkSize;
     let h=groundHeight(wx,wz);
+    let holeAmount=0;
+
+    for(let hole of holes){
+      let depth=holeDepthAt(hole,wx,wz);
+      if(depth>0){
+        h-=depth;
+        holeAmount=Math.max(holeAmount,depth/Math.max(0.001,hole.depth));
+      }
+    }
 
     if(h<waterLevel){
       chunkHasWater=true;
@@ -1000,6 +1136,9 @@ function* makeChunk(cx,cz){
     else if(h<15) vertexColor.set(envColors.low);
     else if(h<30) vertexColor.set(envColors.mid);
     else vertexColor.set(envColors.high);
+    if(holeAmount>0){
+      vertexColor.lerp(holeColor,Math.min(0.82,holeAmount*0.95));
+    }
 
     colors.push(vertexColor.r,vertexColor.g,vertexColor.b);
   }
@@ -1011,6 +1150,25 @@ function* makeChunk(cx,cz){
   land.position.set(cx*chunkSize,0,cz*chunkSize);
   freezeStaticObject(land);
   chunkRoot.add(land);
+
+  for(let holeIndex=0;holeIndex<holes.length;holeIndex++){
+    let hole=holes[holeIndex];
+    let bottom=new THREE.Mesh(holeBottomGeo,holeMat);
+    bottom.name="ground-hole-bottom";
+    bottom.rotation.x=-Math.PI/2;
+    bottom.position.set(hole.x,hole.y-hole.depth+0.04,hole.z);
+    bottom.scale.setScalar(hole.innerR*1.08);
+    bottom.renderOrder=1;
+    freezeStaticObject(bottom);
+    holeMeshes.push(bottom);
+    chunkRoot.add(bottom);
+
+    let chest=makeTreasureChestForHole(hole,cx,cz,holeIndex);
+    if(chest){
+      treasureChests.push(chest);
+      chunkRoot.add(chest);
+    }
+  }
 
   let road=new THREE.Object3D();
   let water=new THREE.Object3D();
@@ -1053,6 +1211,7 @@ function* makeChunk(cx,cz){
 
     if(centerY<-15 || centerY>32) continue;
     if(roadDistance(centerX,centerZ)<70) continue;
+    if(pointInHole(holes,centerX,centerZ,clusterRadius+8)) continue;
 
     colliders.push({x:centerX,z:centerZ,r:6,type:"treeCluster"});
 
@@ -1074,6 +1233,7 @@ function* makeChunk(cx,cz){
       let trunkHeightScale=vegetation.trunkHeightBase+rand(cx*31+i,cz*41-c)*vegetation.trunkHeightVariance;
       let trunkWidthScale=vegetation.trunkWidthBase+rand(cx*43-i,cz*47+c)*vegetation.trunkWidthVariance;
       let rootRadius=Math.max(1.7,scale*trunkWidthScale*1.9);
+      if(pointInHole(holes,wx,wz,rootRadius+2)) continue;
       if(!terrainPatchOk(wx,wz,rootRadius,34,2.6)) continue;
 
       let treeCollider={x:wx,z:wz,r:2.4,type:"tree",instances:[]};
@@ -1187,6 +1347,7 @@ function* makeChunk(cx,cz){
 
       if(wy<-15 || wy>28) continue;
       if(roadDistance(wx,wz)<35) continue;
+      if(pointInHole(holes,wx,wz,1.8)) continue;
 
       let scale=.4+rand(i,cx-cz)*.8;
 
@@ -1221,6 +1382,7 @@ function* makeChunk(cx,cz){
 
     if(wy<-18) continue;
     if(roadDistance(wx,wz)<40) continue;
+    if(pointInHole(holes,wx,wz,scale+4)) continue;
 
     colliders.push({
       x:wx,
@@ -1270,6 +1432,7 @@ function* makeChunk(cx,cz){
     if(wy<waterLevel+1.2 || wy>38) continue;
     if(roadDist<28) continue;
     if(cityMode && roadDist<76) continue;
+    if(pointInHole(holes,wx,wz,1.2)) continue;
 
     let scale=0.16+rand(i*5+11,cx-cz)*0.38;
     let flatness=0.035+rand(cx+i*3,cz-i*2)*0.055;
@@ -1334,6 +1497,7 @@ function* makeChunk(cx,cz){
     let villageRadius=cityMode
       ? 86+r01(cx-v*3,cz+v*9)*34
       : 20+(r01(cx-v*3,cz+v*9)*24)+(largeTown ? 16+r01(cx*503-v*7,cz*211+v*5)*10 : 0);
+    if(pointInHole(holes,centerX,centerZ,villageRadius+18)) continue;
     if(!terrainPatchOk(centerX,centerZ,villageRadius*(cityMode ? 1.08 : 1.28),largeTown ? 25 : 23,cityMode ? 7.5 : largeTown ? 8 : 6.5)) continue;
 
     let bossVillage=largeTown && r01(cx*1741+v*71,cz*927-v*37)>0.42;
@@ -1704,7 +1868,7 @@ function* makeChunk(cx,cz){
   chunkRoot.add(buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,cityStreets);
   yield;
 
-  let landingSpacePoint=landingSpacePointForChunk(cx,cz,colliders);
+  let landingSpacePoint=landingSpacePointForChunk(cx,cz,colliders,holes);
   if(landingSpacePoint){
     landingSpaces.push(makeLandingSpace(landingSpacePoint,chunkRoot));
     let landingSurface=makeLandingSurface(landingSpacePoint);
@@ -1714,7 +1878,7 @@ function* makeChunk(cx,cz){
 
   scene.add(chunkRoot);
 
-  return {cx,cz,root:chunkRoot,land,road,water,trunks,crowns,pods,grasses,rocks,gravel,buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,cityStreets,landingSpaces,landingSurfaces,landingRings,villageCenters,colliders};
+  return {cx,cz,root:chunkRoot,land,road,water,trunks,crowns,pods,grasses,rocks,gravel,holeMeshes,treasureChests,buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,cityStreets,landingSpaces,landingSurfaces,landingRings,villageCenters,colliders,holes};
 }
 
 function updateChunksForCenters(centers){
@@ -1816,6 +1980,8 @@ function disposeChunk(chunk){
     chunk.grasses,
     chunk.rocks,
     chunk.gravel,
+    ...(chunk.holeMeshes || []),
+    ...(chunk.treasureChests || []),
     chunk.buildingBodies,
     chunk.buildingRoofs,
     chunk.buildingWindows,
@@ -2026,7 +2192,7 @@ function setLandingSpaceModel(model){
   landingSpaceModel=model;
   for(let chunk of chunks.values()){
     if(!chunk || (chunk.landingSpaces && chunk.landingSpaces.length>0)) continue;
-    let landingSpacePoint=landingSpacePointForChunk(chunk.cx,chunk.cz,chunk.colliders || []);
+    let landingSpacePoint=landingSpacePointForChunk(chunk.cx,chunk.cz,chunk.colliders || [],chunk.holes || []);
     if(landingSpacePoint){
       chunk.landingSpaces=chunk.landingSpaces || [];
       chunk.landingSurfaces=chunk.landingSurfaces || [];
@@ -2038,6 +2204,97 @@ function setLandingSpaceModel(model){
       chunk.landingRings.push(makeLandingRing(landingSurface,parent));
     }
   }
+}
+
+function setTreasureChestModels(models=[]){
+  treasureChestModels=Array.isArray(models) ? models.filter(Boolean) : [];
+
+  for(let chunk of chunks.values()){
+    if(!chunk || !chunk.holes) continue;
+
+    if(chunk.treasureChests){
+      for(let chest of chunk.treasureChests){
+        if(chest && chest.parent) chest.parent.remove(chest);
+        else if(chest) scene.remove(chest);
+      }
+    }
+
+    chunk.treasureChests=[];
+    if(!treasureChestModels.length) continue;
+
+    for(let i=0;i<chunk.holes.length;i++){
+      let chest=makeTreasureChestForHole(chunk.holes[i],chunk.cx,chunk.cz,i);
+      if(!chest) continue;
+      chunk.treasureChests.push(chest);
+      (chunk.root || scene).add(chest);
+    }
+  }
+}
+
+function updateTreasureColors(now=performance.now()){
+  let t=now*0.0016;
+  let tint=new THREE.Color();
+  let glow=new THREE.Color();
+  for(let chunk of chunks.values()){
+    if(!chunk || !chunk.treasureChests) continue;
+
+    for(let chest of chunk.treasureChests){
+      let phase=t+(chest.userData.colorShiftSeed || 0);
+      tint.setHSL((phase*0.18)%1,0.88,0.58);
+      glow.setHSL((phase*0.18+0.08)%1,0.95,0.5);
+
+      chest.traverse(child=>{
+        if(!child.isMesh || !child.material) return;
+
+        let materials=Array.isArray(child.material) ? child.material : [child.material];
+        for(let material of materials){
+          if(material.color && material.userData.baseColor){
+            material.color.copy(material.userData.baseColor).lerp(tint,0.48);
+          }
+          if(material.emissive && material.userData.baseEmissive){
+            material.emissive.copy(material.userData.baseEmissive).lerp(glow,0.76);
+            material.emissiveIntensity=(material.userData.baseEmissiveIntensity || 0)+0.34+Math.sin(phase*2.4)*0.12;
+          }
+        }
+      });
+    }
+  }
+}
+
+function collectTreasureAt(x,z,radius=3.2){
+  let pcx=Math.floor(x/chunkSize);
+  let pcz=Math.floor(z/chunkSize);
+
+  for(let dx=-1;dx<=1;dx++){
+    for(let dz=-1;dz<=1;dz++){
+      let chunk=chunks.get(chunkKey(pcx+dx,pcz+dz));
+      if(!chunk || !chunk.treasureChests) continue;
+
+      for(let i=chunk.treasureChests.length-1;i>=0;i--){
+        let treasure=chunk.treasureChests[i];
+        if(!treasure || treasure.userData.collected) continue;
+
+        let tx=treasure.userData.x;
+        let tz=treasure.userData.z;
+        let reach=radius+(treasure.userData.r || 3.2);
+        let ddx=x-tx;
+        let ddz=z-tz;
+        if(ddx*ddx+ddz*ddz>reach*reach) continue;
+
+        treasure.userData.collected=true;
+        if(treasure.parent) treasure.parent.remove(treasure);
+        else scene.remove(treasure);
+        chunk.treasureChests.splice(i,1);
+        return {
+          type:treasure.userData.treasureType || "common",
+          x:tx,
+          z:tz
+        };
+      }
+    }
+  }
+
+  return null;
 }
 
 function landingSurfaceAt(x,z,physicalOnly=false){
@@ -2072,6 +2329,37 @@ function landingSurfaceHeightAt(x,z,physicalOnly=false){
   return surface ? surface.y : null;
 }
 
+function holeAt(x,z){
+  let pcx=Math.floor(x/chunkSize);
+  let pcz=Math.floor(z/chunkSize);
+  let best=null;
+  let bestIntensity=0;
+
+  for(let dx=-1;dx<=1;dx++){
+    for(let dz=-1;dz<=1;dz++){
+      let chunk=chunks.get(chunkKey(pcx+dx,pcz+dz));
+      if(!chunk || !chunk.holes) continue;
+
+      for(let hole of chunk.holes){
+        let depth=holeDepthAt(hole,x,z);
+        if(depth<=0) continue;
+        let intensity=depth/Math.max(0.001,hole.depth);
+        if(intensity>bestIntensity){
+          bestIntensity=intensity;
+          best={...hole,depthAtPoint:depth,intensity};
+        }
+      }
+    }
+  }
+
+  return best;
+}
+
+function holeSurfaceHeightAt(x,z){
+  let hole=holeAt(x,z);
+  return hole ? groundHeight(x,z)-hole.depthAtPoint : null;
+}
+
   return {
     chunks,
     bossBases,
@@ -2094,8 +2382,13 @@ function landingSurfaceHeightAt(x,z,physicalOnly=false){
     processChunkQueue,
     setEnvironment:applyEnvironment,
     setLandingSpaceModel,
+    setTreasureChestModels,
+    updateTreasureColors,
+    collectTreasureAt,
     landingSurfaceAt,
     landingSurfaceHeightAt,
+    holeAt,
+    holeSurfaceHeightAt,
     resetChunks
   };
 }

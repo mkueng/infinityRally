@@ -552,7 +552,109 @@ function makeMissionOutpostTerminal(bounds){
   return terminal;
 }
 
-export function normalizeTradingOutpostModel(outpost){
+function makeBaseStationStandingLights(bounds={}){
+  let lights=new THREE.Group();
+  lights.name="base_station_standing_lights";
+
+  let housingMat=new THREE.MeshStandardMaterial({
+    name:"base_station_standing_light_housing",
+    color:0x1e2b31,
+    roughness:0.48,
+    metalness:0.55
+  });
+  let panelMat=new THREE.MeshStandardMaterial({
+    name:"base_station_standing_light_panel",
+    color:0xf4ffff,
+    emissive:0xbdfcff,
+    emissiveIntensity:7.5,
+    roughness:0.18,
+    metalness:0.04
+  });
+  let floorGlowMat=new THREE.MeshBasicMaterial({
+    name:"base_station_standing_light_floor_reflection",
+    color:0x9ff7ff,
+    transparent:true,
+    opacity:0.34,
+    depthWrite:false,
+    blending:THREE.AdditiveBlending
+  });
+
+  function box(name,width,height,depth,material,x,y,z){
+    let mesh=new THREE.Mesh(new THREE.BoxGeometry(width,height,depth),material);
+    mesh.name=name;
+    mesh.position.set(x,y,z);
+    mesh.castShadow=false;
+    mesh.receiveShadow=false;
+    lights.add(mesh);
+    return mesh;
+  }
+
+  function cyl(name,radius,depth,material,x,y,z,segments=20){
+    let mesh=new THREE.Mesh(new THREE.CylinderGeometry(radius,radius,depth,segments),material);
+    mesh.name=name;
+    mesh.position.set(x,y,z);
+    mesh.castShadow=true;
+    mesh.receiveShadow=true;
+    lights.add(mesh);
+    return mesh;
+  }
+
+  function floorGlow(x,z){
+    let mesh=new THREE.Mesh(new THREE.CircleGeometry(2.8,36),floorGlowMat);
+    mesh.name="base_station_standing_light_floor_reflection";
+    mesh.position.set(x,floorY+0.035,z);
+    mesh.rotation.x=-Math.PI/2;
+    mesh.castShadow=false;
+    mesh.receiveShadow=false;
+    lights.add(mesh);
+    return mesh;
+  }
+
+  let floorY=Number.isFinite(bounds.floorY) ? bounds.floorY : 0;
+  let floorMinX=Number.isFinite(bounds.floorMinX) ? bounds.floorMinX : -20;
+  let floorMaxX=Number.isFinite(bounds.floorMaxX) ? bounds.floorMaxX : 20;
+  let floorMinZ=Number.isFinite(bounds.floorMinZ) ? bounds.floorMinZ : -20;
+  let floorMaxZ=Number.isFinite(bounds.floorMaxZ) ? bounds.floorMaxZ : 20;
+  let ceilingY=Number.isFinite(bounds.ceilingY) ? bounds.ceilingY : floorY+11.5;
+  let leftWallX=Number.isFinite(bounds.wallLeftX) ? bounds.wallLeftX+2.6 : floorMinX+2.8;
+  let rightWallX=Number.isFinite(bounds.wallRightX) ? bounds.wallRightX-2.6 : floorMaxX-2.8;
+  let depth=Math.max(18,floorMaxZ-floorMinZ);
+  let lampHeight=Math.max(3.8,Math.min(5.2,ceilingY-floorY-2.4));
+  let tubeHeight=lampHeight*0.62;
+  let tubeY=floorY+0.36+lampHeight-tubeHeight*0.5;
+  let rows=[floorMinZ+depth*0.27,floorMinZ+depth*0.5,floorMinZ+depth*0.73];
+  let sides=[
+    {x:leftWallX,glowX:leftWallX+0.9},
+    {x:rightWallX,glowX:rightWallX-0.9}
+  ];
+
+  for(let side of sides){
+    for(let z of rows){
+      cyl("base_station_standing_light_base",0.72,0.24,housingMat,side.x,floorY+0.12,z,24);
+      cyl("base_station_standing_light_pole",0.12,lampHeight,housingMat,side.x,floorY+0.36+lampHeight*0.5,z,14);
+      cyl("base_station_standing_light_tube",0.34,tubeHeight,panelMat,side.x,tubeY,z,24);
+      box("base_station_standing_light_cap",0.78,0.16,0.78,housingMat,side.x,tubeY+tubeHeight*0.5+0.12,z);
+      box("base_station_standing_light_cap",0.78,0.16,0.78,housingMat,side.x,tubeY-tubeHeight*0.5-0.12,z);
+      floorGlow(side.x,z);
+
+      let glow=new THREE.PointLight(0xd9ffff,2.8,42,1.85);
+      glow.name="base_station_standing_light_glow";
+      glow.position.set(side.glowX,tubeY,z);
+      glow.castShadow=false;
+      lights.add(glow);
+
+      let floorBounce=new THREE.PointLight(0x9ff7ff,0.75,16,2.4);
+      floorBounce.name="base_station_standing_light_floor_bounce";
+      floorBounce.position.set(side.x,floorY+0.45,z);
+      floorBounce.castShadow=false;
+      lights.add(floorBounce);
+    }
+  }
+
+  return lights;
+}
+
+export function normalizeTradingOutpostModel(outpost,options={}){
   let model=new THREE.Group();
   let asset=new THREE.Group();
   outpost.rotation.x=-Math.PI/2;
@@ -620,6 +722,7 @@ export function normalizeTradingOutpostModel(outpost){
   });
 
   if(hasWallBounds || hasFloorBounds){
+    let floorY=hasFloorBounds ? floorBounds.max.y : 0;
     model.userData.tradingOutpostBounds={
       wallMinX:hasWallBounds ? wallBounds.min.x : -model.userData.footprintHalfX,
       wallMaxX:hasWallBounds ? wallBounds.max.x : model.userData.footprintHalfX,
@@ -633,11 +736,13 @@ export function normalizeTradingOutpostModel(outpost){
       floorMaxX:hasFloorBounds ? floorBounds.max.x : model.userData.footprintHalfX,
       floorMinZ:hasFloorBounds ? floorBounds.min.z : -model.userData.footprintHalfZ,
       floorMaxZ:hasFloorBounds ? floorBounds.max.z : model.userData.footprintHalfZ,
-      floorY:hasFloorBounds ? floorBounds.max.y : 0
+      floorY,
+      ceilingY:hasWallBounds ? Math.max(floorY+7,wallBounds.max.y-1.4) : floorY+11.5
     };
   }
 
   model.add(makeMissionOutpostTerminal(model.userData.tradingOutpostBounds || {}));
+  if(options.standingLights) model.add(makeBaseStationStandingLights(model.userData.tradingOutpostBounds || {}));
 
   model.traverse(child=>{
     if(child.isMesh){
@@ -687,6 +792,32 @@ export function loadTradingOutpostModel(){
         objLoader.load(
           "tinker.obj",
           object=>resolve(normalizeTradingOutpostModel(object)),
+          undefined,
+          reject
+        );
+      },
+      undefined,
+      reject
+    );
+  });
+}
+
+export function loadBaseStationModel(){
+  let mtlLoader=new MTLLoader();
+  mtlLoader.setPath("assets/baseStation/");
+
+  return new Promise((resolve,reject)=>{
+    mtlLoader.load(
+      "obj.mtl",
+      materials=>{
+        materials.preload();
+
+        let objLoader=new OBJLoader();
+        objLoader.setPath("assets/baseStation/");
+        objLoader.setMaterials(materials);
+        objLoader.load(
+          "tinker.obj",
+          object=>resolve(normalizeTradingOutpostModel(object,{standingLights:true})),
           undefined,
           reject
         );
@@ -765,6 +896,87 @@ export function loadBackPackModel(){
       reject
     );
   });
+}
+
+export function normalizeTreasureChestModel(chest,type="common"){
+  let model=new THREE.Group();
+  let asset=new THREE.Group();
+  chest.rotation.x=-Math.PI/2;
+  asset.add(chest);
+  model.add(asset);
+  model.updateMatrixWorld(true);
+
+  let box=new THREE.Box3().setFromObject(model);
+  let size=new THREE.Vector3();
+  let center=new THREE.Vector3();
+  box.getSize(size);
+  box.getCenter(center);
+
+  let scale=4.6/Math.max(size.x,size.y,size.z,0.001);
+  model.scale.setScalar(scale);
+  model.updateMatrixWorld(true);
+
+  box.setFromObject(model);
+  box.getCenter(center);
+  asset.position.x-=center.x/scale;
+  asset.position.z-=center.z/scale;
+  model.updateMatrixWorld(true);
+
+  box.setFromObject(model);
+  asset.position.y-=box.min.y/scale;
+
+  model.traverse(child=>{
+    if(child.isMesh){
+      child.castShadow=true;
+      child.receiveShadow=true;
+      if(child.geometry) child.geometry.computeVertexNormals();
+      if(child.material){
+        let materials=Array.isArray(child.material) ? child.material : [child.material];
+        for(let material of materials){
+          material.side=THREE.FrontSide;
+          material.roughness=material.roughness ?? 0.54;
+          material.metalness=material.metalness ?? 0.22;
+        }
+      }
+    }
+  });
+
+  model.name=`treasure-chest-${type}`;
+  model.userData.treasureType=type;
+  return model;
+}
+
+export function loadTreasureChestModels(){
+  let types=["common","normal","rare"];
+
+  function loadTreasureChestModel(type){
+    let path=`assets/treasures/${type}/`;
+    let mtlLoader=new MTLLoader();
+    mtlLoader.setPath(path);
+
+    return new Promise((resolve,reject)=>{
+      mtlLoader.load(
+        "obj.mtl",
+        materials=>{
+          materials.preload();
+
+          let objLoader=new OBJLoader();
+          objLoader.setPath(path);
+          objLoader.setMaterials(materials);
+          objLoader.load(
+            "tinker.obj",
+            object=>resolve(normalizeTreasureChestModel(object,type)),
+            undefined,
+            reject
+          );
+        },
+        undefined,
+        reject
+      );
+    });
+  }
+
+  return Promise.all(types.map(loadTreasureChestModel));
 }
 
 export function makeMechModel(accentColor=0xb83a32){

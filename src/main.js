@@ -6,7 +6,7 @@ import { createHud } from "./hud.js?v=scanned-outposts";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=night-stars";
 import { createWorld } from "./world.js?v=landing-touchdown-back";
 import { createMotorAudio } from "./audio.js?v=scanner-mp3-quiet";
-import { loadBackPackModel, loadCarModel, loadJetModel, loadLandingSpaceModel, loadTradingOutpostModel, makeMechModel } from "./models.js?v=backpack-player";
+import { loadBackPackModel, loadBaseStationModel, loadCarModel, loadJetModel, loadLandingSpaceModel, loadTradingOutpostModel, loadTreasureChestModels, makeMechModel } from "./models.js?v=base-station";
 import { makeSkyTexture } from "./textures.js?v=night-stars";
 
 const worldEnvironments=[
@@ -404,6 +404,7 @@ let enemyBudgetRun=0;
 let mothership=null;
 let giantTestRobot=null;
 let mothershipDelay=mothershipMinDelay+Math.floor(Math.random()*mothershipRandomDelay);
+let baseStationModel=null;
 let tradingOutpostModel=null;
 let tradingOutpost=null;
 let tradingOutpostCollision=null;
@@ -712,6 +713,8 @@ function tradingOutpostSurfaceHeightAt(x,z,margin=0){
 
 function drivingSurfaceHeight(x,z,outpostMargin=0){
   let surfaceY=carSurfaceHeight(x,z);
+  let holeSurfaceY=world && world.holeSurfaceHeightAt ? world.holeSurfaceHeightAt(x,z) : null;
+  if(Number.isFinite(holeSurfaceY)) surfaceY=Math.min(surfaceY,holeSurfaceY);
   let landingSurfaceY=world && world.landingSurfaceHeightAt ? world.landingSurfaceHeightAt(x,z,true) : null;
   if(Number.isFinite(landingSurfaceY)) surfaceY=Math.max(surfaceY,landingSurfaceY);
   let tradingOutpostSurfaceY=tradingOutpostSurfaceHeightAt(x,z,outpostMargin);
@@ -733,6 +736,10 @@ function landingSurfaceAt(x,z){
 
 function landingPadSurfaceAt(x,z){
   return world && world.landingSurfaceAt ? world.landingSurfaceAt(x,z,true) : null;
+}
+
+function groundHoleAt(x,z){
+  return world && world.holeAt ? world.holeAt(x,z) : null;
 }
 
 function terrainSlopeAt(x,z){
@@ -994,6 +1001,7 @@ function createCarState(id,lateralOffset,controls,camera,gamepadIndex){
     fuel:maxFuel,
     hitRattle:0,
     hitRattleSeed:0,
+    holeDamageCooldown:0,
     walkCycle:0,
     lastWalkX:0,
     lastWalkZ:0,
@@ -1704,6 +1712,26 @@ function updateRobotDamageFlashes(car){
 function addScore(amount){
   score+=amount;
   if(hud) hud.updateCompassHud();
+}
+
+function treasureScoreAmount(type){
+  if(type==="rare") return 300;
+  if(type==="normal") return 180;
+  return 90;
+}
+
+function updateTreasurePickups(){
+  if(!world || !world.collectTreasureAt) return;
+
+  for(let car of activeCars()){
+    if(!car || !car.group.visible || car.health<=0) continue;
+
+    let treasure=world.collectTreasureAt(car.x,car.z,car.collisionRadius || 2.35);
+    if(!treasure) continue;
+
+    addScore(treasureScoreAmount(treasure.type));
+    hud.updateCompassHud();
+  }
 }
 
 function destroyWorldObstacle(obstacle){
@@ -6117,11 +6145,11 @@ function setupMorphModels(car,accentColor){
   applyRobotHitFlashVisuals(car.mechModel,car.damageFlashZones || createRobotDamageState());
 }
 
-function attachBackPackToPlayerRobot(model){
-  if(!model || !playerCar.mechModel || !playerCar.mechModel.userData) return;
+function attachBackPackToPlayerRobot(car,model){
+  if(!car || !model || !car.mechModel || !car.mechModel.userData) return;
 
-  let parts=playerCar.mechModel.userData.walkParts || {};
-  let backMount=parts.torso || playerCar.mechModel;
+  let parts=car.mechModel.userData.walkParts || {};
+  let backMount=parts.torso || car.mechModel;
   let existing=backMount.getObjectByName("player-backpack");
   if(existing) backMount.remove(existing);
 
@@ -7563,16 +7591,28 @@ function updateCar(car){
     car.x+=Math.sin(moveAngle)*car.speed;
     car.z+=Math.cos(moveAngle)*car.speed;
     if(carGroundMovement && Math.abs(car.speed)>0.01){
+      let previousSurface=surfaceHeightForActor(car,prevX,prevZ);
+      let nextSurface=surfaceHeightForActor(car,car.x,car.z);
+      let crestDrop=previousSurface-nextSurface;
+      let launchSpeed=clamp((Math.abs(car.speed)-0.72)/1.05,0,1);
+      if(launchSpeed>0 && crestDrop>0.18 && car.y<=previousSurface+0.22 && car.vy<=0.04){
+        let crestStrength=clamp((crestDrop-0.18)/2.4,0,1)*launchSpeed;
+        car.vy=Math.max(car.vy,0.2+crestStrength*0.72);
+        car.y=previousSurface+0.08;
+        car.onGround=false;
+        car.airborne=true;
+      }
+
       let uphillGrade=uphillGradeAlongSegment(prevX,prevZ,car.x,car.z);
-      if(uphillGrade>0.006){
-        let uphill01=clamp((uphillGrade-0.006)/0.09,0,1);
-        let uphillEase=uphill01*uphill01;
-        let uphillDrag=0.00035+uphillEase*0.018;
-        let uphillMaxSpeed=localMaxSpeed*morphSpeedMultiplier*(1-uphillEase*0.55);
+      if(uphillGrade>0.014){
+        let uphill01=clamp((uphillGrade-0.014)/0.11,0,1);
+        let uphillEase=uphill01*uphill01*uphill01;
+        let uphillDrag=uphillEase*0.009;
+        let uphillMaxSpeed=localMaxSpeed*morphSpeedMultiplier*(1-uphillEase*0.34);
         let speedSign=car.speed<0 ? -1 : 1;
         car.speed*=1-uphillDrag;
         if(Math.abs(car.speed)>uphillMaxSpeed){
-          let slowedAbs=approach(Math.abs(car.speed),uphillMaxSpeed,0.012+uphillEase*0.045);
+          let slowedAbs=approach(Math.abs(car.speed),uphillMaxSpeed,0.003+uphillEase*0.024);
           car.speed=speedSign*slowedAbs;
         }
       }
@@ -7660,6 +7700,21 @@ function updateCar(car){
   let waterDrag=clamp(waterDepthAt(car.x,car.z)/(robotWaterMovement ? 8.2 : 9.5),0,1);
   if(!gameOver && !carDisabled && !jetHovering && waterDrag>0){
     car.speed*=1-(robotWaterMovement ? 0.03 : 0.018)*waterDrag;
+  }
+
+  if(car.holeDamageCooldown>0) car.holeDamageCooldown--;
+  let groundHole=groundHoleAt(car.x,car.z);
+  if(!gameOver && !carDisabled && !jetHovering && groundHole){
+    let intensity=clamp(groundHole.intensity || 0,0,1);
+    let deep=clamp((intensity-0.28)/0.72,0,1);
+    car.speed*=1-(0.018+0.052*deep)*deep;
+    car.vy-=0.006*deep;
+
+    if(deep>0.42 && car.y<=surfaceY+1.4 && Math.abs(car.speed)>0.08 && car.holeDamageCooldown<=0){
+      damageCar(car,1+Math.floor(deep*2),{x:car.x,y:car.y,z:car.z});
+      rattleActor(car,0.28+deep*0.34);
+      car.holeDamageCooldown=54;
+    }
   }
 
   if(!gameOver && !carDisabled) car.vy-=flying ? gravityStrength*0.22 : jetHovering ? 0 : gravityStrength;
@@ -8051,7 +8106,7 @@ function clearRareTradingOutposts(clearScanned=false){
 
 function rareTradingOutpostCandidateForChunk(cx,cz){
   if(!tradingOutpostModel) return null;
-  if(hash01(cx+931,cz-577)>0.1) return null;
+  if(hash01(cx+931,cz-577)>0.045) return null;
 
   let x=(cx+0.18+hash01(cx*7+13,cz*5-19)*0.64)*chunkSize;
   let z=(cz+0.18+hash01(cx*11-29,cz*3+31)*0.64)*chunkSize;
@@ -8348,6 +8403,7 @@ function fixedUpdateGame(){
   for(let car of activeCars()){
     updateCar(car);
   }
+  updateTreasurePickups();
   updateMothership();
   updateEnemies();
   updateVillageTurrets();
@@ -8369,6 +8425,7 @@ function fixedUpdateGame(){
   updateGiantTestRobot();
   updateWeather();
   world.updateWind(performance.now(),rainIntensity);
+  if(world.updateTreasureColors) world.updateTreasureColors(performance.now());
   for(let car of cars) updateVehicleHeadlights(car);
   motorAudio.update();
   updateCameras();
@@ -8484,6 +8541,7 @@ function roadPointForOffset(z,lateralOffset){
 const startFieldOffsets=[-135,135,-180,180,-105,105,-230,230];
 
 function fieldPatchInfo(x,z,radius=18){
+  if(groundHoleAt(x,z)) return null;
   let minH=Infinity;
   let maxH=-Infinity;
   let samples=[
@@ -8502,6 +8560,7 @@ function fieldPatchInfo(x,z,radius=18){
     let sx=x+sample[0]*radius;
     let sz=z+sample[1]*radius;
     if(waterDepthAt(sx,sz)>0.05) return null;
+    if(groundHoleAt(sx,sz)) return null;
     if(roadDistance(sx,sz)<72) return null;
 
     let h=groundHeight(sx,sz);
@@ -8741,6 +8800,8 @@ function startGame(mode,difficulty="medium"){
   secondCar.damageZones=createRobotDamageState();
   playerCar.damageFlashZones=createRobotDamageState();
   secondCar.damageFlashZones=createRobotDamageState();
+  playerCar.holeDamageCooldown=0;
+  secondCar.holeDamageCooldown=0;
   applyRobotHitFlashVisuals(playerCar.mechModel,playerCar.damageFlashZones);
   applyRobotHitFlashVisuals(secondCar.mechModel,secondCar.damageFlashZones);
   clearSurfaceScanPulses();
@@ -8790,7 +8851,8 @@ setCarActive(secondCar,false);
 
 loadBackPackModel()
   .then(model=>{
-    attachBackPackToPlayerRobot(model);
+    attachBackPackToPlayerRobot(playerCar,model);
+    attachBackPackToPlayerRobot(secondCar,model);
   })
   .catch(error=>{
     console.error("Failed to load backpack model:",error);
@@ -8829,10 +8891,27 @@ loadLandingSpaceModel()
     console.error("Failed to load landing space model:",error);
   });
 
+loadTreasureChestModels()
+  .then(models=>{
+    if(world.setTreasureChestModels) world.setTreasureChestModels(models);
+  })
+  .catch(error=>{
+    console.error("Failed to load treasure chest models:",error);
+  });
+
+loadBaseStationModel()
+  .then(model=>{
+    baseStationModel=model;
+    placeTradingOutpostNearStart(currentStartInfo);
+    placeTradingOutpostNearPlayerBaseStation();
+  })
+  .catch(error=>{
+    console.error("Failed to load base station model:",error);
+  });
+
 loadTradingOutpostModel()
   .then(model=>{
     tradingOutpostModel=model;
-    placeTradingOutpostNearStart(currentStartInfo);
     placeTradingOutpostNearPlayerBaseStation();
     updateRareTradingOutposts();
   })
@@ -8926,8 +9005,8 @@ function clearTradingOutpost(){
   tradingTerminalObject=null;
 }
 
-function setTradingOutpostCollision(x,z,angle,y){
-  let modelData=tradingOutpostModel ? tradingOutpostModel.userData || {} : {};
+function setTradingOutpostCollision(x,z,angle,y,model=tradingOutpostModel){
+  let modelData=model ? model.userData || {} : {};
   let bounds=modelData.tradingOutpostBounds || {};
   let halfX=Math.max(31,(Number.isFinite(modelData.footprintHalfX) ? modelData.footprintHalfX : 31)-3.2);
   let halfZ=Math.max(33,(Number.isFinite(modelData.footprintHalfZ) ? modelData.footprintHalfZ : 33)-3.2);
@@ -9059,8 +9138,8 @@ function updateTradingOutpostRepair(){
   if(repaired) hud.updateHealthHud();
 }
 
-function tradingOutpostFootprintSize(){
-  let modelData=tradingOutpostModel ? tradingOutpostModel.userData || {} : {};
+function tradingOutpostFootprintSize(model=tradingOutpostModel){
+  let modelData=model ? model.userData || {} : {};
   let bounds=modelData.tradingOutpostBounds || {};
   let halfX=Number.isFinite(bounds.floorMinX) && Number.isFinite(bounds.floorMaxX)
     ? Math.max(Math.abs(bounds.floorMinX),Math.abs(bounds.floorMaxX))
@@ -9075,12 +9154,13 @@ function tradingOutpostFootprintSize(){
   };
 }
 
-function tradingOutpostPlacementInfo(x,z,angle){
+function tradingOutpostPlacementInfo(x,z,angle,model=tradingOutpostModel){
   if(waterDepthAt(x,z)>0.18) return null;
+  if(groundHoleAt(x,z)) return null;
   if(roadDistance(x,z)<42) return null;
   if(world.collidesWithObstacles(x,z,22)) return null;
 
-  let footprint=tradingOutpostFootprintSize();
+  let footprint=tradingOutpostFootprintSize(model);
   let c=Math.cos(angle);
   let s=Math.sin(angle);
   let steps=[-1,-0.5,0,0.5,1];
@@ -9098,6 +9178,7 @@ function tradingOutpostPlacementInfo(x,z,angle){
       let wz=z-localX*s+localZ*c;
 
       if(waterDepthAt(wx,wz)>0.08) return null;
+      if(groundHoleAt(wx,wz)) return null;
       if(roadDistance(wx,wz)<30) return null;
       if(world.collidesWithObstacles(wx,wz,5)) return null;
 
@@ -9131,7 +9212,7 @@ function tradingOutpostPlacementInfo(x,z,angle){
 
 function placeTradingOutpostNearStart(startInfo){
   if(startInfo) currentStartInfo=startInfo;
-  if(!tradingOutpostModel || !currentStartInfo) return;
+  if(!baseStationModel || !currentStartInfo) return;
 
   clearTradingOutpost();
 
@@ -9175,7 +9256,7 @@ function placeTradingOutpostNearStart(startInfo){
   for(let offset of offsets){
     let x=basePoint.x+forwardX*offset.forward+rightX*offset.right;
     let z=basePoint.z+forwardZ*offset.forward+rightZ*offset.right;
-    let info=tradingOutpostPlacementInfo(x,z,angle+Math.PI*0.5);
+    let info=tradingOutpostPlacementInfo(x,z,angle+Math.PI*0.5,baseStationModel);
     if(!info) continue;
 
     let distanceScore=Math.hypot(offset.forward,offset.right)*0.025;
@@ -9194,12 +9275,12 @@ function placeTradingOutpostNearStart(startInfo){
     };
   }
 
-  tradingOutpost=tradingOutpostModel.clone(true);
+  tradingOutpost=baseStationModel.clone(true);
   tradingTerminalObject=tradingOutpost.getObjectByName("missionOutpostTerminal");
   tradingOutpost.position.set(chosen.x,chosen.y,chosen.z);
   tradingOutpost.rotation.y=angle+Math.PI*0.5;
   tintTradingOutpostForEnvironment(tradingOutpost);
-  setTradingOutpostCollision(chosen.x,chosen.z,tradingOutpost.rotation.y,tradingOutpost.position.y);
+  setTradingOutpostCollision(chosen.x,chosen.z,tradingOutpost.rotation.y,tradingOutpost.position.y,baseStationModel);
   scene.add(tradingOutpost);
 }
 
