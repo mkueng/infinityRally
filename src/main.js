@@ -442,8 +442,10 @@ let longRangeRocketSpeed=2.85;
 let rocketCooldownFrames=34;
 let rocketTurnRate=0.075;
 let rocketAimYOffset=-4.2;
-let aimOffsetYMin=-9;
-let aimOffsetYMax=13;
+let aimOffsetYMin=-16;
+let aimOffsetYMax=21;
+let cameraAimPitchMin=-8.4;
+let cameraAimPitchMax=8.8;
 let initialClusterBombAmmo=10;
 let maxBoostCharge=100;
 let maxFuel=100;
@@ -7707,8 +7709,16 @@ function updateCar(car){
   if(!gameOver && !carDisabled && !jetHovering && groundHole){
     let intensity=clamp(groundHole.intensity || 0,0,1);
     let deep=clamp((intensity-0.28)/0.72,0,1);
-    car.speed*=1-(0.018+0.052*deep)*deep;
-    car.vy-=0.006*deep;
+    let carMode=car.morphProgress>0.65;
+    let throttleEscape=clamp(Math.abs(car.throttleEase || car.throttleInput || 0),0,1);
+    let holeDrag=carMode ? 0.006+0.016*deep : 0.014+0.036*deep;
+    holeDrag*=1-throttleEscape*(carMode ? 0.72 : 0.42);
+    car.speed*=1-holeDrag*deep;
+    if(carMode && throttleEscape>0.12 && Math.abs(car.speed)<0.22){
+      let escapeSpeed=0.018*throttleEscape*(1-deep*0.35);
+      car.speed+=Math.sign(car.throttleEase || car.throttleInput || 1)*escapeSpeed;
+    }
+    car.vy-=carMode ? 0.0015*deep : 0.004*deep;
 
     if(deep>0.42 && car.y<=surfaceY+1.4 && Math.abs(car.speed)>0.08 && car.holeDamageCooldown<=0){
       damageCar(car,1+Math.floor(deep*2),{x:car.x,y:car.y,z:car.z});
@@ -7911,9 +7921,9 @@ function updateCameraForCar(car){
       let normalized=((innerHeight*0.5)-input.mouse.y)/Math.max(1,innerHeight*0.5);
       let deadZone=0.12;
       let amount=Math.max(0,(Math.abs(normalized)-deadZone)/(1-deadZone));
-      targetPitchOffset=Math.sign(normalized)*amount*5.2;
+      targetPitchOffset=normalized>0 ? amount*cameraAimPitchMax : -amount*Math.abs(cameraAimPitchMin);
     }else{
-      targetPitchOffset=clamp((car.controllerAimOffsetY || 0)*0.34,-4.6,5.2);
+      targetPitchOffset=clamp((car.controllerAimOffsetY || 0)*0.42,cameraAimPitchMin,cameraAimPitchMax);
     }
   }
 

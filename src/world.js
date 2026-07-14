@@ -137,7 +137,6 @@ grassMat.onBeforeCompile=shader=>{
 };
 let rockMat=new THREE.MeshStandardMaterial({color:0x3f334b,roughness:1,metalness:0.12});
 let gravelMat=new THREE.MeshStandardMaterial({color:0x5a5164,roughness:1,metalness:0.02});
-let holeMat=new THREE.MeshStandardMaterial({color:0x100d12,emissive:0x020105,emissiveIntensity:0.18,roughness:1,metalness:0});
 let buildingWallMat=new THREE.MeshStandardMaterial({color:0x5a526d,roughness:0.9,metalness:0.16});
 let buildingRoofMat=new THREE.MeshStandardMaterial({color:0x322b45,roughness:0.92,metalness:0.18});
 let windowMat=new THREE.MeshStandardMaterial({color:0x8dfff2,emissive:0x0bd1c4,emissiveIntensity:0.72,roughness:0.18});
@@ -156,7 +155,6 @@ let podGeo=new THREE.SphereGeometry(.72,8,6);
 let grassGeo=new THREE.ConeGeometry(.04,1.2,2);
 let rockGeo=new THREE.DodecahedronGeometry(1,0);
 let gravelGeo=new THREE.DodecahedronGeometry(1,0);
-let holeBottomGeo=new THREE.CircleGeometry(1,40);
 let buildingGeo=new THREE.BoxGeometry(1,1,1);
 let buildingRoofGeo=new THREE.CylinderGeometry(1.05,1.25,1,4);
 let windowGeo=new THREE.BoxGeometry(1,1,1);
@@ -217,7 +215,6 @@ function applyEnvironment(environment={}){
   setMaterialColor(grassMat,colors.grass,colors.grassEmissive);
   setMaterialColor(rockMat,colors.rock);
   setMaterialColor(gravelMat,mixHexColor(colors.rock,colors.shore,0.36));
-  setMaterialColor(holeMat,mixHexColor(colors.roof || colors.rock,colors.bark || colors.low,0.62),mixHexColor(colors.barkEmissive || colors.bark || colors.rock,colors.roof || colors.low,0.75));
   setMaterialColor(buildingWallMat,colors.wall);
   setMaterialColor(buildingRoofMat,colors.roof);
   setMaterialColor(chimneyMat,colors.roof);
@@ -859,21 +856,23 @@ function holesForChunk(cx,cz,cityMode=false){
       let x=cx*chunkSize+(rx-0.5)*chunkSize;
       let z=cz*chunkSize+(rz-0.5)*chunkSize;
       let y=groundHeight(x,z);
-      let radius=20+r01(cx*421+i*37+attempt,cz*733-i*19)*22;
+      let sizeRoll=r01(cx*421+i*37+attempt,cz*733-i*19);
+      let radius=32+Math.pow(sizeRoll,1.28)*58;
 
       if(y<waterLevel+4 || y>42) continue;
       if(roadDistance(x,z)<44+radius*0.55) continue;
-      if(!terrainPatchOk(x,z,radius*1.18,46,10.5)) continue;
-      if(pointInHole(holes,x,z,radius*1.8)) continue;
+      if(!terrainPatchOk(x,z,radius*0.92,50,14.5)) continue;
+      if(pointInHole(holes,x,z,radius*1.65)) continue;
 
       let maxDepth=Math.max(3,y-waterLevel-2.2);
-      let depth=Math.min(maxDepth,7.5+r01(cx*887-i*7,cz*569+attempt*29)*10.5);
+      let depthRoll=r01(cx*887-i*7,cz*569+attempt*29);
+      let depth=Math.min(maxDepth,10+depthRoll*12+(radius-32)*0.12);
       holes.push({
         x,
         z,
         y,
         r:radius,
-        innerR:radius*(0.32+r01(cx+i*5,cz-attempt*3)*0.1),
+        innerR:radius*(0.34+r01(cx+i*5,cz-attempt*3)*0.16),
         depth,
         type:"hole"
       });
@@ -1109,7 +1108,8 @@ function* makeChunk(cx,cz){
   for(let i=0;i<pos.count;i++){
     let wx=pos.getX(i)+cx*chunkSize;
     let wz=pos.getZ(i)+cz*chunkSize;
-    let h=groundHeight(wx,wz);
+    let baseH=groundHeight(wx,wz);
+    let h=baseH;
     let holeAmount=0;
 
     for(let hole of holes){
@@ -1120,14 +1120,17 @@ function* makeChunk(cx,cz){
       }
     }
 
-    if(h<waterLevel){
+    if(baseH<waterLevel){
       chunkHasWater=true;
       h=Math.min(h,waterLevel-0.55);
     }
 
     pos.setY(i,h);
 
-    if(h<waterLevel) vertexColor.set(envColors.underwater);
+    if(holeAmount>0){
+      let wallShade=0.18+Math.min(0.82,holeAmount)*0.22;
+      vertexColor.set(holeColor).lerp(lowColor,wallShade);
+    }else if(h<waterLevel) vertexColor.set(envColors.underwater);
     else if(h<waterLevel+2.7) vertexColor.set(envColors.shore);
     else if(h<waterLevel+5.4){
       let t=(h-(waterLevel+2.7))/2.7;
@@ -1136,9 +1139,6 @@ function* makeChunk(cx,cz){
     else if(h<15) vertexColor.set(envColors.low);
     else if(h<30) vertexColor.set(envColors.mid);
     else vertexColor.set(envColors.high);
-    if(holeAmount>0){
-      vertexColor.lerp(holeColor,Math.min(0.82,holeAmount*0.95));
-    }
 
     colors.push(vertexColor.r,vertexColor.g,vertexColor.b);
   }
@@ -1153,16 +1153,6 @@ function* makeChunk(cx,cz){
 
   for(let holeIndex=0;holeIndex<holes.length;holeIndex++){
     let hole=holes[holeIndex];
-    let bottom=new THREE.Mesh(holeBottomGeo,holeMat);
-    bottom.name="ground-hole-bottom";
-    bottom.rotation.x=-Math.PI/2;
-    bottom.position.set(hole.x,hole.y-hole.depth+0.04,hole.z);
-    bottom.scale.setScalar(hole.innerR*1.08);
-    bottom.renderOrder=1;
-    freezeStaticObject(bottom);
-    holeMeshes.push(bottom);
-    chunkRoot.add(bottom);
-
     let chest=makeTreasureChestForHole(hole,cx,cz,holeIndex);
     if(chest){
       treasureChests.push(chest);
