@@ -86,6 +86,7 @@ export function createWorld(scene,options={}){
 let landMat=new THREE.MeshStandardMaterial({
   map:makeGroundTexture(currentEnvironment),
   vertexColors:true,
+  side:THREE.DoubleSide,
   roughness:0.92,
   metalness:0.04
 });
@@ -949,6 +950,18 @@ function holesForChunk(cx,cz,cityMode=false){
   return holes;
 }
 
+function terrainHolesForChunk(cx,cz){
+  let holes=[];
+  for(let dx=-1;dx<=1;dx++){
+    for(let dz=-1;dz<=1;dz++){
+      let hx=cx+dx;
+      let hz=cz+dz;
+      holes.push(...holesForChunk(hx,hz,chunkHasCityDistrict(hx,hz)));
+    }
+  }
+  return holes;
+}
+
 function makeTreasureChestForHole(hole,cx,cz,index){
   if(!hole || !treasureChestModels.length) return null;
   if(r01(cx*1759+index*97,cz*2441-index*43)>treasureHoleChance) return null;
@@ -1140,9 +1153,12 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   let landingSpaces=[];
   let landingSurfaces=[];
   let landingRings=[];
-  let holes=precomputedTerrain && Array.isArray(precomputedTerrain.holes)
+  let localHoles=precomputedTerrain && Array.isArray(precomputedTerrain.holes)
     ? precomputedTerrain.holes
     : holesForChunk(cx,cz,cityMode);
+  let holes=precomputedTerrain && Array.isArray(precomputedTerrain.terrainHoles)
+    ? precomputedTerrain.terrainHoles
+    : terrainHolesForChunk(cx,cz);
   let holeMeshes=[];
   let treasureChests=[];
   let chunkHasWater=!!(precomputedTerrain && precomputedTerrain.chunkHasWater);
@@ -1208,8 +1224,8 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   freezeStaticObject(land);
   chunkRoot.add(land);
 
-  for(let holeIndex=0;holeIndex<holes.length;holeIndex++){
-    let hole=holes[holeIndex];
+  for(let holeIndex=0;holeIndex<localHoles.length;holeIndex++){
+    let hole=localHoles[holeIndex];
     let chest=makeTreasureChestForHole(hole,cx,cz,holeIndex);
     if(chest){
       treasureChests.push(chest);
@@ -1924,7 +1940,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
 
   scene.add(chunkRoot);
 
-  return {cx,cz,root:chunkRoot,land,road,water,trunks,crowns,pods,grasses,rocks,gravel,holeMeshes,treasureChests,buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,cityStreets,landingSpaces,landingSurfaces,landingRings,villageCenters,colliders,holes};
+  return {cx,cz,root:chunkRoot,land,road,water,trunks,crowns,pods,grasses,rocks,gravel,holeMeshes,treasureChests,buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,cityStreets,landingSpaces,landingSurfaces,landingRings,villageCenters,colliders,holes:localHoles};
 }
 
 function updateChunksForCenters(centers){
@@ -2146,6 +2162,7 @@ function startNextChunkBuild(useWorker=true){
         cx:item.cx,
         cz:item.cz,
         cityMode:chunkHasCityDistrict(item.cx,item.cz),
+        cityDistrictChance:cityDistrictChance(),
         colors:environmentColors(),
         seed:chunkWorkerTerrainSeed,
         terrainProfile:chunkWorkerTerrainProfile

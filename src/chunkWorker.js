@@ -123,6 +123,22 @@ function holesForChunk(cx,cz,cityMode=false){
   return holes;
 }
 
+function chunkHasCityDistrict(cx,cz,chance){
+  return r01(cx*37,cz*53)<=chance;
+}
+
+function terrainHolesForChunk(cx,cz,cityDistrictChance){
+  let holes=[];
+  for(let dx=-1;dx<=1;dx++){
+    for(let dz=-1;dz<=1;dz++){
+      let hx=cx+dx;
+      let hz=cz+dz;
+      holes.push(...holesForChunk(hx,hz,chunkHasCityDistrict(hx,hz,cityDistrictChance)));
+    }
+  }
+  return holes;
+}
+
 function buildTerrainChunk(message){
   setWorldSeed(message.seed,message.terrainProfile || {});
   if(!terrainLocalX || !terrainLocalZ || terrainLocalX.length!==terrainLocalZ.length){
@@ -139,7 +155,9 @@ function buildTerrainChunk(message){
   let underwaterColor=colorComponents(envColors.underwater ?? 0x8f5a6c);
   let holeColor=colorComponents(0x09070a);
 
-  let holes=holesForChunk(cx,cz,!!message.cityMode);
+  let cityDistrictChance=Number.isFinite(message.cityDistrictChance) ? message.cityDistrictChance : 0.075;
+  let localHoles=holesForChunk(cx,cz,!!message.cityMode);
+  let terrainHoles=terrainHolesForChunk(cx,cz,cityDistrictChance);
   let vertexCount=terrainLocalX.length;
   let heights=new Float32Array(vertexCount);
   let colors=new Float32Array(vertexCount*3);
@@ -152,7 +170,7 @@ function buildTerrainChunk(message){
     let h=baseH;
     let holeAmount=0;
 
-    for(let hole of holes){
+    for(let hole of terrainHoles){
       let depth=holeDepthAt(hole,wx,wz);
       if(depth>0){
         h-=depth;
@@ -181,7 +199,7 @@ function buildTerrainChunk(message){
     else writeColor(colors,index,highColor);
   }
 
-  return {heights,colors,holes,chunkHasWater};
+  return {heights,colors,holes:localHoles,terrainHoles,chunkHasWater};
 }
 
 self.onmessage=event=>{
@@ -203,6 +221,7 @@ self.onmessage=event=>{
       heights:result.heights,
       colors:result.colors,
       holes:result.holes,
+      terrainHoles:result.terrainHoles,
       chunkHasWater:result.chunkHasWater
     },[result.heights.buffer,result.colors.buffer]);
   }catch(error){
