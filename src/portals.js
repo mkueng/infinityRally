@@ -659,6 +659,11 @@ export function createPortalSystem(context){
   return {
     isDreamDimension:()=>dreamDimension,
     getDreamTransition:()=>dreamTransition,
+    getPortals:()=>portals.map(portal=>({
+      x:portal.userData && Number.isFinite(portal.userData.x) ? portal.userData.x : portal.position.x,
+      z:portal.userData && Number.isFinite(portal.userData.z) ? portal.userData.z : portal.position.z,
+      radius:portal.userData && Number.isFinite(portal.userData.visualRadius) ? portal.userData.visualRadius : portalDefaultRadius
+    })),
     updatePortals,
     updateDreamDimensionVisuals,
     updateRandomPortals,

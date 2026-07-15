@@ -110,6 +110,13 @@
       background: #efcf72;
     }
 
+    .start-actions button:disabled {
+      cursor: default;
+      background: rgba(20,28,34,0.58);
+      color: rgba(232,248,255,0.42);
+      border: 1px solid rgba(141,255,242,0.18);
+    }
+
     .menu-robot-cursor {
       position: fixed;
       left: 0;
@@ -230,6 +237,7 @@
       <button type="button" data-difficulty="hard">Hard</button>
     </div>
     <div class="start-actions">
+      <button type="button" data-load-game disabled>Load Last Game</button>
       <button type="button" data-mode="single">Single Player</button>
       <button type="button" data-mode="double">Double Player</button>
     </div>

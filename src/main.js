@@ -2,7 +2,7 @@ import { THREE } from "./three.js";
 import { gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize, viewDistance, mothershipDropCount, mothershipDropInterval, mothershipDropLineSpacing, mothershipHoverDistance, mothershipHoverFrames, mothershipMinDelay, mothershipRandomDelay, mothershipRocketHits } from "./constants.js";
 import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=no-ramps";
 import { createInput } from "./input.js?v=scanner-bumper";
-import { createHud } from "./hud.js?v=scanned-outposts";
+import { createHud } from "./hud.js?v=scanner-map-features";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=night-stars";
 import { createWorld } from "./world.js?v=landing-touchdown-back";
 import { createMotorAudio } from "./audio.js?v=scanner-mp3-quiet";
@@ -311,6 +311,8 @@ let gamePaused=false;
 let tradingScreenOpen=false;
 let gameMode="single";
 let gameDifficulty="medium";
+const saveGameStorageKey="sol8.lastGameStatus.v1";
+const saveGameVersion=1;
 let enemies=[];
 let enemyWaveDelay=0;
 let enemyPatrolDelay=900;
@@ -340,6 +342,8 @@ let scannedBossBases=new Set();
 let rareTradingOutposts=new Map();
 let rareTradingOutpostRejectedKeys=new Set();
 let scannedTradingOutposts=new Map();
+let scannedLandingSpaces=new Map();
+let scannedPortals=new Map();
 let scannerKeyDown=false;
 let scannerCooldownMs=10000;
 let scannerReadyAt=0;
@@ -1068,6 +1072,37 @@ function createPauseMenu(audio){
   addSlider("Music",value=>audio.setMusicVolume(value),volumes.music);
   addSlider("SFX",value=>audio.setSfxVolume(value),volumes.sfx);
 
+  let saveButton=document.createElement("button");
+  saveButton.type="button";
+  saveButton.textContent="Save Game";
+  saveButton.style.cssText=[
+    "width:100%",
+    "height:46px",
+    "margin-top:18px",
+    "border:0",
+    "background:#d6b25a",
+    "color:#1c211f",
+    "font-size:15px",
+    "font-weight:900",
+    "text-transform:uppercase",
+    "cursor:pointer"
+  ].join(";");
+  let saveStatus=document.createElement("div");
+  saveStatus.style.cssText=[
+    "min-height:18px",
+    "margin-top:9px",
+    "font-size:12px",
+    "font-weight:800",
+    "color:rgba(245,255,249,0.74)"
+  ].join(";");
+  saveButton.addEventListener("click",event=>{
+    event.stopPropagation();
+    let saved=saveGameStatus();
+    saveStatus.textContent=saved ? "Saved" : "Save failed";
+  });
+  controls.appendChild(saveButton);
+  controls.appendChild(saveStatus);
+
   overlay.appendChild(modelPanel);
   overlay.appendChild(controls);
   document.body.appendChild(overlay);
@@ -1424,6 +1459,8 @@ let hud=createHud({
   })),
   getScannedBossBases:()=>Array.from(scannedBossBases).filter(base=>base && base.active!==false && base.health>0),
   getScannedTradingOutposts:()=>Array.from(scannedTradingOutposts.values()),
+  getScannedLandingSpaces:()=>Array.from(scannedLandingSpaces.values()),
+  getScannedPortals:()=>Array.from(scannedPortals.values()),
   getStationState:()=>tradingOutpost ? ({
     x:tradingOutpost.position.x,
     z:tradingOutpost.position.z
@@ -1452,6 +1489,231 @@ function showGameWon(){
   }
   hud.updateHealthHud();
   hud.showGameOverOverlay("You Won");
+}
+
+function finiteOr(value,fallback){
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function robotDamageSnapshot(state){
+  let snapshot={};
+  for(let zone of robotDamageZoneNames){
+    snapshot[zone]=finiteOr(state && state[zone],0);
+  }
+  return snapshot;
+}
+
+function serializeCarStatus(car){
+  return {
+    id:car.id,
+    active:!!(car.group && car.group.visible),
+    x:car.x,
+    y:car.y,
+    z:car.z,
+    angle:car.angle,
+    velAngle:car.velAngle,
+    speed:car.speed,
+    vy:car.vy,
+    cameraYaw:car.cameraYaw,
+    health:car.health,
+    morphed:!!car.morphed,
+    morphProgress:car.morphProgress,
+    jetMode:!!car.jetMode,
+    jetProgress:car.jetProgress,
+    jetBank:car.jetBank,
+    jetAltitudeTarget:car.jetAltitudeTarget,
+    landedOnPad:!!car.landedOnPad,
+    rocketAmmo:car.rocketAmmo,
+    carRocketAmmo:car.carRocketAmmo,
+    cannonAmmo:car.cannonAmmo,
+    clusterBombAmmo:car.clusterBombAmmo,
+    boostCharge:car.boostCharge,
+    fuel:car.fuel,
+    damageZones:robotDamageSnapshot(car.damageZones),
+    lateralOffset:car.lateralOffset
+  };
+}
+
+function mapSnapshot(map){
+  return Array.from(map.values()).map(item=>({
+    x:item.x,
+    z:item.z,
+    r:item.r
+  })).filter(item=>Number.isFinite(item.x) && Number.isFinite(item.z));
+}
+
+function saveGameStatus(){
+  if(!gameStarted || gameOver) return false;
+
+  let environmentIndex=worldEnvironments.indexOf(currentEnvironment);
+  let status={
+    version:saveGameVersion,
+    savedAt:Date.now(),
+    mode:gameMode,
+    difficulty:gameDifficulty,
+    terrainSeed,
+    environmentName:currentEnvironment && currentEnvironment.name,
+    environmentIndex:environmentIndex>=0 ? environmentIndex : 0,
+    score,
+    jetUnlocked,
+    enemyWaveDelay,
+    enemyPatrolDelay,
+    rainIntensity,
+    weatherTargetIntensity,
+    weatherChangeRemaining:Math.max(1000,finiteOr(nextWeatherChange,performance.now())-performance.now()),
+    startInfo:currentStartInfo ? {
+      z:currentStartInfo.z,
+      angle:currentStartInfo.angle,
+      fieldOffset:currentStartInfo.fieldOffset
+    } : null,
+    cars:cars.map(serializeCarStatus),
+    scannedBossBases:Array.from(scannedBossBases).map(base=>({
+      x:base && base.x,
+      z:base && base.z,
+      health:base && Number.isFinite(base.health) ? base.health : 1,
+      active:base && base.active!==false
+    })).filter(item=>Number.isFinite(item.x) && Number.isFinite(item.z)),
+    scannedTradingOutposts:mapSnapshot(scannedTradingOutposts),
+    scannedLandingSpaces:mapSnapshot(scannedLandingSpaces),
+    scannedPortals:mapSnapshot(scannedPortals)
+  };
+
+  try{
+    localStorage.setItem(saveGameStorageKey,JSON.stringify(status));
+    updateLoadGameButton();
+    return true;
+  }catch(error){
+    console.warn("Failed to save game status:",error);
+    return false;
+  }
+}
+
+function readSavedGameStatus(){
+  try{
+    let raw=localStorage.getItem(saveGameStorageKey);
+    if(!raw) return null;
+
+    let status=JSON.parse(raw);
+    if(!status || status.version!==saveGameVersion) return null;
+    if(status.mode!=="single" && status.mode!=="double") return null;
+    if(!difficultySettings[status.difficulty]) status.difficulty="medium";
+    if(!Array.isArray(status.cars) || !status.cars.length) return null;
+    return status;
+  }catch(error){
+    console.warn("Failed to read saved game status:",error);
+    return null;
+  }
+}
+
+function updateLoadGameButton(){
+  let button=document.querySelector("[data-load-game]");
+  if(!button) return;
+
+  let status=readSavedGameStatus();
+  button.disabled=!status;
+  button.textContent=status ? "Load Last Game" : "No Saved Game";
+}
+
+function restoreDamageState(saved){
+  let state=createRobotDamageState();
+  for(let zone of robotDamageZoneNames){
+    state[zone]=Math.max(0,finiteOr(saved && saved[zone],0));
+  }
+  return state;
+}
+
+function restoreCarStatus(car,saved){
+  if(!car || !saved) return;
+
+  car.x=finiteOr(saved.x,car.x);
+  car.z=finiteOr(saved.z,car.z);
+  car.y=finiteOr(saved.y,drivingSurfaceHeight(car.x,car.z));
+  car.angle=finiteOr(saved.angle,car.angle);
+  car.velAngle=finiteOr(saved.velAngle,car.angle);
+  car.speed=finiteOr(saved.speed,0);
+  car.vy=finiteOr(saved.vy,0);
+  car.cameraYaw=finiteOr(saved.cameraYaw,car.angle);
+  car.health=Math.max(0,Math.min(100,finiteOr(saved.health,100)));
+  car.morphed=!!saved.morphed;
+  car.morphProgress=Math.max(0,Math.min(1,finiteOr(saved.morphProgress,car.morphed ? 1 : 0)));
+  car.lastMorphProgress=car.morphProgress;
+  car.jetMode=!!saved.jetMode;
+  car.jetProgress=Math.max(0,Math.min(1,finiteOr(saved.jetProgress,car.jetMode ? 1 : 0)));
+  car.jetBank=finiteOr(saved.jetBank,0);
+  car.jetAltitudeTarget=finiteOr(saved.jetAltitudeTarget,car.y+8);
+  car.landedOnPad=!!saved.landedOnPad;
+  car.rocketAmmo=Math.max(0,Math.floor(finiteOr(saved.rocketAmmo,maxRocketAmmo())));
+  car.carRocketAmmo=Math.max(0,Math.floor(finiteOr(saved.carRocketAmmo,maxCarRocketAmmo())));
+  car.cannonAmmo=Math.max(0,Math.floor(finiteOr(saved.cannonAmmo,maxCannonAmmo())));
+  car.clusterBombAmmo=Math.max(0,Math.floor(finiteOr(saved.clusterBombAmmo,initialClusterBombAmmo)));
+  car.boostCharge=Math.max(0,Math.min(maxBoostCharge,finiteOr(saved.boostCharge,maxBoostCharge)));
+  car.fuel=Math.max(0,Math.min(maxFuel,finiteOr(saved.fuel,maxFuel)));
+  car.damageZones=restoreDamageState(saved.damageZones);
+  car.damageFlashZones=createRobotDamageState();
+  car.throttleEase=0;
+  car.turnInputEase=0;
+  car.turnVelocity=0;
+  car.throttleInput=0;
+  car.liftInput=0;
+  car.surfaceDistance=roadDistance(car.x,car.z);
+  car.onGround=!car.jetMode && car.jetProgress<0.65;
+  car.airborne=car.jetMode || car.jetProgress>=0.65;
+  car.lastWalkX=car.x;
+  car.lastWalkZ=car.z;
+  if(Number.isFinite(saved.lateralOffset)) car.lateralOffset=saved.lateralOffset;
+  car.group.position.set(car.x,car.y,car.z);
+  car.group.rotation.y=car.angle;
+  car.group.rotation.x=0;
+  car.group.rotation.z=0;
+  applyRobotDamageVisuals(car.mechModel,car.damageZones);
+  applyRobotHitFlashVisuals(car.mechModel,car.damageFlashZones);
+  updateMorphVisual(car);
+}
+
+function restoreScannedMap(map,items){
+  map.clear();
+  if(!Array.isArray(items)) return;
+
+  for(let i=0;i<items.length;i++){
+    let item=items[i];
+    if(!item || !Number.isFinite(item.x) || !Number.isFinite(item.z)) continue;
+    map.set(`saved-${i}`,{
+      x:item.x,
+      z:item.z,
+      r:item.r
+    });
+  }
+}
+
+function applySavedWorldSettings(status){
+  if(!status) return;
+
+  let environment=worldEnvironments.find(item=>item.name===status.environmentName)
+    || worldEnvironments[status.environmentIndex]
+    || currentEnvironment;
+  currentEnvironment=environment;
+  terrainSeed=Number.isFinite(status.terrainSeed) ? status.terrainSeed : terrainSeed;
+  setWorldSeed(terrainSeed,currentEnvironment.terrain || {});
+  if(world.setWorkerTerrain) world.setWorkerTerrain(terrainSeed,currentEnvironment.terrain || {});
+  if(world.setEnvironment) world.setEnvironment(currentEnvironment);
+  refreshSceneEnvironment();
+  if(world.resetChunks) world.resetChunks();
+  clouds.makeClouds();
+  birds.makeBirds();
+}
+
+function restoreSavedRuntimeStatus(status){
+  score=Math.max(0,Math.floor(finiteOr(status.score,0)));
+  jetUnlocked=!!status.jetUnlocked;
+  enemyWaveDelay=Math.max(0,Math.floor(finiteOr(status.enemyWaveDelay,enemyWaveDelay)));
+  enemyPatrolDelay=Math.max(0,Math.floor(finiteOr(status.enemyPatrolDelay,enemyPatrolDelay)));
+  rainIntensity=Math.max(0,Math.min(1,finiteOr(status.rainIntensity,rainIntensity)));
+  weatherTargetIntensity=Math.max(0,Math.min(1,finiteOr(status.weatherTargetIntensity,weatherTargetIntensity)));
+  nextWeatherChange=performance.now()+Math.max(1000,finiteOr(status.weatherChangeRemaining,weatherChangeMinMs));
+  scannedBossBases=new Set(Array.isArray(status.scannedBossBases) ? status.scannedBossBases.filter(item=>item && Number.isFinite(item.x) && Number.isFinite(item.z)) : []);
+  restoreScannedMap(scannedTradingOutposts,status.scannedTradingOutposts);
+  restoreScannedMap(scannedLandingSpaces,status.scannedLandingSpaces);
+  restoreScannedMap(scannedPortals,status.scannedPortals);
 }
 
 function setGamePaused(paused){
@@ -8041,6 +8303,62 @@ function scanVisibleChunksForTradingOutposts(){
   return found;
 }
 
+function scanVisibleChunksForLandingSpaces(){
+  if(!world || !world.chunks) return false;
+
+  let found=false;
+  for(let [chunkKey,chunk] of world.chunks){
+    if(!chunk || !chunk.landingSurfaces) continue;
+    for(let i=0;i<chunk.landingSurfaces.length;i++){
+      let surface=chunk.landingSurfaces[i];
+      if(!surface || !objectInVisibleChunk(surface)) continue;
+
+      let key=`${chunkKey}:landing:${i}`;
+      if(!scannedLandingSpaces.has(key)){
+        scannedLandingSpaces.set(key,{
+          x:surface.x,
+          z:surface.z,
+          r:surface.padR || surface.r || 18
+        });
+        found=true;
+      }
+    }
+  }
+
+  if(found && hud) hud.updateMapHud(true);
+  return found;
+}
+
+function scanVisibleChunksForPortals(){
+  if(!portalSystem || !portalSystem.getPortals) return false;
+
+  let found=false;
+  for(let portal of portalSystem.getPortals()){
+    if(!portal || !objectInVisibleChunk(portal)) continue;
+
+    let key=`portal:${Math.round(portal.x)}:${Math.round(portal.z)}`;
+    if(!scannedPortals.has(key)){
+      scannedPortals.set(key,{
+        x:portal.x,
+        z:portal.z,
+        r:portal.radius || 8
+      });
+      found=true;
+    }
+  }
+
+  if(found && hud) hud.updateMapHud(true);
+  return found;
+}
+
+function scanVisibleChunksForMapFeatures(){
+  let foundBossBases=scanVisibleChunksForBossBases();
+  let foundTradingOutposts=scanVisibleChunksForTradingOutposts();
+  let foundLandingSpaces=scanVisibleChunksForLandingSpaces();
+  let foundPortals=scanVisibleChunksForPortals();
+  return foundBossBases || foundTradingOutposts || foundLandingSpaces || foundPortals;
+}
+
 function clearPlayerBaseTradingOutpost(){
   if(playerBaseTradingOutpost && playerBaseTradingOutpost.object){
     scene.remove(playerBaseTradingOutpost.object);
@@ -8306,8 +8624,7 @@ function updateScannerMode(){
     scannerReadyAt=now+scannerCooldownMs;
     if(motorAudio.playScannerPulse) motorAudio.playScannerPulse();
     for(let car of activeCars()) spawnSurfaceScanPulse(car);
-    scanVisibleChunksForBossBases();
-    scanVisibleChunksForTradingOutposts();
+    scanVisibleChunksForMapFeatures();
   }
   scannerKeyDown=scannerPressed;
 }
@@ -8725,7 +9042,7 @@ function spawnBossBaseGuards(){
   }
 }
 
-function startGame(mode,difficulty="medium"){
+function startGame(mode,difficulty="medium",savedStatus=null){
   gameMode=mode;
   gameDifficulty=difficultySettings[difficulty] ? difficulty : "medium";
   enemyBudgetRun++;
@@ -8737,6 +9054,10 @@ function startGame(mode,difficulty="medium"){
   clearRockets();
   clearEnemies();
   clearSupplyBoxes();
+  clearGiantTestRobot();
+  clearTradingOutpost();
+  if(world.clearBossBases) world.clearBossBases();
+  if(savedStatus) applySavedWorldSettings(savedStatus);
   jetUnlocked=false;
   gameOver=false;
   gameWon=false;
@@ -8751,6 +9072,8 @@ function startGame(mode,difficulty="medium"){
   score=0;
   scoredVillages=new WeakSet();
   scannedBossBases=new Set();
+  scannedLandingSpaces=new Map();
+  scannedPortals=new Map();
   clearRareTradingOutposts(true);
   portalSystem.clearRandomPortals();
   clearPlayerBaseTradingOutpost();
@@ -8767,9 +9090,20 @@ function startGame(mode,difficulty="medium"){
   clearSurfaceScanPulses();
   playerCar.lateralOffset=mode==="single" ? 0 : -4.2;
   secondCar.lateralOffset=4.2;
-  let startInfo=findSafeFieldStart(mode==="double" ? [playerCar.lateralOffset,secondCar.lateralOffset] : [playerCar.lateralOffset]);
+  let savedStartInfo=savedStatus && savedStatus.startInfo;
+  let startInfo=savedStartInfo
+    && Number.isFinite(savedStartInfo.z)
+    && Number.isFinite(savedStartInfo.angle)
+    && Number.isFinite(savedStartInfo.fieldOffset)
+    ? savedStartInfo
+    : findSafeFieldStart(mode==="double" ? [playerCar.lateralOffset,secondCar.lateralOffset] : [playerCar.lateralOffset]);
   placeCarOnOpenField(playerCar,startInfo);
   placeCarOnOpenField(secondCar,startInfo);
+  if(savedStatus){
+    let savedCars=new Map((savedStatus.cars || []).map(car=>[car.id,car]));
+    restoreCarStatus(playerCar,savedCars.get("car1"));
+    restoreCarStatus(secondCar,savedCars.get("car2"));
+  }
   spawnGiantTestRobot(startInfo);
   placeTradingOutpostNearStart(startInfo);
   placeTradingOutpostNearPlayerBaseStation();
@@ -8792,11 +9126,26 @@ function startGame(mode,difficulty="medium"){
   let settings=currentDifficulty();
   enemyWaveDelay=scaledDelay(90,settings.waveDelay);
   enemyPatrolDelay=scaledDelay(900+Math.floor(Math.random()*420),settings.patrolDelay);
+  if(savedStatus){
+    restoreSavedRuntimeStatus(savedStatus);
+    hud.updateHealthHud();
+    hud.updateSpeedHud();
+    hud.updateMapHud(true);
+  }
 }
 
 let startScreen=document.getElementById("startScreen");
 if(startScreen){
+  updateLoadGameButton();
   startScreen.addEventListener("click",event=>{
+    let loadButton=event.target.closest("[data-load-game]");
+    if(loadButton && !gameStarted){
+      let status=readSavedGameStatus();
+      if(status) startGame(status.mode,status.difficulty,status);
+      else updateLoadGameButton();
+      return;
+    }
+
     let button=event.target.closest("[data-mode]");
     if(!button || gameStarted) return;
     let difficulty=startScreen.dataset.difficulty || "medium";
