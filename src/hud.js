@@ -1,6 +1,7 @@
 import { chunkSize } from "./constants.js";
 import { carSurfaceHeight } from "./terrain.js?v=no-ramps";
 
+const gameFontFamily="\"Astor\", Arial, sans-serif";
 const mapHudSize=216;
 const speedHudScale=1.2;
 const speedHudWidth=mapHudSize/speedHudScale;
@@ -30,7 +31,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "box-shadow:0 4px 14px rgba(0,0,0,0.08)",
       "z-index:10",
       "overflow:hidden",
-      "font-family:Arial,sans-serif"
+      `font-family:${gameFontFamily}`
     ].join(";");
 
     let healthFill=document.createElement("div");
@@ -75,7 +76,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "height:228px",
       "z-index:10",
       "overflow:hidden",
-      "font-family:Arial,sans-serif",
+      `font-family:${gameFontFamily}`,
       "letter-spacing:0",
       "color:white",
       "pointer-events:none"
@@ -209,7 +210,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     ctx.fill();
 
     ctx.fillStyle="rgba(255,255,255,0.72)";
-    ctx.font="700 9px Arial";
+    ctx.font="700 9px \"Astor\", Arial";
     ctx.textAlign="center";
     ctx.fillText("0",cx-radius+1,66);
     ctx.fillText("120",cx+radius-1,66);
@@ -331,14 +332,14 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     compassHud.appendChild(compassCanvas);
     document.body.appendChild(compassHud);
 
-    let scoreLabel=document.createElement("div");
-    scoreLabel.style.cssText=[
+    let unitsLabel=document.createElement("div");
+    unitsLabel.style.cssText=[
       "position:fixed",
       "top:138px",
       `left:${panel.side==="full" ? "50%" : panel.side==="left" ? "25%" : "75%"}`,
       "transform:translateX(-50%)",
       "z-index:11",
-      "font-family:\"Microgramma D Extended\",\"Eurostile Extended\",\"Bank Gothic\",\"Copperplate\",\"Arial Black\",Arial,sans-serif",
+      `font-family:${gameFontFamily}`,
       "font-size:22px",
       "font-weight:900",
       "letter-spacing:0.1em",
@@ -347,11 +348,11 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "text-transform:uppercase",
       "pointer-events:none"
     ].join(";");
-    document.body.appendChild(scoreLabel);
+    document.body.appendChild(unitsLabel);
 
     panel.compassCanvas=compassCanvas;
     panel.compassCtx=compassCtx;
-    panel.scoreLabel=scoreLabel;
+    panel.unitsLabel=unitsLabel;
   }
 
   function mapToCanvas(wx,wz,cx,cz,radius,size){
@@ -436,9 +437,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     }
 
     drawVillages(mapCtx,centerX,centerZ,radius,size,palette);
-    drawStationMarker(mapCtx,getStationState(),centerX,centerZ,radius,size,palette);
     drawScannedLandingSpaces(mapCtx,getScannedLandingSpaces(),centerX,centerZ,radius,size,palette);
-    drawScannedPortals(mapCtx,getScannedPortals(),centerX,centerZ,radius,size,palette);
     drawScannedTradingOutposts(mapCtx,getScannedTradingOutposts(),centerX,centerZ,radius,size,palette);
     drawScannedBossBases(mapCtx,getScannedBossBases(),centerX,centerZ,radius,size,palette);
     drawEnemyDots(mapCtx,enemies,centerX,centerZ,radius,size);
@@ -861,7 +860,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       let alpha=1-Math.pow(Math.abs(t),1.8)*0.58;
       let scale=1.12-Math.abs(t)*0.22;
 
-      ctx.font=`800 ${Math.round(18*scale)}px Arial`;
+      ctx.font=`800 ${Math.round(18*scale)}px "Astor", Arial`;
       ctx.fillStyle=`rgba(245,255,249,${alpha})`;
       ctx.strokeStyle=`rgba(18,7,43,${0.78*alpha})`;
       ctx.lineWidth=3;
@@ -881,8 +880,8 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     ctx.closePath();
     ctx.fill();
 
-    if(panel.scoreLabel){
-      panel.scoreLabel.textContent=`Score ${Math.max(0,Math.round(state.score ?? 0))}`;
+    if(panel.unitsLabel){
+      panel.unitsLabel.textContent=`Units ${Math.max(0,Math.round(state.units ?? 0))}`;
     }
   }
 
@@ -896,7 +895,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "align-items:center",
       "justify-content:center",
       "z-index:20",
-      "font-family:Arial,sans-serif",
+      `font-family:${gameFontFamily}`,
       "font-size:clamp(52px,10vw,140px)",
       "font-weight:900",
       "letter-spacing:0",

@@ -15,6 +15,7 @@ import { approach, clamp, clamp01, hash01, randomRange, smoothStep } from "./uti
 
 const initialBaseFogNear=900;
 const initialBaseFogFar=3600;
+const gameFontFamily="\"Astor\", Arial, sans-serif";
 const dayNightCycleMs=360000;
 const dayNightPhaseOffset=0.18;
 const dayNightSunHorizonOffset=0.32;
@@ -326,16 +327,22 @@ let tradingOutpostModel=null;
 let tradingOutpost=null;
 let tradingOutpostCollision=null;
 let tradingTerminalObject=null;
-let playerBaseTradingOutpost=null;
+let tradingPlaceCollisions=[];
 let currentStartInfo=null;
 let jetUnlocked=false;
-let score=0;
-let enemyScoreAmount=100;
-let giantScoreAmount=350;
-let bossScoreAmount=650;
+let initialUnits=500;
+let units=initialUnits;
+let purchasedTradingItems=new Set();
+let normalEnemyUnitAmount=20;
+let giantEnemyUnitAmount=50;
+let droneEnemyUnitAmount=70;
+let crabEnemyUnitAmount=10;
+let mothershipUnitAmount=150;
+let bossBaseUnitAmount=650;
 let bossBaseDamageMultiplier=0.38;
 let bossBaseClusterBombHits=5;
-let villageScoreAmount=1000;
+let villageBuildingUnitAmount=50;
+let villageClearedUnitAmount=100;
 let scoredVillages=new WeakSet();
 let waterLevel=-20;
 let scannedBossBases=new Set();
@@ -605,16 +612,21 @@ function waterDepthAt(x,z){
 }
 
 function tradingOutpostSurfaceHeightAt(x,z,margin=0){
-  if(!tradingOutpostCollision) return null;
-
-  let local=worldToTradingOutpostLocal(x,z);
-  if(!local || !tradingOutpostCollision.floor) return null;
-
-  let floor=tradingOutpostCollision.floor;
   margin=Math.max(0,margin || 0);
-  if(local.x<floor.minX-margin || local.x>floor.maxX+margin || local.z<floor.minZ-margin || local.z>floor.maxZ+margin) return null;
+  let best=null;
 
-  return tradingOutpostCollision.y+floor.y;
+  for(let collision of activeTradingOutpostCollisions()){
+    let local=worldToTradingOutpostLocal(x,z,collision);
+    if(!local || !collision.floor) continue;
+
+    let floor=collision.floor;
+    if(local.x<floor.minX-margin || local.x>floor.maxX+margin || local.z<floor.minZ-margin || local.z>floor.maxZ+margin) continue;
+
+    let y=collision.y+floor.y;
+    best=Number.isFinite(best) ? Math.max(best,y) : y;
+  }
+
+  return best;
 }
 
 function drivingSurfaceHeight(x,z,outpostMargin=0){
@@ -780,7 +792,7 @@ function playerInvisibleToEnemies(car){
 }
 
 function playerCombatSuppressed(actor){
-  return inDreamDimension() && isPlayerActor(actor);
+  return isPlayerActor(actor) && (inDreamDimension() || playerAimingAtTradingTerminal(actor));
 }
 
 function enemyTargetableCars(){
@@ -821,6 +833,18 @@ function maxRocketAmmo(){
 
 function maxCarRocketAmmo(){
   return currentDifficulty().carRocketAmmo || difficultySettings.medium.carRocketAmmo;
+}
+
+function tradingItemOwned(id){
+  return purchasedTradingItems.has(id);
+}
+
+function rocketLauncherUnlocked(){
+  return tradingItemOwned("rocket-launcher");
+}
+
+function scannerUnlocked(){
+  return tradingItemOwned("scanner");
 }
 
 function scaledDelay(frames,scale){
@@ -989,7 +1013,7 @@ function createPauseMenu(audio){
     "z-index:30",
     "background:rgba(4,8,12,0.58)",
     "backdrop-filter:blur(3px)",
-    "font-family:Arial,sans-serif",
+    `font-family:${gameFontFamily}`,
     "color:white",
     "pointer-events:auto"
   ].join(";");
@@ -1082,6 +1106,7 @@ function createPauseMenu(audio){
     "border:0",
     "background:#d6b25a",
     "color:#1c211f",
+    `font-family:${gameFontFamily}`,
     "font-size:15px",
     "font-weight:900",
     "text-transform:uppercase",
@@ -1196,7 +1221,7 @@ function createTradingScreen(){
     "z-index:31",
     "background:rgba(2,7,10,0.62)",
     "backdrop-filter:blur(4px)",
-    "font-family:Arial,sans-serif",
+    `font-family:${gameFontFamily}`,
     "color:#ecfbff",
     "pointer-events:auto"
   ].join(";");
@@ -1218,7 +1243,7 @@ function createTradingScreen(){
   ].join(";");
 
   let title=document.createElement("div");
-  title.textContent="Mission Terminal";
+  title.textContent="Trading Terminal";
   title.style.cssText=[
     "font-size:26px",
     "font-weight:900",
@@ -1231,7 +1256,7 @@ function createTradingScreen(){
   panel.appendChild(title);
 
   let subhead=document.createElement("div");
-  subhead.textContent="Vision uplink queue";
+  subhead.textContent="Unit exchange queue";
   subhead.style.cssText=[
     "font-size:12px",
     "font-weight:900",
@@ -1243,185 +1268,193 @@ function createTradingScreen(){
   ].join(";");
   panel.appendChild(subhead);
 
-  let grid=document.createElement("div");
-  grid.style.cssText=[
-    "display:grid",
-    "grid-template-columns:repeat(auto-fit,minmax(210px,1fr))",
-    "gap:12px",
+  let unitBar=document.createElement("div");
+  unitBar.style.cssText=[
+    "display:flex",
+    "align-items:center",
+    "justify-content:space-between",
+    "gap:16px",
+    "border:1px solid rgba(154,248,255,0.18)",
+    "background:rgba(6,12,15,0.58)",
+    "padding:14px 16px",
+    "box-sizing:border-box",
     "margin-bottom:16px"
   ].join(";");
+  let unitLabel=document.createElement("div");
+  unitLabel.textContent="Units available";
+  unitLabel.style.cssText="font-size:12px;font-weight:900;text-transform:uppercase;color:rgba(236,251,255,0.58)";
+  let unitsValue=document.createElement("div");
+  unitsValue.textContent="0";
+  unitsValue.style.cssText="font-size:28px;font-weight:900;color:#efcf72;text-shadow:0 0 14px rgba(239,207,114,0.32)";
+  unitBar.appendChild(unitLabel);
+  unitBar.appendChild(unitsValue);
 
-  let visions=[
-    {
-      name:"Signal Nest",
-      code:"VISION 01",
-      status:"Recon",
-      detail:"Locate the pulsing relay inside the outer ridge field.",
-      color:"#67f4ff",
-      marks:[["72%","18%","14px"],["22%","54%","7px"],["58%","67%","9px"]]
-    },
-    {
-      name:"Broken Convoy",
-      code:"VISION 02",
-      status:"Recovery",
-      detail:"Trace three dead engines and recover the route beacon.",
-      color:"#efcf72",
-      marks:[["18%","28%","8px"],["44%","46%","12px"],["78%","58%","8px"]]
-    },
-    {
-      name:"Black Spire",
-      code:"VISION 03",
-      status:"Assault",
-      detail:"Disrupt the shield tower before the next mothership drop.",
-      color:"#ff7a5c",
-      marks:[["34%","22%","10px"],["52%","38%","16px"],["67%","72%","7px"]]
-    }
-  ];
-
-  for(let vision of visions){
-    let card=document.createElement("div");
-    card.style.cssText=[
-      "min-height:228px",
-      "border:1px solid rgba(154,248,255,0.18)",
-      "background:rgba(18,30,34,0.72)",
-      "padding:14px",
-      "box-sizing:border-box"
-    ].join(";");
-
-    let viewport=document.createElement("div");
-    viewport.style.cssText=[
-      "position:relative",
-      "height:112px",
-      "overflow:hidden",
-      "border:1px solid rgba(154,248,255,0.16)",
-      "background:linear-gradient(180deg,rgba(6,14,20,0.95),rgba(20,34,36,0.86))",
-      "margin-bottom:12px"
-    ].join(";");
-
-    let horizon=document.createElement("div");
-    horizon.style.cssText=[
-      "position:absolute",
-      "left:-8%",
-      "right:-8%",
-      "top:58%",
-      "height:1px",
-      "background:rgba(236,251,255,0.28)",
-      "box-shadow:0 -18px 0 rgba(236,251,255,0.06),0 18px 0 rgba(236,251,255,0.05)"
-    ].join(";");
-    viewport.appendChild(horizon);
-
-    let sweep=document.createElement("div");
-    sweep.style.cssText=[
-      "position:absolute",
-      "left:0",
-      "top:0",
-      "bottom:0",
-      "width:38%",
-      "background:linear-gradient(90deg,rgba(255,255,255,0),"+vision.color+"33,rgba(255,255,255,0))",
-      "transform:skewX(-14deg)",
-      "opacity:0.62"
-    ].join(";");
-    viewport.appendChild(sweep);
-
-    for(let mark of vision.marks){
-      let dot=document.createElement("div");
-      dot.style.cssText=[
-        "position:absolute",
-        "left:"+mark[0],
-        "top:"+mark[1],
-        "width:"+mark[2],
-        "height:"+mark[2],
-        "transform:translate(-50%,-50%)",
-        "border:1px solid "+vision.color,
-        "background:"+vision.color+"33",
-        "box-shadow:0 0 12px "+vision.color+"99"
-      ].join(";");
-      viewport.appendChild(dot);
-    }
-
-    let name=document.createElement("div");
-    name.textContent=vision.code;
-    name.style.cssText=[
-      "font-size:11px",
-      "font-weight:900",
-      "text-transform:uppercase",
-      "letter-spacing:0.1em",
-      "margin-bottom:6px",
-      "color:rgba(236,251,255,0.58)"
-    ].join(";");
-
-    let status=document.createElement("div");
-    status.textContent=vision.name;
-    status.style.cssText=[
-      "font-size:22px",
-      "font-weight:900",
-      "margin-bottom:7px",
-      "color:#ffffff"
-    ].join(";");
-
-    let detail=document.createElement("div");
-    detail.textContent=vision.status+" / "+vision.detail;
-    detail.style.cssText=[
-      "font-size:13px",
-      "line-height:1.35",
-      "color:rgba(236,251,255,0.68)"
-    ].join(";");
-
-    card.appendChild(viewport);
-    card.appendChild(name);
-    card.appendChild(status);
-    card.appendChild(detail);
-    grid.appendChild(card);
-  }
-
-  let ledger=document.createElement("div");
-  ledger.style.cssText=[
+  let tradeGrid=document.createElement("div");
+  tradeGrid.style.cssText=[
     "display:grid",
-    "grid-template-columns:1fr 1fr",
-    "gap:12px",
-    "border-top:1px solid rgba(154,248,255,0.16)",
-    "padding-top:16px"
+    "grid-template-columns:minmax(260px,1.15fr) minmax(220px,0.85fr)",
+    "gap:14px",
+    "min-height:360px"
   ].join(";");
 
-  function addLedgerCell(label,value){
-    let cell=document.createElement("div");
-    cell.style.cssText=[
-      "background:rgba(6,12,15,0.52)",
-      "border:1px solid rgba(154,248,255,0.12)",
+  function makeTradeColumn(titleText){
+    let column=document.createElement("div");
+    column.style.cssText=[
+      "border:1px solid rgba(154,248,255,0.18)",
+      "background:rgba(8,16,20,0.62)",
+      "box-sizing:border-box",
+      "min-height:360px",
+      "display:flex",
+      "flex-direction:column"
+    ].join(";");
+    let header=document.createElement("div");
+    header.textContent=titleText;
+    header.style.cssText=[
+      "padding:13px 14px",
+      "border-bottom:1px solid rgba(154,248,255,0.14)",
+      "font-size:13px",
+      "font-weight:900",
+      "letter-spacing:0.08em",
+      "text-transform:uppercase",
+      "color:#9af8ff"
+    ].join(";");
+    let body=document.createElement("div");
+    body.style.cssText=[
       "padding:12px",
+      "overflow:auto",
+      "max-height:min(46vh,440px)",
+      "display:flex",
+      "flex-direction:column",
+      "gap:10px",
       "box-sizing:border-box"
     ].join(";");
-    let labelNode=document.createElement("div");
-    labelNode.textContent=label;
-    labelNode.style.cssText="font-size:12px;font-weight:900;text-transform:uppercase;color:rgba(236,251,255,0.58);margin-bottom:7px";
-    let valueNode=document.createElement("div");
-    valueNode.textContent=value;
-    valueNode.style.cssText="font-size:20px;font-weight:900;color:#ecfbff";
-    cell.appendChild(labelNode);
-    cell.appendChild(valueNode);
-    ledger.appendChild(cell);
-    return valueNode;
+    column.appendChild(header);
+    column.appendChild(body);
+    tradeGrid.appendChild(column);
+    return body;
   }
 
-  let healthValue=addLedgerCell("Hull Service","100%");
-  let ammoValue=addLedgerCell("Mission Payload","--");
-  panel.appendChild(grid);
-  panel.appendChild(ledger);
+  let availableList=makeTradeColumn("Available");
+  let boughtList=makeTradeColumn("Bought");
+  let tradeItems=[
+    {id:"rocket-launcher",name:"Rocket launcher",price:2000},
+    {id:"scanner",name:"Scanner",price:1000},
+    {id:"jet",name:"Jet",price:5000}
+  ];
+  let lastTradeRenderKey="";
+
+  function tradeRenderKey(){
+    return [
+      Math.max(0,Math.round(units || 0)),
+      Array.from(purchasedTradingItems).sort().join(",")
+    ].join("|");
+  }
+
+  function buyTradingItem(item){
+    if(!item || purchasedTradingItems.has(item.id) || units<item.price) return;
+    units=Math.max(0,units-item.price);
+    purchasedTradingItems.add(item.id);
+    if(item.id==="scanner") scannerReadyAt=0;
+    if(item.id==="jet") jetUnlocked=true;
+    if(hud){
+      hud.updateSpeedHud();
+      hud.updateCompassHud();
+    }
+    renderTradeLists(true);
+  }
+
+  function renderTradeLists(force=false){
+    let nextRenderKey=tradeRenderKey();
+    if(!force && nextRenderKey===lastTradeRenderKey) return;
+    lastTradeRenderKey=nextRenderKey;
+
+    unitsValue.textContent=String(Math.max(0,Math.round(units || 0)));
+    availableList.innerHTML="";
+    boughtList.innerHTML="";
+
+    for(let item of tradeItems){
+      let owned=purchasedTradingItems.has(item.id);
+      let affordable=units>=item.price;
+      let row=document.createElement("button");
+      row.type="button";
+      row.disabled=owned || !affordable;
+      row.style.cssText=[
+        "width:100%",
+        "display:grid",
+        "grid-template-columns:1fr auto",
+        "align-items:center",
+        "gap:12px",
+        "border:1px solid "+(owned ? "rgba(124,255,120,0.26)" : affordable ? "rgba(239,207,114,0.62)" : "rgba(154,248,255,0.12)"),
+        "background:"+(owned ? "rgba(20,48,28,0.5)" : affordable ? "rgba(214,178,90,0.18)" : "rgba(45,54,58,0.36)"),
+        "color:"+(owned ? "rgba(196,255,190,0.78)" : affordable ? "#ecfbff" : "rgba(236,251,255,0.34)"),
+        `font-family:${gameFontFamily}`,
+        "font-size:15px",
+        "font-weight:900",
+        "text-align:left",
+        "padding:13px 14px",
+        "box-sizing:border-box",
+        "cursor:"+(owned || !affordable ? "default" : "pointer"),
+        "text-transform:uppercase"
+      ].join(";");
+      let name=document.createElement("span");
+      name.textContent=owned ? item.name+" / Owned" : item.name;
+      let price=document.createElement("span");
+      price.textContent=item.price+" units";
+      price.style.cssText="color:"+(affordable && !owned ? "#efcf72" : "inherit");
+      row.appendChild(name);
+      row.appendChild(price);
+      row.addEventListener("click",event=>{
+        event.preventDefault();
+        event.stopPropagation();
+        buyTradingItem(item);
+      });
+      availableList.appendChild(row);
+    }
+
+    let boughtItems=tradeItems.filter(item=>purchasedTradingItems.has(item.id));
+    if(boughtItems.length===0){
+      let empty=document.createElement("div");
+      empty.textContent="No items bought";
+      empty.style.cssText="padding:12px;color:rgba(236,251,255,0.42);font-size:14px;text-transform:uppercase";
+      boughtList.appendChild(empty);
+    }else{
+      for(let item of boughtItems){
+        let row=document.createElement("div");
+        row.style.cssText=[
+          "display:grid",
+          "grid-template-columns:1fr auto",
+          "gap:12px",
+          "border:1px solid rgba(124,255,120,0.24)",
+          "background:rgba(20,48,28,0.38)",
+          "padding:13px 14px",
+          "font-size:15px",
+          "font-weight:900",
+          "text-transform:uppercase"
+        ].join(";");
+        let name=document.createElement("span");
+        name.textContent=item.name;
+        let price=document.createElement("span");
+        price.textContent=item.price+" units";
+        price.style.cssText="color:rgba(196,255,190,0.72)";
+        row.appendChild(name);
+        row.appendChild(price);
+        boughtList.appendChild(row);
+      }
+    }
+  }
+
+  panel.appendChild(unitBar);
+  panel.appendChild(tradeGrid);
   overlay.appendChild(panel);
   document.body.appendChild(overlay);
 
   function setVisible(visible){
     overlay.style.display=visible ? "block" : "none";
-    if(visible) update();
+    if(visible) renderTradeLists(true);
   }
 
   function update(){
-    let car=activeCars().find(item=>item && item.group.visible && item.health>0) || playerCar;
-    healthValue.textContent=Math.round(car.health || 0)+"%";
-    ammoValue.textContent=[
-      car.carRocketAmmo ?? car.rocketAmmo ?? 0,
-      car.cannonAmmo ?? 0
-    ].join(" / ");
+    renderTradeLists(false);
   }
 
   return {
@@ -1443,13 +1476,13 @@ let hud=createHud({
     carVelAngle:car.velAngle,
     carSpeed:car.speed,
     carHealth:car.health,
-    rocketAmmo:car.rocketAmmo,
-    carRocketAmmo:car.carRocketAmmo,
+    rocketAmmo:rocketLauncherUnlocked() ? car.rocketAmmo : 0,
+    carRocketAmmo:rocketLauncherUnlocked() ? car.carRocketAmmo : 0,
     cannonAmmo:car.cannonAmmo,
     clusterBombAmmo:car.clusterBombAmmo,
     boostCharge:car.boostCharge,
     fuel:car.fuel,
-    score
+    units
   })),
   getEnemyStates:()=>activeEnemies().map(enemy=>({
     id:enemy.id,
@@ -1554,7 +1587,8 @@ function saveGameStatus(){
     terrainSeed,
     environmentName:currentEnvironment && currentEnvironment.name,
     environmentIndex:environmentIndex>=0 ? environmentIndex : 0,
-    score,
+    units,
+    purchasedTradingItems:Array.from(purchasedTradingItems),
     jetUnlocked,
     enemyWaveDelay,
     enemyPatrolDelay,
@@ -1703,8 +1737,10 @@ function applySavedWorldSettings(status){
 }
 
 function restoreSavedRuntimeStatus(status){
-  score=Math.max(0,Math.floor(finiteOr(status.score,0)));
-  jetUnlocked=!!status.jetUnlocked;
+  units=Math.max(0,Math.floor(finiteOr(status.units,status.score ?? 0)));
+  purchasedTradingItems=new Set(Array.isArray(status.purchasedTradingItems) ? status.purchasedTradingItems : []);
+  jetUnlocked=!!status.jetUnlocked || purchasedTradingItems.has("jet");
+  if(jetUnlocked) purchasedTradingItems.add("jet");
   enemyWaveDelay=Math.max(0,Math.floor(finiteOr(status.enemyWaveDelay,enemyWaveDelay)));
   enemyPatrolDelay=Math.max(0,Math.floor(finiteOr(status.enemyPatrolDelay,enemyPatrolDelay)));
   rainIntensity=Math.max(0,Math.min(1,finiteOr(status.rainIntensity,rainIntensity)));
@@ -1908,12 +1944,20 @@ function updateRobotDamageFlashes(car){
   applyRobotHitFlashVisuals(car.mechModel,car.damageFlashZones);
 }
 
-function addScore(amount){
-  score+=amount;
+function addUnits(amount){
+  units+=amount;
   if(hud) hud.updateCompassHud();
 }
 
-function treasureScoreAmount(type){
+function enemyUnitReward(enemy){
+  if(!enemy) return 0;
+  if(enemy.isSpider) return crabEnemyUnitAmount;
+  if(enemy.isDrone) return droneEnemyUnitAmount;
+  if(enemy.isGiant) return giantEnemyUnitAmount;
+  return normalEnemyUnitAmount;
+}
+
+function treasureUnitAmount(type){
   if(type==="rare") return 300;
   if(type==="normal") return 180;
   return 90;
@@ -1928,7 +1972,7 @@ function updateTreasurePickups(){
     let treasure=world.collectTreasureAt(car.x,car.z,car.collisionRadius || 2.35);
     if(!treasure) continue;
 
-    addScore(treasureScoreAmount(treasure.type));
+    addUnits(treasureUnitAmount(treasure.type));
     hud.updateCompassHud();
   }
 }
@@ -1936,9 +1980,13 @@ function updateTreasurePickups(){
 function destroyWorldObstacle(obstacle){
   if(!world.destroyObstacle(obstacle)) return false;
 
+  if(obstacle.village && obstacle.type==="building"){
+    addUnits(villageBuildingUnitAmount);
+  }
+
   if(obstacle.village && world.isVillageCleared(obstacle.village) && !scoredVillages.has(obstacle.village)){
     scoredVillages.add(obstacle.village);
-    addScore(villageScoreAmount);
+    addUnits(villageClearedUnitAmount);
   }
 
   return true;
@@ -2099,7 +2147,7 @@ function damageBossBaseObstacle(obstacle,x,y,z,amount){
         0.12+Math.random()*0.1
       );
     }
-    addScore(bossScoreAmount);
+    addUnits(bossBaseUnitAmount);
     showGameWon();
   }
 
@@ -2171,7 +2219,7 @@ function spawnBuildingAmmoImpact(obstacle,x,y,z,amount=1){
   }
 }
 
-function damageEnemy(enemy,amount){
+function damageEnemy(enemy,amount,options={}){
   if(!enemy.active || enemy.health<=0) return;
   enemy.health=Math.max(0,enemy.health-amount);
   enemy.hitRattle=Math.max(enemy.hitRattle,0.75);
@@ -2185,7 +2233,7 @@ function damageEnemy(enemy,amount){
       enemy.shadow=null;
     }
     scene.remove(enemy.group);
-    addScore(enemy.isBoss ? bossScoreAmount : enemy.isGiant ? giantScoreAmount : enemyScoreAmount);
+    if(!options.skipUnitReward) addUnits(enemyUnitReward(enemy));
     spawnRocketExplosion(enemy.x,enemy.y+(enemy.isGiant ? 5.8 : 2.2),enemy.z);
   }
 }
@@ -2256,16 +2304,69 @@ function collidesWithOtherCars(car,nextX,nextZ){
   return null;
 }
 
-function worldToTradingOutpostLocal(x,z){
-  if(!tradingOutpostCollision) return null;
-  let dx=x-tradingOutpostCollision.x;
-  let dz=z-tradingOutpostCollision.z;
-  let c=Math.cos(tradingOutpostCollision.angle);
-  let s=Math.sin(tradingOutpostCollision.angle);
+function activeTradingOutpostCollisions(){
+  return [
+    tradingOutpostCollision,
+    ...tradingPlaceCollisions
+  ].filter(collision=>collision && (!collision.object || collision.object.parent));
+}
+
+function worldToTradingOutpostLocal(x,z,collision=tradingOutpostCollision){
+  if(!collision) return null;
+  let dx=x-collision.x;
+  let dz=z-collision.z;
+  let c=Math.cos(collision.angle);
+  let s=Math.sin(collision.angle);
   return {
     x:dx*c-dz*s,
     z:dx*s+dz*c
   };
+}
+
+function tradingOutpostLocalToWorld(local,collision=tradingOutpostCollision){
+  if(!local || !collision) return null;
+
+  let c=Math.cos(collision.angle);
+  let s=Math.sin(collision.angle);
+  return {
+    x:collision.x+local.x*c+local.z*s,
+    z:collision.z-local.x*s+local.z*c
+  };
+}
+
+function tradingOutpostSafePointOutside(actor,x,z){
+  let actorRadius=actor && Number.isFinite(actor.collisionRadius)
+    ? actor.collisionRadius
+    : 2.35;
+
+  for(let collision of activeTradingOutpostCollisions()){
+    let local=worldToTradingOutpostLocal(x,z,collision);
+    let floor=collision.floor;
+    if(!local || !floor) continue;
+
+    let padding=actorRadius+(collision.room ? collision.room.wallRadius : 4.5)+0.8;
+    let minX=floor.minX-padding;
+    let maxX=floor.maxX+padding;
+    let minZ=floor.minZ-padding;
+    let maxZ=floor.maxZ+padding;
+    if(local.x<minX || local.x>maxX || local.z<minZ || local.z>maxZ) continue;
+
+    let distances=[
+      {side:"left",value:local.x-minX},
+      {side:"right",value:maxX-local.x},
+      {side:"back",value:local.z-minZ},
+      {side:"front",value:maxZ-local.z}
+    ].sort((a,b)=>a.value-b.value);
+    let safe={x:local.x,z:local.z};
+    if(distances[0].side==="left") safe.x=minX-0.8;
+    else if(distances[0].side==="right") safe.x=maxX+0.8;
+    else if(distances[0].side==="back") safe.z=minZ-0.8;
+    else safe.z=maxZ+0.8;
+
+    return tradingOutpostLocalToWorld(safe,collision);
+  }
+
+  return null;
 }
 
 function tradingOutpostTerminalLocalInfo(bounds={}){
@@ -2278,15 +2379,15 @@ function tradingOutpostTerminalLocalInfo(bounds={}){
 
   return {
     x:Math.min(usableHalfX-7,Math.max(-usableHalfX+7,-usableHalfX*0.36)),
-    z:floorMinZ+Math.min(12,depth*0.24),
-    halfX:5.4,
-    halfZ:4.2,
-    interactionRadius:28
+    z:floorMinZ+Math.min(20,depth*0.38),
+    halfX:7.5,
+    halfZ:6.5,
+    interactionRadius:42
   };
 }
 
-function tradingTerminalViolation(local,actorRadius=0){
-  let terminal=tradingOutpostCollision && tradingOutpostCollision.terminal;
+function tradingTerminalViolation(local,actorRadius=0,collision=tradingOutpostCollision){
+  let terminal=collision && collision.terminal;
   if(!terminal || !local) return 0;
 
   let dx=Math.abs(local.x-terminal.x)-(terminal.halfX+actorRadius);
@@ -2295,12 +2396,12 @@ function tradingTerminalViolation(local,actorRadius=0){
   return Math.min(-dx,-dz);
 }
 
-function carNearTradingTerminal(car){
-  let terminal=tradingOutpostCollision && tradingOutpostCollision.terminal;
-  if(!terminal || !car || !car.group.visible || car.health<=0) return false;
+function carNearTradingTerminal(car,collision=tradingOutpostCollision){
+  let terminal=collision && collision.terminal;
+  if(!terminal || !collision || !car || !car.group.visible || car.health<=0) return false;
 
-  let local=worldToTradingOutpostLocal(car.x,car.z);
-  if(!insideTradingOutpostFloor(local,1.8)) return false;
+  let local=worldToTradingOutpostLocal(car.x,car.z,collision);
+  if(!insideTradingOutpostFloor(local,1.8,collision)) return false;
 
   let dx=local.x-terminal.x;
   let dz=local.z-terminal.z;
@@ -2308,14 +2409,49 @@ function carNearTradingTerminal(car){
   return dx*dx+dz*dz<=radius*radius;
 }
 
+function carAimFocusesTradingTerminal(car,collision){
+  let terminal=collision && collision.terminal;
+  if(!terminal) return false;
+  if(!car || !isPlayerActor(car) || !car.group || !car.group.visible || car.health<=0) return false;
+  if(!car.aimCross || car.jetMode || car.jetProgress>0.35) return false;
+
+  let aimDisplayDistance=car.aimDistance || 32;
+  let forwardX=Math.sin(car.angle);
+  let forwardZ=Math.cos(car.angle);
+  let rightX=Math.cos(car.angle);
+  let rightZ=-Math.sin(car.angle);
+  let aimX=car.x+forwardX*aimDisplayDistance+rightX*(car.aimOffsetX || 0);
+  let aimZ=car.z+forwardZ*aimDisplayDistance+rightZ*(car.aimOffsetX || 0);
+  let focusPadding=3.5;
+
+  let local=worldToTradingOutpostLocal(aimX,aimZ,collision);
+  if(!local) return false;
+
+  let dx=Math.abs(local.x-terminal.x)-(terminal.halfX+focusPadding);
+  let dz=Math.abs(local.z-terminal.z)-(terminal.halfZ+focusPadding);
+  return dx<0 && dz<0;
+}
+
+function playerAimingAtTradingTerminal(car){
+  for(let collision of activeTradingOutpostCollisions()){
+    if(carAimFocusesTradingTerminal(car,collision)) return true;
+  }
+
+  return false;
+}
+
 function actorInsideBuilding(actor){
-  if(!actor || !tradingOutpostCollision) return false;
+  if(!actor) return false;
 
-  let local=worldToTradingOutpostLocal(actor.x,actor.z);
-  if(!insideTradingOutpostFloor(local,0.35)) return false;
+  for(let collision of activeTradingOutpostCollisions()){
+    let local=worldToTradingOutpostLocal(actor.x,actor.z,collision);
+    if(!insideTradingOutpostFloor(local,0.35,collision)) continue;
 
-  let surfaceY=tradingOutpostCollision.y+(tradingOutpostCollision.floor ? tradingOutpostCollision.floor.y : 0);
-  return actor.y<=surfaceY+8.5;
+    let surfaceY=collision.y+(collision.floor ? collision.floor.y : 0);
+    if(actor.y<=surfaceY+8.5) return true;
+  }
+
+  return false;
 }
 
 function clickViewportForTradingTerminal(event){
@@ -2352,21 +2488,43 @@ function clickViewportForTradingTerminal(event){
 
 function handleTradingTerminalClick(event){
   if(!gameStarted || gamePaused || gameOver || tradingScreenOpen) return false;
-  if(!tradingTerminalObject || !tradingOutpostCollision) return false;
 
   let view=clickViewportForTradingTerminal(event);
-  if(!view.car || !carNearTradingTerminal(view.car)) return false;
+  if(!view.car) return false;
 
   terminalClickPointer.set(view.nx,view.ny);
   terminalClickRaycaster.setFromCamera(terminalClickPointer,view.car.camera);
   terminalClickRaycaster.far=80;
-  let hits=terminalClickRaycaster.intersectObject(tradingTerminalObject,true);
-  if(!hits.length) return false;
 
-  event.preventDefault();
-  event.stopPropagation();
-  setTradingScreenOpen(true);
-  return true;
+  for(let collision of activeTradingOutpostCollisions()){
+    if(!collision.terminalObject || !carNearTradingTerminal(view.car,collision)) continue;
+
+    let hits=terminalClickRaycaster.intersectObject(collision.terminalObject,true);
+    if(!hits.length) continue;
+
+    event.preventDefault();
+    event.stopPropagation();
+    setTradingScreenOpen(true);
+    return true;
+  }
+
+  return false;
+}
+
+function openFocusedTradingTerminalForCar(car){
+  if(!gameStarted || gamePaused || gameOver || tradingScreenOpen) return false;
+  if(!car || !car.group || !car.group.visible || car.health<=0) return false;
+
+  for(let collision of activeTradingOutpostCollisions()){
+    if(!collision.terminalObject) continue;
+    if(!carNearTradingTerminal(car,collision)) continue;
+    if(!carAimFocusesTradingTerminal(car,collision)) continue;
+
+    setTradingScreenOpen(true);
+    return true;
+  }
+
+  return false;
 }
 
 function distanceSqToLocalSegment(px,pz,ax,az,bx,bz){
@@ -2382,8 +2540,8 @@ function distanceSqToLocalSegment(px,pz,ax,az,bx,bz){
   return dx*dx+dz*dz;
 }
 
-function tradingOutpostRoomViolation(local,actorRadius){
-  let room=tradingOutpostCollision && tradingOutpostCollision.room;
+function tradingOutpostRoomViolation(local,actorRadius,collision=tradingOutpostCollision){
+  let room=collision && collision.room;
   if(!room || !local) return 0;
 
   let padding=actorRadius+room.wallRadius;
@@ -2403,8 +2561,8 @@ function tradingOutpostRoomViolation(local,actorRadius){
   );
 }
 
-function insideTradingOutpostFloor(local,margin=0.5){
-  let floor=tradingOutpostCollision && tradingOutpostCollision.floor;
+function insideTradingOutpostFloor(local,margin=0.5,collision=tradingOutpostCollision){
+  let floor=collision && collision.floor;
   if(!floor || !local) return false;
   return local.x>=floor.minX-margin
     && local.x<=floor.maxX+margin
@@ -2424,51 +2582,59 @@ function localRectContainmentDepth(local,rect,padding=0){
   return Math.min(local.x-minX,maxX-local.x,local.z-minZ,maxZ-local.z);
 }
 
-function collidesWithTradingOutpostFootprint(actor,x,z,fromX=null,fromZ=null){
-  let floor=tradingOutpostCollision && tradingOutpostCollision.floor;
+function collidesWithTradingOutpostFootprint(actor,x,z,fromX=null,fromZ=null,collision=tradingOutpostCollision){
+  let floor=collision && collision.floor;
   if(!floor) return false;
 
   let actorRadius=actor && Number.isFinite(actor.collisionRadius)
     ? actor.collisionRadius
     : 2.35;
-  let local=worldToTradingOutpostLocal(x,z);
+  let local=worldToTradingOutpostLocal(x,z,collision);
   let depth=localRectContainmentDepth(local,floor,actorRadius);
   if(depth<=0) return false;
 
   let fromLocal=Number.isFinite(fromX) && Number.isFinite(fromZ)
-    ? worldToTradingOutpostLocal(fromX,fromZ)
+    ? worldToTradingOutpostLocal(fromX,fromZ,collision)
     : null;
   let fromDepth=localRectContainmentDepth(fromLocal,floor,actorRadius);
   return !fromLocal || fromDepth<=0 || depth>fromDepth+0.03;
 }
 
 function collidesWithTradingOutpostWalls(actor,x,z,fromX=null,fromZ=null){
-  if(!tradingOutpostCollision) return false;
-  if(actor && actor.blocksTradingOutpostFootprint && collidesWithTradingOutpostFootprint(actor,x,z,fromX,fromZ)) return true;
+  for(let collision of activeTradingOutpostCollisions()){
+    if(collidesWithSingleTradingOutpost(actor,x,z,fromX,fromZ,collision)) return true;
+  }
 
-  let local=worldToTradingOutpostLocal(x,z);
+  return false;
+}
+
+function collidesWithSingleTradingOutpost(actor,x,z,fromX=null,fromZ=null,collision=tradingOutpostCollision){
+  if(!collision) return false;
+  if(actor && actor.blocksTradingOutpostFootprint && collidesWithTradingOutpostFootprint(actor,x,z,fromX,fromZ,collision)) return true;
+
+  let local=worldToTradingOutpostLocal(x,z,collision);
   if(!local) return false;
 
   let actorRadius=actor && Number.isFinite(actor.collisionRadius)
     ? actor.collisionRadius
     : 2.35;
   let fromLocal=Number.isFinite(fromX) && Number.isFinite(fromZ)
-    ? worldToTradingOutpostLocal(fromX,fromZ)
+    ? worldToTradingOutpostLocal(fromX,fromZ,collision)
     : null;
-  let useRoomBoundary=insideTradingOutpostFloor(local) || insideTradingOutpostFloor(fromLocal);
-  let roomViolation=useRoomBoundary ? tradingOutpostRoomViolation(local,actorRadius) : 0;
+  let useRoomBoundary=insideTradingOutpostFloor(local,0.5,collision) || insideTradingOutpostFloor(fromLocal,0.5,collision);
+  let roomViolation=useRoomBoundary ? tradingOutpostRoomViolation(local,actorRadius,collision) : 0;
   if(roomViolation>0){
-    let fromViolation=tradingOutpostRoomViolation(fromLocal,actorRadius);
+    let fromViolation=tradingOutpostRoomViolation(fromLocal,actorRadius,collision);
     if(roomViolation>fromViolation+0.03) return true;
   }
 
-  let terminalViolation=tradingTerminalViolation(local,actorRadius);
+  let terminalViolation=tradingTerminalViolation(local,actorRadius,collision);
   if(terminalViolation>0){
-    let fromViolation=tradingTerminalViolation(fromLocal,actorRadius);
+    let fromViolation=tradingTerminalViolation(fromLocal,actorRadius,collision);
     if(fromViolation<=0 || terminalViolation>fromViolation+0.03) return true;
   }
 
-  for(let wall of tradingOutpostCollision.walls){
+  for(let wall of collision.walls){
     let radius=wall.r+actorRadius;
     let distanceSq=distanceSqToLocalSegment(local.x,local.z,wall.ax,wall.az,wall.bx,wall.bz);
     let radiusSq=radius*radius;
@@ -2517,6 +2683,13 @@ function movementCollision(car,fromX,fromZ,toX,toZ){
   let steps=Math.max(1,Math.min(24,Math.ceil(distance/0.45)));
   let safeX=fromX;
   let safeZ=fromZ;
+  let tradingEscape=collidesWithTradingOutpostWalls(car,fromX,fromZ)
+    ? tradingOutpostSafePointOutside(car,fromX,fromZ)
+    : null;
+  if(tradingEscape){
+    safeX=tradingEscape.x;
+    safeZ=tradingEscape.z;
+  }
 
   for(let i=1;i<=steps;i++){
     let t=i/steps;
@@ -3124,17 +3297,6 @@ function supplyPointForVillage(village,type,index){
   return {x,y:drivingSurfaceHeight(x,z),z,angle:fallbackAngle};
 }
 
-function nearestActiveCarDistanceSq(x,z){
-  let best=Infinity;
-  for(let car of activeCars()){
-    if(car.health<=0 || !car.group.visible) continue;
-    let dx=x-car.x;
-    let dz=z-car.z;
-    best=Math.min(best,dx*dx+dz*dz);
-  }
-  return best;
-}
-
 function spawnSupplyBoxForVillage(village,type,index,key){
   let point=supplyPointForVillage(village,type,index);
   let box=makeSupplyBox(type);
@@ -3148,17 +3310,8 @@ function spawnSupplyBoxForVillage(village,type,index,key){
 }
 
 function spawnVillageSupplyBoxes(){
-  let jetUnlockCandidate=null;
-
   for(let village of world.activeVillages || []){
     if(!world.isVillageCleared(village)) continue;
-
-    if(!jetUnlocked && !supplySpawnKeys.has("jet-unlock") && village.buildings && village.buildings.length>4){
-      let distSq=nearestActiveCarDistanceSq(village.x,village.z);
-      if(Number.isFinite(distSq) && (!jetUnlockCandidate || distSq<jetUnlockCandidate.distSq)){
-        jetUnlockCandidate={village,distSq};
-      }
-    }
 
     let supplySets=gameMode==="double" ? 2 : 1;
     for(let set=0;set<supplySets;set++){
@@ -3177,10 +3330,6 @@ function spawnVillageSupplyBoxes(){
         }
       }
     }
-  }
-
-  if(jetUnlockCandidate && !supplySpawnKeys.has("jet-unlock")){
-    spawnSupplyBoxForVillage(jetUnlockCandidate.village,"jet",8,"jet-unlock");
   }
 }
 
@@ -3607,6 +3756,7 @@ function rocketTargetPoint(target){
 function fireRocket(car){
   if(gameOver || car.health<=0 || car.rocketCooldown>0) return;
   if(car.jetMode || car.jetProgress>0.35) return;
+  if(!car.isEnemy && !rocketLauncherUnlocked()) return;
   if(playerCombatSuppressed(car)) return;
   if(!car.isEnemy && actorInsideBuilding(car)) return;
 
@@ -4098,6 +4248,11 @@ function updateCannonInput(car){
   let buttons=input.getGamepadFaceButtons(car.gamepadIndex);
   let mouseShot=gameMode==="single" && car===playerCar && input.mouse.left;
   let cannonButton=buttons.rightTrigger || mouseShot;
+  let pressedCannonButton=cannonButton && !car.lastCannonButton;
+  if(pressedCannonButton && buttons.rightTrigger && openFocusedTradingTerminalForCar(car)){
+    car.lastCannonButton=cannonButton;
+    return;
+  }
   if(cannonButton){
     if(car.jetMode || car.jetProgress>0.65) fireClusterBomb(car);
     else fireCannon(car);
@@ -4801,7 +4956,7 @@ function damageMothership(x,y,z,amount=1){
         mothership.z+Math.sin(angle)*dist
       );
     }
-    addScore(900);
+    addUnits(mothershipUnitAmount);
     removeMothership();
     scheduleNextMothership();
   }
@@ -7234,7 +7389,7 @@ function updateGiantFireballs(){
       triggerScreenShake(0.68);
 
       if(hitEnemy){
-        damageEnemy(hitEnemy,fireball.damage);
+        damageEnemy(hitEnemy,fireball.damage,{skipUnitReward:true});
         rattleActor(hitEnemy,1.2);
       }
 
@@ -7243,7 +7398,7 @@ function updateGiantFireballs(){
         let dx=enemy.x-explosionX;
         let dz=enemy.z-explosionZ;
         if(dx*dx+dz*dz<fireball.blastRadius*fireball.blastRadius){
-          damageEnemy(enemy,Math.max(24,fireball.damage*0.55));
+          damageEnemy(enemy,Math.max(24,fireball.damage*0.55),{skipUnitReward:true});
           rattleActor(enemy,0.95);
         }
       }
@@ -8284,6 +8439,16 @@ function objectInVisibleChunk(object){
 
 function scanVisibleChunksForTradingOutposts(){
   let found=false;
+  if(tradingOutpost){
+    let station={x:tradingOutpost.position.x,z:tradingOutpost.position.z};
+    if(objectInVisibleChunk(station)){
+      let key="station-trading-outpost";
+      if(!scannedTradingOutposts.has(key)){
+        scannedTradingOutposts.set(key,station);
+        found=true;
+      }
+    }
+  }
   for(let [key,outpost] of rareTradingOutposts){
     if(!objectInVisibleChunk(outpost)) continue;
     if(!scannedTradingOutposts.has(key)){
@@ -8291,14 +8456,6 @@ function scanVisibleChunksForTradingOutposts(){
       found=true;
     }
   }
-  if(playerBaseTradingOutpost && objectInVisibleChunk(playerBaseTradingOutpost)){
-    let key="player-base-trading-outpost";
-    if(!scannedTradingOutposts.has(key)){
-      scannedTradingOutposts.set(key,{x:playerBaseTradingOutpost.x,z:playerBaseTradingOutpost.z});
-      found=true;
-    }
-  }
-
   if(found && hud) hud.updateMapHud(true);
   return found;
 }
@@ -8355,20 +8512,12 @@ function scanVisibleChunksForMapFeatures(){
   let foundBossBases=scanVisibleChunksForBossBases();
   let foundTradingOutposts=scanVisibleChunksForTradingOutposts();
   let foundLandingSpaces=scanVisibleChunksForLandingSpaces();
-  let foundPortals=scanVisibleChunksForPortals();
-  return foundBossBases || foundTradingOutposts || foundLandingSpaces || foundPortals;
-}
-
-function clearPlayerBaseTradingOutpost(){
-  if(playerBaseTradingOutpost && playerBaseTradingOutpost.object){
-    scene.remove(playerBaseTradingOutpost.object);
-  }
-  playerBaseTradingOutpost=null;
-  scannedTradingOutposts.delete("player-base-trading-outpost");
+  return foundBossBases || foundTradingOutposts || foundLandingSpaces;
 }
 
 function clearRareTradingOutposts(clearScanned=false){
   for(let outpost of rareTradingOutposts.values()){
+    unregisterTradingPlaceCollision(outpost);
     if(outpost && outpost.object) scene.remove(outpost.object);
   }
   rareTradingOutposts.clear();
@@ -8407,6 +8556,7 @@ function updateRareTradingOutposts(){
 
   for(let [key,outpost] of rareTradingOutposts){
     if(!world.chunks.has(key)){
+      unregisterTradingPlaceCollision(outpost);
       if(outpost && outpost.object) scene.remove(outpost.object);
       rareTradingOutposts.delete(key);
     }
@@ -8427,54 +8577,15 @@ function updateRareTradingOutposts(){
     tintTradingOutpostForEnvironment(object);
     scene.add(object);
 
-    rareTradingOutposts.set(key,{
+    let outpost={
       key,
       object,
       x:candidate.x,
       z:candidate.z
-    });
+    };
+    registerTradingPlaceCollision(outpost,tradingOutpostModel);
+    rareTradingOutposts.set(key,outpost);
   }
-}
-
-function placeTradingOutpostNearPlayerBaseStation(){
-  clearPlayerBaseTradingOutpost();
-  if(!tradingOutpostModel || !tradingOutpost) return;
-
-  let candidates=[];
-  let stationX=tradingOutpost.position.x;
-  let stationZ=tradingOutpost.position.z;
-  let baseAngle=tradingOutpost.rotation.y || 0;
-  for(let ring=0;ring<4;ring++){
-    let dist=180+ring*58;
-    let count=8+ring*2;
-    for(let i=0;i<count;i++){
-      let angle=baseAngle+Math.PI*0.18+(i/count)*Math.PI*2;
-      let x=stationX+Math.sin(angle)*dist;
-      let z=stationZ+Math.cos(angle)*dist;
-      let facing=angle+Math.PI;
-      let info=tradingOutpostPlacementInfo(x,z,facing);
-      if(!info || !info.usable) continue;
-
-      let score=info.range*120+info.maxSlope*900+Math.abs(dist-235)*0.05;
-      candidates.push({...info,angle:facing,score});
-    }
-  }
-
-  candidates.sort((a,b)=>a.score-b.score);
-  let chosen=candidates[0];
-  if(!chosen) return;
-
-  let object=tradingOutpostModel.clone(true);
-  object.position.set(chosen.x,chosen.y,chosen.z);
-  object.rotation.y=chosen.angle;
-  tintTradingOutpostForEnvironment(object);
-  scene.add(object);
-
-  playerBaseTradingOutpost={
-    object,
-    x:chosen.x,
-    z:chosen.z
-  };
 }
 
 function makeSurfaceScanLine(pointCount,material,renderOrder=24){
@@ -8618,6 +8729,11 @@ function updateScannerMode(){
     return buttons.rightBumper;
   });
   let scannerPressed=!!input.keys.c || scannerControllerPressed;
+  if(!scannerUnlocked()){
+    scannerKeyDown=scannerPressed;
+    return;
+  }
+
   let now=performance.now();
   let scannerReady=now>=scannerReadyAt;
   if(scannerPressed && !scannerKeyDown && scannerReady && gameStarted && !gamePaused && !tradingScreenOpen && !gameOver){
@@ -9069,14 +9185,15 @@ function startGame(mode,difficulty="medium",savedStatus=null){
   tradingScreen.setVisible(false);
   fixedAccumulator=0;
   lastLoopTime=null;
-  score=0;
+  units=initialUnits;
+  purchasedTradingItems=new Set();
   scoredVillages=new WeakSet();
   scannedBossBases=new Set();
   scannedLandingSpaces=new Map();
   scannedPortals=new Map();
   clearRareTradingOutposts(true);
   portalSystem.clearRandomPortals();
-  clearPlayerBaseTradingOutpost();
+  tradingPlaceCollisions=[];
   scannerKeyDown=false;
   scannerReadyAt=0;
   playerCar.damageZones=createRobotDamageState();
@@ -9106,7 +9223,6 @@ function startGame(mode,difficulty="medium",savedStatus=null){
   }
   spawnGiantTestRobot(startInfo);
   placeTradingOutpostNearStart(startInfo);
-  placeTradingOutpostNearPlayerBaseStation();
   world.placeTestBossBaseNearStart(playerCar.x,playerCar.z,playerCar.angle);
   spawnBossBaseGuards();
   setCarActive(playerCar,true);
@@ -9212,7 +9328,6 @@ loadBaseStationModel()
   .then(model=>{
     baseStationModel=model;
     placeTradingOutpostNearStart(currentStartInfo);
-    placeTradingOutpostNearPlayerBaseStation();
   })
   .catch(error=>{
     console.error("Failed to load base station model:",error);
@@ -9221,7 +9336,6 @@ loadBaseStationModel()
 loadTradingOutpostModel()
   .then(model=>{
     tradingOutpostModel=model;
-    placeTradingOutpostNearPlayerBaseStation();
     updateRareTradingOutposts();
   })
   .catch(error=>{
@@ -9314,7 +9428,7 @@ function clearTradingOutpost(){
   tradingTerminalObject=null;
 }
 
-function setTradingOutpostCollision(x,z,angle,y,model=tradingOutpostModel){
+function makeTradingOutpostCollision(x,z,angle,y,model=tradingOutpostModel,object=null,terminalObject=null){
   let modelData=model ? model.userData || {} : {};
   let bounds=modelData.tradingOutpostBounds || {};
   let halfX=Math.max(31,(Number.isFinite(modelData.footprintHalfX) ? modelData.footprintHalfX : 31)-3.2);
@@ -9329,13 +9443,15 @@ function setTradingOutpostCollision(x,z,angle,y,model=tradingOutpostModel){
   let wallMaxZ=Number.isFinite(bounds.wallMaxZInner) ? bounds.wallMaxZInner : maxZ;
   let entranceHalfWidth=Math.max(13,Math.min((wallRightX-wallLeftX)*0.24,Math.min(Math.abs(wallLeftX),Math.abs(wallRightX))*0.78));
   let wallInset=0;
-  let wallRadius=1.25;
-  let floorInset=0.35;
+  let wallRadius=4.5;
+  let floorInset=1.8;
   let floorMinX=Number.isFinite(bounds.floorMinX) ? bounds.floorMinX+floorInset : minX+wallRadius;
   let floorMaxX=Number.isFinite(bounds.floorMaxX) ? bounds.floorMaxX-floorInset : maxX-wallRadius;
   let floorMinZ=Number.isFinite(bounds.floorMinZ) ? bounds.floorMinZ+floorInset : minZ+wallRadius;
   let floorMaxZ=Number.isFinite(bounds.floorMaxZ) ? bounds.floorMaxZ-floorInset : maxZ-wallRadius;
-  tradingOutpostCollision={
+  return {
+    object,
+    terminalObject,
     x,
     z,
     angle,
@@ -9364,6 +9480,39 @@ function setTradingOutpostCollision(x,z,angle,y,model=tradingOutpostModel){
       {ax:entranceHalfWidth,az:wallMaxZ,bx:wallRightX,bz:wallMaxZ,r:wallRadius}
     ]
   };
+}
+
+function setTradingOutpostCollision(x,z,angle,y,model=tradingOutpostModel){
+  tradingOutpostCollision=makeTradingOutpostCollision(x,z,angle,y,model,tradingOutpost,tradingTerminalObject);
+}
+
+function registerTradingPlaceCollision(outpost,model=tradingOutpostModel){
+  if(!outpost || !outpost.object) return null;
+
+  let object=outpost.object;
+  let terminalObject=object.getObjectByName("missionOutpostTerminal");
+  let collision=makeTradingOutpostCollision(
+    outpost.x,
+    outpost.z,
+    object.rotation.y || 0,
+    object.position.y,
+    model,
+    object,
+    terminalObject
+  );
+  tradingPlaceCollisions.push(collision);
+  outpost.collision=collision;
+  outpost.terminalObject=terminalObject;
+  return collision;
+}
+
+function unregisterTradingPlaceCollision(outpost){
+  if(!outpost || !outpost.collision) return;
+
+  let index=tradingPlaceCollisions.indexOf(outpost.collision);
+  if(index>=0) tradingPlaceCollisions.splice(index,1);
+  outpost.collision=null;
+  outpost.terminalObject=null;
 }
 
 function mixedPlanetColor(a,b,amount){
@@ -9601,7 +9750,6 @@ placeCarOnOpenField(playerCar,initialStartInfo);
 placeCarOnOpenField(secondCar,initialStartInfo);
 spawnGiantTestRobot(initialStartInfo);
 placeTradingOutpostNearStart(initialStartInfo);
-placeTradingOutpostNearPlayerBaseStation();
 world.placeTestBossBaseNearStart(playerCar.x,playerCar.z,playerCar.angle);
 playerCar.cameraYaw=playerCar.angle;
 secondCar.cameraYaw=secondCar.angle;
