@@ -78,6 +78,7 @@ const minNormalFogNear=520;
 const minNormalFogDepth=650;
 const dreamFogNear=45;
 const dreamFogFar=520;
+const rareTradingOutpostChunkProbability=0.02;
 
 let currentEnvironment=worldEnvironments[Math.floor(Math.random()*worldEnvironments.length)];
 let rainIntensity=0;
@@ -8059,7 +8060,7 @@ function clearRareTradingOutposts(clearScanned=false){
 
 function rareTradingOutpostCandidateForChunk(cx,cz){
   if(!tradingOutpostModel) return null;
-  if(hash01(cx+931,cz-577)>0.045) return null;
+  if(hash01(cx+931,cz-577)>rareTradingOutpostChunkProbability) return null;
 
   let x=(cx+0.18+hash01(cx*7+13,cz*5-19)*0.64)*chunkSize;
   let z=(cz+0.18+hash01(cx*11-29,cz*3+31)*0.64)*chunkSize;

@@ -43,6 +43,14 @@ const portalRingRenderOrder=28;
 const portalHaloRenderOrder=27;
 const portalCoreRenderOrder=26;
 const portalSparkRenderOrder=29;
+const portalStoneColor=0x4f4a58;
+const portalStoneEmissive=0x140b1e;
+const portalStoneTubeRadius=0.16;
+const portalStoneRadialSegments=7;
+const portalStoneTubularSegments=40;
+const portalStoneRadiusScale=1.13;
+const portalStoneHeightScale=1.13;
+const portalStoneDepthScale=0.74;
 const portalRingHeightScale=0.5;
 const portalHaloRadiusScale=1.22;
 const portalHaloHeightScale=0.61;
@@ -152,6 +160,14 @@ export function createPortalSystem(context){
   let portalRingGeo=new THREE.TorusGeometry(1,portalRingTubeRadius,portalRingRadialSegments,portalRingTubularSegments);
   let portalCoreGeo=new THREE.CircleGeometry(1,portalCoreSegments);
   let portalHaloGeo=new THREE.TorusGeometry(1,portalHaloTubeRadius,portalHaloRadialSegments,portalRingTubularSegments);
+  let portalStoneGeo=new THREE.TorusGeometry(1,portalStoneTubeRadius,portalStoneRadialSegments,portalStoneTubularSegments);
+  let portalStoneMat=new THREE.MeshStandardMaterial({
+    color:portalStoneColor,
+    emissive:portalStoneEmissive,
+    emissiveIntensity:0.12,
+    roughness:0.92,
+    metalness:0.04
+  });
   let portalRingMat=new THREE.MeshBasicMaterial({
     color:portalRingColor,
     transparent:true,
@@ -189,6 +205,15 @@ export function createPortalSystem(context){
     return y;
   }
 
+  function addPortalStoneStructure(group,radius,height){
+    let ringYRadius=height*portalRingHeightScale;
+    let stoneRing=new THREE.Mesh(portalStoneGeo,portalStoneMat);
+    stoneRing.scale.set(radius*portalStoneRadiusScale,ringYRadius*portalStoneHeightScale,portalStoneDepthScale);
+    stoneRing.castShadow=false;
+    stoneRing.receiveShadow=true;
+    group.add(stoneRing);
+  }
+
   function createPortal(x,z,yaw=0,options={}){
     let surfaceY=portalSurfaceY(x,z);
     let radius=options.radius || portalDefaultRadius;
@@ -196,6 +221,8 @@ export function createPortalSystem(context){
     let group=new THREE.Group();
     group.position.set(x,surfaceY+height*portalCenterHeightScale,z);
     group.rotation.y=yaw;
+    let visualGroup=new THREE.Group();
+    group.add(visualGroup);
     group.userData={
       x,
       z,
@@ -212,19 +239,21 @@ export function createPortalSystem(context){
     let ring=new THREE.Mesh(portalRingGeo,portalRingMat.clone());
     ring.scale.set(radius,height*portalRingHeightScale,radius);
     ring.renderOrder=portalRingRenderOrder;
-    group.add(ring);
+    visualGroup.add(ring);
 
     let halo=new THREE.Mesh(portalHaloGeo,portalRingMat.clone());
     halo.material.color.set(portalHaloColor);
     halo.material.opacity=portalHaloOpacity;
     halo.scale.set(radius*portalHaloRadiusScale,height*portalHaloHeightScale,radius*portalHaloRadiusScale);
     halo.renderOrder=portalHaloRenderOrder;
-    group.add(halo);
+    visualGroup.add(halo);
 
     let core=new THREE.Mesh(portalCoreGeo,portalCoreMat.clone());
     core.scale.set(radius*portalCoreRadiusScale,height*portalCoreHeightScale,1);
     core.renderOrder=portalCoreRenderOrder;
-    group.add(core);
+    visualGroup.add(core);
+
+    addPortalStoneStructure(group,radius,height);
 
     let sparkCount=portalSparkCount;
     let sparkPositions=new Float32Array(sparkCount*3);
@@ -247,8 +276,9 @@ export function createPortalSystem(context){
     sparkGeo.setAttribute("position",new THREE.BufferAttribute(sparkPositions,3));
     let sparks=new THREE.Points(sparkGeo,portalSparkMat.clone());
     sparks.renderOrder=portalSparkRenderOrder;
-    group.add(sparks);
+    visualGroup.add(sparks);
 
+    group.userData.visualGroup=visualGroup;
     group.userData.ring=ring;
     group.userData.halo=halo;
     group.userData.core=core;
@@ -266,13 +296,19 @@ export function createPortalSystem(context){
     if(index>=0) portals.splice(index,1);
     context.scene.remove(portal);
     portal.traverse(child=>{
-      if(child.geometry && child.geometry !== portalRingGeo && child.geometry !== portalCoreGeo && child.geometry !== portalHaloGeo){
+      if(child.geometry
+        && child.geometry !== portalRingGeo
+        && child.geometry !== portalCoreGeo
+        && child.geometry !== portalHaloGeo
+        && child.geometry !== portalStoneGeo){
         child.geometry.dispose();
       }
       if(child.material){
         if(Array.isArray(child.material)){
-          for(let material of child.material) material.dispose();
-        }else{
+          for(let material of child.material){
+            if(material !== portalStoneMat) material.dispose();
+          }
+        }else if(child.material !== portalStoneMat){
           child.material.dispose();
         }
       }
@@ -409,7 +445,10 @@ export function createPortalSystem(context){
     data.cooldown=Math.max(0,(data.cooldown || 0)-1);
     let t=now*portalAnimationTimeScale+data.phase;
     let pulse=1+Math.sin(t*portalPulseFrequency)*portalPulseAmount;
-    portal.position.y=portalSurfaceY(data.x,data.z)+data.height*portalCenterHeightScale+Math.sin(t*portalFloatFrequency)*portalFloatAmount;
+    portal.position.y=portalSurfaceY(data.x,data.z)+data.height*portalCenterHeightScale;
+    if(data.visualGroup){
+      data.visualGroup.position.y=Math.sin(t*portalFloatFrequency)*portalFloatAmount;
+    }
     if(data.ring){
       data.ring.rotation.z+=portalRingRotationSpeed;
       data.ring.scale.set(data.visualRadius*pulse,data.height*portalRingHeightScale*pulse,data.visualRadius*pulse);
