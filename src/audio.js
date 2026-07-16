@@ -13,6 +13,7 @@ export function createMotorAudio(cars){
   let giantFootstepBufferPromise=null;
   let scannerBuffer=null;
   let scannerBufferPromise=null;
+  let mothershipHum=null;
   let supported=true;
   let sfxVolume=1;
   let musicVolume=0.0;
@@ -687,6 +688,94 @@ export function createMotorAudio(cars){
     noise.stop(time+0.2);
   }
 
+  function startMothershipHum(){
+    ensureContext();
+    if(!context || !supported) return;
+    if(context.state==="suspended") context.resume();
+    if(mothershipHum && !mothershipHum.stopping) return;
+    if(mothershipHum) stopMothershipHum(true);
+
+    let time=context.currentTime;
+    let low=context.createOscillator();
+    let high=context.createOscillator();
+    let lowFilter=context.createBiquadFilter();
+    let noise=context.createBufferSource();
+    let noiseFilter=context.createBiquadFilter();
+    let noiseGain=context.createGain();
+    let output=context.createGain();
+
+    low.type="sawtooth";
+    high.type="triangle";
+    low.frequency.setValueAtTime(38,time);
+    high.frequency.setValueAtTime(76,time);
+    lowFilter.type="lowpass";
+    lowFilter.frequency.setValueAtTime(160,time);
+    lowFilter.Q.setValueAtTime(3.8,time);
+
+    noise.buffer=noiseBuffer || createNoiseBuffer();
+    noise.loop=true;
+    noiseFilter.type="bandpass";
+    noiseFilter.frequency.setValueAtTime(84,time);
+    noiseFilter.Q.setValueAtTime(1.9,time);
+    noiseGain.gain.setValueAtTime(0.026,time);
+    output.gain.setValueAtTime(0.0001,time);
+    output.gain.setTargetAtTime(0.12,time+0.02,0.55);
+
+    low.connect(lowFilter);
+    lowFilter.connect(output);
+    high.connect(output);
+    noise.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(output);
+    output.connect(master);
+
+    low.start(time);
+    high.start(time);
+    noise.start(time);
+
+    mothershipHum={
+      low,
+      high,
+      lowFilter,
+      noise,
+      noiseFilter,
+      noiseGain,
+      output,
+      stopping:false
+    };
+  }
+
+  function updateMothershipHum(intensity=1){
+    if(!mothershipHum || !context || !supported) return;
+    let now=context.currentTime;
+    let level=clamp(intensity,0,1);
+    let wobble=0.5+0.5*Math.sin(now*1.8);
+
+    mothershipHum.low.frequency.setTargetAtTime(34+level*9+wobble*2.2,now,0.18);
+    mothershipHum.high.frequency.setTargetAtTime(68+level*18+wobble*5.5,now,0.16);
+    mothershipHum.lowFilter.frequency.setTargetAtTime(120+level*90+wobble*25,now,0.22);
+    mothershipHum.noiseFilter.frequency.setTargetAtTime(72+level*58+wobble*18,now,0.2);
+    mothershipHum.output.gain.setTargetAtTime(0.035+level*0.125,now,0.28);
+  }
+
+  function stopMothershipHum(immediate=false){
+    if(!mothershipHum || !context || !supported) return;
+    let hum=mothershipHum;
+    let now=context.currentTime;
+    let stopTime=immediate ? now+0.02 : now+0.75;
+    hum.stopping=true;
+    hum.output.gain.cancelScheduledValues(now);
+    hum.output.gain.setTargetAtTime(0.0001,now,immediate ? 0.01 : 0.24);
+
+    try{ hum.low.stop(stopTime); }catch(error){}
+    try{ hum.high.stop(stopTime); }catch(error){}
+    try{ hum.noise.stop(stopTime); }catch(error){}
+    window.setTimeout(()=>{
+      if(mothershipHum===hum) mothershipHum=null;
+      try{ hum.output.disconnect(); }catch(error){}
+    },immediate ? 40 : 850);
+  }
+
   return {
     resume,
     update,
@@ -702,6 +791,9 @@ export function createMotorAudio(cars){
     playBombExplosion,
     playGiantFootstep,
     playScannerPulse,
-    playLaserFire
+    playLaserFire,
+    startMothershipHum,
+    updateMothershipHum,
+    stopMothershipHum
   };
 }

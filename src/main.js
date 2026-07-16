@@ -2,12 +2,12 @@ import { THREE } from "./three.js";
 import { carRadius, gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize, viewDistance, mothershipDropCount, mothershipDropInterval, mothershipDropLineSpacing, mothershipHoverDistance, mothershipHoverFrames, mothershipMinDelay, mothershipRandomDelay, mothershipRocketHits } from "./constants.js";
 import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=no-ramps";
 import { createInput } from "./input.js?v=scanner-bumper";
-import { createHud } from "./hud.js?v=transparent-compass-arc";
+import { createHud } from "./hud.js?v=no-speedometer";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=night-stars";
 import { createWorld } from "./world.js?v=landing-touchdown-back";
-import { createMotorAudio } from "./audio.js?v=scanner-mp3-quiet";
+import { createMotorAudio } from "./audio.js?v=mothership-hum";
 import { worldEnvironments } from "./environments.js";
-import { difficultySettings } from "./gameConfig.js";
+import { difficultySettings } from "./gameConfig.js?v=ammo-caps";
 import { loadBackPackModel, loadBaseStationModel, loadCarModel, loadEnemyBattleShipModel, loadJetModel, loadLandingSpaceModel, loadTradingOutpostModel, loadTreasureChestModels, makeMechModel } from "./models.js?v=base-station";
 import { makeSkyTexture } from "./textures.js?v=night-stars";
 import { createPortalSystem } from "./portals.js";
@@ -328,6 +328,8 @@ let baseStationModel=null;
 let enemyShipModel=null;
 let tradingOutpostModel=null;
 let tradingOutpost=null;
+let testingTradingOutpost=null;
+let testingTradingOutpostEnabled=false;
 let tradingOutpostCollision=null;
 let tradingTerminalObject=null;
 let tradingPlaceCollisions=[];
@@ -335,7 +337,7 @@ let currentStartInfo=null;
 let currentGameFromSave=false;
 let jetUnlocked=false;
 let initialUnits=500;
-let testingScannerAvailableFromStart=true;
+let testingScannerAvailableFromStart=false;
 let units=initialUnits;
 let purchasedTradingItems=new Set();
 let normalEnemyUnitAmount=20;
@@ -343,6 +345,8 @@ let giantEnemyUnitAmount=50;
 let droneEnemyUnitAmount=70;
 let crabEnemyUnitAmount=10;
 let mothershipUnitAmount=150;
+let mothershipBeamFrames=132;
+let mothershipBeamOutFrames=118;
 let bossBaseUnitAmount=650;
 let bossBaseDamageMultiplier=0.38;
 let bossBaseClusterBombHits=5;
@@ -377,10 +381,12 @@ let aimOffsetYMin=-16;
 let aimOffsetYMax=21;
 let cameraAimPitchMin=-8.4;
 let cameraAimPitchMax=8.8;
-let initialClusterBombAmmo=10;
+let initialClusterBombAmmo=0;
 let rocketLauncherPurchaseAmmo=50;
 let tradingCannonShotAmount=100;
 let tradingRocketAmount=50;
+let tradingBombAmount=1;
+let jetPurchaseBombAmount=10;
 let maxBoostCharge=100;
 let maxFuel=100;
 let carFuelDrainRate=0.003;
@@ -1546,6 +1552,7 @@ function createTradingScreen(){
     {id:"jet",name:"Jet",price:5000},
     {id:"cannon-shots",name:"Cannon shots x100",price:100,repeatable:true},
     {id:"rockets",name:"Rockets x50",price:200,repeatable:true},
+    {id:"bombs",name:"Bombs x1",price:500,repeatable:true},
     {id:"shield",name:"Shield x1",price:5500},
     {id:"fuel",name:"Fuel",price:200,repeatable:true}
   ];
@@ -1555,17 +1562,49 @@ function createTradingScreen(){
     return activeCars().every(car=>!car || !car.group || !car.group.visible || car.health<=0 || (car.fuel ?? maxFuel)>=maxFuel-0.001);
   }
 
+  function activeTradingCars(){
+    return activeCars().filter(car=>car && car.group && car.group.visible && car.health>0);
+  }
+
+  function cannonAmmoIsFull(){
+    let cap=maxCannonAmmo();
+    let cars=activeTradingCars();
+    return cars.length>0 && cars.every(car=>(car.cannonAmmo || 0)>=cap);
+  }
+
+  function rocketAmmoIsFull(){
+    let rocketCap=maxRocketAmmo();
+    let carRocketCap=maxCarRocketAmmo();
+    let cars=activeTradingCars();
+    return cars.length>0 && cars.every(car=>(car.rocketAmmo || 0)>=rocketCap && (car.carRocketAmmo || 0)>=carRocketCap);
+  }
+
+  function tradeItemUnavailable(item){
+    if(!item) return true;
+    if(item.id==="fuel") return fuelIsFull();
+    if(item.id==="cannon-shots") return cannonAmmoIsFull();
+    if(item.id==="rockets") return rocketAmmoIsFull();
+    if(item.id==="bombs") return !jetUnlocked;
+    return false;
+  }
+
   function tradeRenderKey(){
     return [
       Math.max(0,Math.round(units || 0)),
       Array.from(purchasedTradingItems).sort().join(","),
-      activeCars().map(car=>Math.round(car && Number.isFinite(car.fuel) ? car.fuel : maxFuel)).join(",")
+      activeCars().map(car=>[
+        Math.round(car && Number.isFinite(car.fuel) ? car.fuel : maxFuel),
+        Math.round(car && Number.isFinite(car.cannonAmmo) ? car.cannonAmmo : maxCannonAmmo()),
+        Math.round(car && Number.isFinite(car.rocketAmmo) ? car.rocketAmmo : maxRocketAmmo()),
+        Math.round(car && Number.isFinite(car.carRocketAmmo) ? car.carRocketAmmo : maxCarRocketAmmo()),
+        Math.round(car && Number.isFinite(car.clusterBombAmmo) ? car.clusterBombAmmo : initialClusterBombAmmo)
+      ].join(":")).join(",")
     ].join("|");
   }
 
   function buyTradingItem(item){
     if(!item || (!item.repeatable && purchasedTradingItems.has(item.id)) || units<item.price) return;
-    if(item.id==="fuel" && fuelIsFull()) return;
+    if(tradeItemUnavailable(item)) return;
 
     units=Math.max(0,units-item.price);
     if(!item.repeatable) purchasedTradingItems.add(item.id);
@@ -1579,17 +1618,36 @@ function createTradingScreen(){
     }
     if(item.id==="scanner") scannerReadyAt=0;
     if(item.id==="portal-key") updateUnlockedRandomPortals();
-    if(item.id==="jet") jetUnlocked=true;
-    if(item.id==="cannon-shots"){
+    if(item.id==="jet"){
+      jetUnlocked=true;
       for(let car of activeCars()){
-        if(car && car.group && car.group.visible && car.health>0) car.cannonAmmo+=tradingCannonShotAmount;
+        if(car && car.group && car.group.visible && car.health>0){
+          car.clusterBombAmmo=Math.max(0,(car.clusterBombAmmo || 0)+jetPurchaseBombAmount);
+        }
+      }
+    }
+    if(item.id==="cannon-shots"){
+      let cannonAmmoCap=maxCannonAmmo();
+      for(let car of activeCars()){
+        if(car && car.group && car.group.visible && car.health>0){
+          car.cannonAmmo=Math.min(cannonAmmoCap,(car.cannonAmmo || 0)+tradingCannonShotAmount);
+        }
       }
     }
     if(item.id==="rockets"){
+      let rocketAmmoCap=maxRocketAmmo();
+      let carRocketAmmoCap=maxCarRocketAmmo();
       for(let car of activeCars()){
         if(car && car.group && car.group.visible && car.health>0){
-          car.rocketAmmo+=tradingRocketAmount;
-          car.carRocketAmmo+=tradingRocketAmount;
+          car.rocketAmmo=Math.min(rocketAmmoCap,(car.rocketAmmo || 0)+tradingRocketAmount);
+          car.carRocketAmmo=Math.min(carRocketAmmoCap,(car.carRocketAmmo || 0)+tradingRocketAmount);
+        }
+      }
+    }
+    if(item.id==="bombs"){
+      for(let car of activeCars()){
+        if(car && car.group && car.group.visible && car.health>0){
+          car.clusterBombAmmo=Math.max(0,(car.clusterBombAmmo || 0)+tradingBombAmount);
         }
       }
     }
@@ -1616,7 +1674,7 @@ function createTradingScreen(){
 
     for(let item of tradeItems){
       let owned=!item.repeatable && purchasedTradingItems.has(item.id);
-      let unavailable=item.id==="fuel" && fuelIsFull();
+      let unavailable=tradeItemUnavailable(item);
       let affordable=units>=item.price;
       let row=document.createElement("button");
       row.type="button";
@@ -1640,7 +1698,13 @@ function createTradingScreen(){
         "text-transform:uppercase"
       ].join(";");
       let name=document.createElement("span");
-      name.textContent=owned ? item.name+" / Owned" : unavailable ? item.name+" / Full" : item.name;
+      name.textContent=owned
+        ? item.name+" / Owned"
+        : item.id==="bombs" && !jetUnlocked
+        ? item.name+" / Jet required"
+        : unavailable
+        ? item.name+" / Full"
+        : item.name;
       let price=document.createElement("span");
       price.textContent=item.price+" units";
       price.style.cssText="color:"+(affordable && !owned && !unavailable ? "#efcf72" : "inherit");
@@ -1722,6 +1786,7 @@ function visibleTradingOutpostsForMap(){
   for(let [key,outpost] of rareTradingOutposts){
     if(outpost) add(key,outpost.x,outpost.z);
   }
+  if(testingTradingOutpost) add(testingTradingOutpost.key || "testing-home-trading-outpost",testingTradingOutpost.x,testingTradingOutpost.z);
   for(let [key,outpost] of scannedTradingOutposts){
     if(key==="station-trading-outpost") continue;
     if(outpost) add(key,outpost.x,outpost.z);
@@ -2003,9 +2068,9 @@ function restoreCarStatus(car,saved){
   car.jetBank=finiteOr(saved.jetBank,0);
   car.jetAltitudeTarget=finiteOr(saved.jetAltitudeTarget,car.y+8);
   car.landedOnPad=!!saved.landedOnPad;
-  car.rocketAmmo=Math.max(0,Math.floor(finiteOr(saved.rocketAmmo,maxRocketAmmo())));
-  car.carRocketAmmo=Math.max(0,Math.floor(finiteOr(saved.carRocketAmmo,maxCarRocketAmmo())));
-  car.cannonAmmo=Math.max(0,Math.floor(finiteOr(saved.cannonAmmo,maxCannonAmmo())));
+  car.rocketAmmo=Math.max(0,Math.min(maxRocketAmmo(),Math.floor(finiteOr(saved.rocketAmmo,maxRocketAmmo()))));
+  car.carRocketAmmo=Math.max(0,Math.min(maxCarRocketAmmo(),Math.floor(finiteOr(saved.carRocketAmmo,maxCarRocketAmmo()))));
+  car.cannonAmmo=Math.max(0,Math.min(maxCannonAmmo(),Math.floor(finiteOr(saved.cannonAmmo,maxCannonAmmo()))));
   car.clusterBombAmmo=Math.max(0,Math.floor(finiteOr(saved.clusterBombAmmo,initialClusterBombAmmo)));
   car.boostCharge=Math.max(0,Math.min(maxBoostCharge,finiteOr(saved.boostCharge,maxBoostCharge)));
   car.fuel=Math.max(0,Math.min(maxFuel,finiteOr(saved.fuel,maxFuel)));
@@ -3241,50 +3306,100 @@ function spawnMothershipImpactBurst(x,y,z){
   if(!mothership) return;
 
   let shipY=mothership.group ? mothership.group.position.y : mothership.y;
-  let normal=new THREE.Vector3(x-mothership.x,(y-shipY)*0.65,z-mothership.z);
+  let normal=new THREE.Vector3(x-mothership.x,(y-shipY)*0.72,z-mothership.z);
   if(normal.lengthSq()<0.001) normal.set(0,1,0);
   normal.normalize();
 
-  let impactX=x+normal.x*2.8;
-  let impactY=y+normal.y*2.8;
-  let impactZ=z+normal.z*2.8;
+  let rx=42;
+  let ry=18;
+  let rz=24;
+  let surfaceDistance=1/Math.sqrt(
+    (normal.x*normal.x)/(rx*rx)
+    +(normal.y*normal.y)/(ry*ry)
+    +(normal.z*normal.z)/(rz*rz)
+  );
+  let passedDistance=(x-mothership.x)*normal.x+(y-shipY)*normal.y+(z-mothership.z)*normal.z;
+  let impactDistance=Math.max(surfaceDistance,passedDistance)+7.5;
+  let impactX=mothership.x+normal.x*impactDistance;
+  let impactY=shipY+normal.y*impactDistance;
+  let impactZ=mothership.z+normal.z*impactDistance;
 
   let flash=new THREE.Mesh(explosionFlashGeo,explosionFlashMat.clone());
+  flash.material.depthTest=false;
+  flash.material.opacity=1;
   flash.position.set(impactX,impactY,impactZ);
-  flash.scale.setScalar(0.9);
+  flash.scale.setScalar(1.45);
+  flash.renderOrder=80;
   scene.add(flash);
 
   let ring=new THREE.Mesh(explosionRingGeo,explosionRingMat.clone());
+  ring.material.depthTest=false;
+  ring.material.opacity=1;
   ring.position.set(impactX,impactY,impactZ);
   ring.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),normal);
-  ring.scale.setScalar(1.1);
+  ring.scale.setScalar(1.7);
+  ring.renderOrder=81;
   scene.add(ring);
 
   explosionBursts.push({
     flash,
     ring,
     age:0,
-    life:0.55,
-    startFlashScale:0.9,
-    endFlashScale:5.2,
-    startRingScale:1.1,
-    endRingScale:9,
+    life:0.72,
+    startFlashScale:1.45,
+    endFlashScale:8.4,
+    startRingScale:1.7,
+    endRingScale:13.5,
     flashOpacity:1,
     ringOpacity:0.95
   });
 
-  for(let i=0;i<18;i++){
+  let secondaryFlash=new THREE.Mesh(explosionFlashGeo,explosionFlashMat.clone());
+  secondaryFlash.material.depthTest=false;
+  secondaryFlash.material.color.set(0xfff1c8);
+  secondaryFlash.position.set(
+    impactX+normal.x*2.4,
+    impactY+normal.y*2.4,
+    impactZ+normal.z*2.4
+  );
+  secondaryFlash.scale.setScalar(0.75);
+  secondaryFlash.renderOrder=82;
+  scene.add(secondaryFlash);
+
+  let secondaryRing=new THREE.Mesh(explosionRingGeo,explosionRingMat.clone());
+  secondaryRing.material.depthTest=false;
+  secondaryRing.material.color.set(0xff8c4a);
+  secondaryRing.position.copy(secondaryFlash.position);
+  secondaryRing.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),normal);
+  secondaryRing.scale.setScalar(0.95);
+  secondaryRing.renderOrder=83;
+  scene.add(secondaryRing);
+
+  explosionBursts.push({
+    flash:secondaryFlash,
+    ring:secondaryRing,
+    age:0,
+    life:0.42,
+    startFlashScale:0.75,
+    endFlashScale:4.8,
+    startRingScale:0.95,
+    endRingScale:7.2,
+    flashOpacity:0.95,
+    ringOpacity:0.85
+  });
+
+  for(let i=0;i<34;i++){
     let sideAngle=Math.random()*Math.PI*2;
-    let sideSpeed=1.2+Math.random()*2.2;
+    let sideSpeed=1.8+Math.random()*3.6;
     dust.spawnThrusterParticle(
       impactX,
       impactY,
       impactZ,
-      normal.x*(2.8+Math.random()*3.2)+Math.cos(sideAngle)*sideSpeed,
-      normal.z*(2.8+Math.random()*3.2)+Math.sin(sideAngle)*sideSpeed,
-      normal.y*(2.4+Math.random()*3.4)+(Math.random()-0.25)*2.2,
-      0.24+Math.random()*0.16,
-      0.11+Math.random()*0.08
+      normal.x*(4.2+Math.random()*5.2)+Math.cos(sideAngle)*sideSpeed,
+      normal.z*(4.2+Math.random()*5.2)+Math.sin(sideAngle)*sideSpeed,
+      normal.y*(3.6+Math.random()*5.4)+(Math.random()-0.25)*3.2,
+      0.3+Math.random()*0.2,
+      0.14+Math.random()*0.1
     );
   }
 }
@@ -5373,6 +5488,8 @@ function scheduleNextMothership(){
 
 function removeMothership(){
   if(!mothership) return;
+  if(motorAudio.stopMothershipHum) motorAudio.stopMothershipHum();
+  disposeMothershipBeam(mothership.beam);
   scene.remove(mothership.group);
   if(mothership.shadow){
     scene.remove(mothership.shadow);
@@ -5380,6 +5497,107 @@ function removeMothership(){
     if(mothership.shadow.material) mothership.shadow.material.dispose();
   }
   mothership=null;
+}
+
+function createMothershipBeam(x,z,surfaceY,shipY,mode="in"){
+  let height=Math.max(150,shipY-surfaceY+120);
+  let radius=42;
+  let beamMat=teleportBeamMat.clone();
+  beamMat.color.set(0xa8e8ff);
+  beamMat.opacity=0.34;
+  let beam=new THREE.Mesh(teleportBeamGeo,beamMat);
+  beam.position.set(x,surfaceY+height*0.5,z);
+  beam.scale.set(radius,height,radius);
+  beam.renderOrder=35;
+  scene.add(beam);
+
+  let coreMat=teleportBeamMat.clone();
+  coreMat.color.set(0xffffff);
+  coreMat.opacity=0.58;
+  let core=new THREE.Mesh(teleportBeamGeo,coreMat);
+  core.position.copy(beam.position);
+  core.scale.set(5.4,height*1.04,5.4);
+  core.renderOrder=37;
+  scene.add(core);
+
+  let ringMat=explosionRingMat.clone();
+  ringMat.color.set(0x9fd8ff);
+  ringMat.opacity=0.78;
+  let ring=new THREE.Mesh(teleportRingGeo,ringMat);
+  ring.position.set(x,surfaceY+0.18,z);
+  ring.rotation.x=Math.PI/2;
+  ring.scale.setScalar(radius*0.26);
+  ring.renderOrder=36;
+  scene.add(ring);
+
+  let topRing=new THREE.Mesh(teleportRingGeo,ringMat.clone());
+  topRing.position.set(x,shipY+12,z);
+  topRing.rotation.x=Math.PI/2;
+  topRing.scale.setScalar(radius*0.18);
+  topRing.renderOrder=36;
+  scene.add(topRing);
+
+  return {
+    beam,
+    core,
+    ring,
+    topRing,
+    height,
+    radius,
+    age:0,
+    life:mode==="out" ? 1.95 : 2.2,
+    mode
+  };
+}
+
+function disposeMothershipBeam(beam){
+  if(!beam) return;
+  for(let object of [beam.beam,beam.core,beam.ring,beam.topRing]){
+    if(!object) continue;
+    scene.remove(object);
+    if(object.geometry && object.geometry!==teleportBeamGeo && object.geometry!==teleportRingGeo) object.geometry.dispose();
+    if(object.material) object.material.dispose();
+  }
+}
+
+function updateMothershipBeam(beam,ship,deltaSeconds=0.016){
+  if(!beam || !ship) return false;
+
+  beam.age+=deltaSeconds;
+  let t=clamp(beam.age/beam.life,0,1);
+  let beamOut=beam.mode==="out";
+  let materialize=beamOut ? Math.pow(1-t,2.2) : 1-Math.pow(1-t,2.2);
+  let fade=beamOut ? Math.sin(t*Math.PI) : Math.pow(1-t,1.35);
+  fade=Math.max(0,fade);
+  let pulse=0.5+0.5*Math.sin(beam.age*11.5);
+  let surfaceY=drivingSurfaceHeight(ship.x,ship.z);
+
+  beam.beam.position.set(ship.x,surfaceY+beam.height*0.5,ship.z);
+  beam.beam.scale.set(
+    beam.radius*(0.9+pulse*0.08)*(1-t*0.28),
+    beam.height*(1+Math.sin(t*Math.PI)*0.08),
+    beam.radius*(0.9+pulse*0.08)*(1-t*0.28)
+  );
+  beam.beam.material.opacity=beamOut ? 0.12+0.34*fade : 0.28*fade+0.04*Math.sin(t*Math.PI);
+
+  beam.core.position.copy(beam.beam.position);
+  beam.core.scale.set(4.2+pulse*2.8,beam.height*(1.02+t*0.08),4.2+pulse*2.8);
+  beam.core.material.opacity=(beamOut ? 0.68 : 0.45+0.16*pulse)*fade;
+
+  beam.ring.position.set(ship.x,surfaceY+0.18,ship.z);
+  beam.ring.scale.setScalar(beam.radius*(beamOut ? 1.25-materialize*0.92 : 0.22+materialize*1.15));
+  beam.ring.material.opacity=(beamOut ? 0.82 : 0.66)*fade;
+
+  beam.topRing.position.set(ship.x,ship.group.position.y+10,ship.z);
+  beam.topRing.scale.setScalar(beam.radius*(beamOut ? 1.0-t*0.68 : 0.18+Math.sin(t*Math.PI)*0.72));
+  beam.topRing.material.opacity=(beamOut ? 0.72 : 0.46)*fade;
+
+  if(t>=1){
+    disposeMothershipBeam(beam);
+    return true;
+  }
+
+  return false;
 }
 
 function makeMothershipShadow(){
@@ -5401,7 +5619,7 @@ function makeMothershipShadow(){
 }
 
 function mothershipHitAlongSegment(fromX,fromY,fromZ,toX,toY,toZ,padding=0){
-  if(!mothership || mothership.health<=0) return null;
+  if(!mothership || mothership.health<=0 || mothership.beamingOut) return null;
 
   let shipY=mothership.group ? mothership.group.position.y : mothership.y;
   let rx=34+padding;
@@ -5436,7 +5654,7 @@ function mothershipHitAlongSegment(fromX,fromY,fromZ,toX,toY,toZ,padding=0){
 }
 
 function damageMothership(x,y,z,amount=1){
-  if(!mothership || mothership.health<=0) return;
+  if(!mothership || mothership.health<=0 || mothership.beamingOut) return;
   mothership.health-=amount;
   mothership.hitFlash=Math.max(mothership.hitFlash,10);
   spawnMothershipImpactBurst(x,y,z);
@@ -5477,29 +5695,28 @@ function spawnMothership(){
 
   let center=playerCenter();
   let angle=Math.random()*Math.PI*2;
-  let startDistance=mothershipHoverDistance+1450;
-  let x=center.x+Math.cos(angle)*startDistance;
-  let z=center.z+Math.sin(angle)*startDistance;
   let hoverX=center.x+Math.cos(angle)*mothershipHoverDistance;
   let hoverZ=center.z+Math.sin(angle)*mothershipHoverDistance;
   let exitX=center.x-Math.cos(angle)*(mothershipHoverDistance+520);
   let exitZ=center.z-Math.sin(angle)*(mothershipHoverDistance+520);
-  let targetX=hoverX;
-  let targetZ=hoverZ;
-  let dx=targetX-x;
-  let dz=targetZ-z;
-  let len=Math.max(0.001,Math.hypot(dx,dz));
-  let speed=2.45;
+  let x=hoverX;
+  let z=hoverZ;
+  let dx=center.x-hoverX;
+  let dz=center.z-hoverZ;
   let group=makeMothershipModel();
   let y=drivingSurfaceHeight(hoverX,hoverZ)+38+Math.random()*12;
+  let surfaceY=drivingSurfaceHeight(x,z);
 
   group.position.set(x,y,z);
   group.rotation.y=Math.atan2(dx,dz);
+  group.scale.setScalar(0.04);
   scene.add(group);
+  if(motorAudio.startMothershipHum) motorAudio.startMothershipHum();
 
   mothership={
     group,
     shadow:makeMothershipShadow(),
+    beam:null,
     x,
     y,
     z,
@@ -5507,19 +5724,26 @@ function spawnMothership(){
     hoverZ,
     exitX,
     exitZ,
-    vx:(dx/len)*speed,
-    vz:(dz/len)*speed,
+    vx:0,
+    vz:0,
     age:0,
     health:mothershipRocketHits,
     hitFlash:0,
-    hasReachedHover:false,
+    hasReachedHover:true,
     hoverFrames:0,
-    life:mothershipHoverFrames+1280,
+    life:mothershipBeamFrames+mothershipHoverFrames+1280,
     dropTimer:70,
     dropsRemaining:mothershipDropCount,
     dropsDone:0,
+    beamAge:0,
+    beamFrames:mothershipBeamFrames,
+    beamOutAge:0,
+    beamOutFrames:mothershipBeamOutFrames,
+    materializing:true,
+    beamingOut:false,
     phase:Math.random()*Math.PI*2
   };
+  mothership.beam=createMothershipBeam(x,z,surfaceY,y);
   return true;
 }
 
@@ -5583,28 +5807,48 @@ function updateMothership(){
   }
 
   mothership.age++;
-  let hoverDx=mothership.hoverX-mothership.x;
-  let hoverDz=mothership.hoverZ-mothership.z;
-  let hoverDistance=Math.hypot(hoverDx,hoverDz);
-  if(hoverDistance<18) mothership.hasReachedHover=true;
-  let hovering=mothership.hasReachedHover && mothership.hoverFrames<mothershipHoverFrames;
+  let materializeScale=1;
+  if(mothership.beamingOut){
+    mothership.beamOutAge++;
+    let t=clamp(mothership.beamOutAge/Math.max(1,mothership.beamOutFrames),0,1);
+    materializeScale=Math.max(0.02,Math.pow(1-t,2.1));
+    mothership.vx=0;
+    mothership.vz=0;
+  }else if(mothership.materializing){
+    mothership.beamAge++;
+    let t=clamp(mothership.beamAge/Math.max(1,mothership.beamFrames),0,1);
+    materializeScale=0.04+(1-Math.pow(1-t,2.4))*0.96;
+    mothership.x=mothership.hoverX;
+    mothership.z=mothership.hoverZ;
+    mothership.vx=0;
+    mothership.vz=0;
+    if(t>=1) mothership.materializing=false;
+  }else{
+    let hoverDx=mothership.hoverX-mothership.x;
+    let hoverDz=mothership.hoverZ-mothership.z;
+    let hoverDistance=Math.hypot(hoverDx,hoverDz);
+    if(hoverDistance<18) mothership.hasReachedHover=true;
+  }
+  let hovering=!mothership.beamingOut && !mothership.materializing && mothership.hasReachedHover && mothership.hoverFrames<mothershipHoverFrames;
 
   if(hovering){
     mothership.hoverFrames++;
     mothership.x=mothership.hoverX+Math.sin(mothership.age*0.018+mothership.phase)*3.6;
     mothership.z=mothership.hoverZ+Math.cos(mothership.age*0.016+mothership.phase)*3.6;
   }else{
-    let targetX=mothership.hoverFrames>=mothershipHoverFrames ? mothership.exitX : mothership.hoverX;
-    let targetZ=mothership.hoverFrames>=mothershipHoverFrames ? mothership.exitZ : mothership.hoverZ;
-    let dx=targetX-mothership.x;
-    let dz=targetZ-mothership.z;
-    let len=Math.max(0.001,Math.hypot(dx,dz));
-    let speed=mothership.hoverFrames>=mothershipHoverFrames ? 1.12 : 2.45;
-    mothership.vx=(dx/len)*speed;
-    mothership.vz=(dz/len)*speed;
-    mothership.x+=mothership.vx;
-    mothership.z+=mothership.vz;
-    mothership.group.rotation.y+=normalizeAngle(Math.atan2(dx,dz)-mothership.group.rotation.y)*0.04;
+    if(!mothership.materializing && !mothership.beamingOut){
+      let targetX=mothership.hoverFrames>=mothershipHoverFrames ? mothership.exitX : mothership.hoverX;
+      let targetZ=mothership.hoverFrames>=mothershipHoverFrames ? mothership.exitZ : mothership.hoverZ;
+      let dx=targetX-mothership.x;
+      let dz=targetZ-mothership.z;
+      let len=Math.max(0.001,Math.hypot(dx,dz));
+      let speed=mothership.hoverFrames>=mothershipHoverFrames ? 1.12 : 2.45;
+      mothership.vx=(dx/len)*speed;
+      mothership.vz=(dz/len)*speed;
+      mothership.x+=mothership.vx;
+      mothership.z+=mothership.vz;
+      mothership.group.rotation.y+=normalizeAngle(Math.atan2(dx,dz)-mothership.group.rotation.y)*0.04;
+    }
   }
   let bob=Math.sin(mothership.age*0.025+mothership.phase)*4;
   if(mothership.hoverFrames<mothershipHoverFrames){
@@ -5613,6 +5857,13 @@ function updateMothership(){
   }
   mothership.group.position.set(mothership.x,mothership.y+bob,mothership.z);
   mothership.group.rotation.z=Math.sin(mothership.age*0.018+mothership.phase)*0.035;
+  if(mothership.beam){
+    if(updateMothershipBeam(mothership.beam,mothership)) mothership.beam=null;
+  }
+  if(motorAudio.updateMothershipHum){
+    let beamIntensity=mothership.materializing || mothership.beamingOut ? materializeScale : 1;
+    motorAudio.updateMothershipHum(beamIntensity);
+  }
   if(mothership.shadow){
     let surfaceY=drivingSurfaceHeight(mothership.x,mothership.z);
     let altitude=Math.max(1,mothership.group.position.y-surfaceY);
@@ -5620,7 +5871,7 @@ function updateMothership(){
     mothership.shadow.position.set(mothership.x,surfaceY+0.08,mothership.z);
     mothership.shadow.rotation.z=-mothership.group.rotation.y;
     mothership.shadow.scale.set(46*shadowScale,24*shadowScale,1);
-    mothership.shadow.material.opacity=clamp(0.24-altitude*0.0014,0.12,0.2);
+    mothership.shadow.material.opacity=clamp(0.24-altitude*0.0014,0.12,0.2)*(mothership.materializing || mothership.beamingOut ? materializeScale : 1);
   }
   if(mothership.group.userData.bay){
     mothership.group.userData.bay.scale.setScalar(1+Math.sin(mothership.age*0.18)*0.08);
@@ -5644,13 +5895,13 @@ function updateMothership(){
     mothership.group.userData.lowerAura.scale.set(24+pulse*1.4,3.6+pulse*0.35,13+pulse*0.8);
   }
   if(mothership.hitFlash>0){
-    mothership.group.scale.setScalar(1+Math.sin(mothership.hitFlash*1.7)*0.012);
+    mothership.group.scale.setScalar(materializeScale*(1+Math.sin(mothership.hitFlash*1.7)*0.012));
     mothership.hitFlash--;
   }else{
-    mothership.group.scale.setScalar(1);
+    mothership.group.scale.setScalar(materializeScale);
   }
 
-  if(mothership.hoverFrames>=mothershipHoverFrames && mothership.dropsRemaining>0){
+  if(!mothership.materializing && !mothership.beamingOut && mothership.hoverFrames>=mothershipHoverFrames && mothership.dropsRemaining>0){
     mothership.dropTimer--;
     if(mothership.dropTimer<=0){
       if(dropSpiderFromMothership()) mothership.dropsRemaining--;
@@ -5658,7 +5909,22 @@ function updateMothership(){
     }
   }
 
-  if(mothership.age>mothership.life){
+  if(!mothership.beamingOut && mothership.age>mothership.life){
+    let shipY=mothership.group ? mothership.group.position.y : mothership.y;
+    mothership.beamingOut=true;
+    mothership.beamOutAge=0;
+    mothership.materializing=false;
+    if(mothership.beam) disposeMothershipBeam(mothership.beam);
+    mothership.beam=createMothershipBeam(
+      mothership.x,
+      mothership.z,
+      drivingSurfaceHeight(mothership.x,mothership.z),
+      shipY,
+      "out"
+    );
+  }
+
+  if(mothership.beamingOut && mothership.beamOutAge>=mothership.beamOutFrames){
     removeMothership();
     scheduleNextMothership();
   }
@@ -9848,6 +10114,7 @@ function startGame(mode,difficulty="medium",savedStatus=null){
   clearSupplyBoxes();
   clearGiantTestRobot();
   clearTradingOutpost();
+  clearTestingTradingOutpost();
   if(world.clearBossBases) world.clearBossBases();
   if(savedStatus) applySavedWorldSettings(savedStatus);
   jetUnlocked=false;
@@ -9902,6 +10169,7 @@ function startGame(mode,difficulty="medium",savedStatus=null){
   }
   spawnGiantTestRobot(startInfo);
   placeTradingOutpostNearStart(startInfo);
+  placeTestingTradingOutpostNearHomeBase();
   if(!savedStatus) placeStartingCarsInsideBase(mode);
   world.placeTestBossBaseNearStart(playerCar.x,playerCar.z,playerCar.angle);
   spawnBossBaseGuards();
@@ -10016,6 +10284,7 @@ loadBaseStationModel()
   .then(model=>{
     baseStationModel=model;
     placeTradingOutpostNearStart(currentStartInfo);
+    placeTestingTradingOutpostNearHomeBase();
     if(gameStarted && !currentGameFromSave) placeStartingCarsInsideBase(gameMode);
   })
   .catch(error=>{
@@ -10025,6 +10294,7 @@ loadBaseStationModel()
 loadTradingOutpostModel()
   .then(model=>{
     tradingOutpostModel=model;
+    placeTestingTradingOutpostNearHomeBase();
     updateRareTradingOutposts();
   })
   .catch(error=>{
@@ -10177,6 +10447,14 @@ function clearTradingOutpost(){
   tradingOutpost=null;
   tradingOutpostCollision=null;
   tradingTerminalObject=null;
+}
+
+function clearTestingTradingOutpost(){
+  if(!testingTradingOutpost) return;
+
+  unregisterTradingPlaceCollision(testingTradingOutpost);
+  if(testingTradingOutpost.object) scene.remove(testingTradingOutpost.object);
+  testingTradingOutpost=null;
 }
 
 function makeTradingOutpostCollision(x,z,angle,y,model=tradingOutpostModel,object=null,terminalObject=null,terminalMode="trading"){
@@ -10421,6 +10699,101 @@ function updateTradingOutpostRepair(){
   }
 
   if(repaired) hud.updateHealthHud();
+}
+
+function placeTestingTradingOutpostNearHomeBase(){
+  if(!testingTradingOutpostEnabled || !tradingOutpostModel || !tradingOutpost || !tradingOutpostCollision) return;
+
+  clearTestingTradingOutpost();
+
+  let homeX=tradingOutpost.position.x;
+  let homeZ=tradingOutpost.position.z;
+  let angle=tradingOutpost.rotation.y || 0;
+  let forwardX=Math.sin(angle);
+  let forwardZ=Math.cos(angle);
+  let rightX=Math.cos(angle);
+  let rightZ=-Math.sin(angle);
+  let offsets=[
+    {forward:0,right:170},
+    {forward:0,right:-170},
+    {forward:68,right:182},
+    {forward:-68,right:182},
+    {forward:68,right:-182},
+    {forward:-68,right:-182},
+    {forward:132,right:206},
+    {forward:-132,right:206},
+    {forward:132,right:-206},
+    {forward:-132,right:-206}
+  ];
+  let placementOptions={
+    footprintPadding:12,
+    sampleDivisions:6,
+    waterLimit:0.03,
+    centerWaterLimit:0.06,
+    roadCenterClearance:24,
+    roadSampleClearance:18,
+    centerObstacleRadius:24,
+    sampleObstacleRadius:6,
+    flatRange:1.55,
+    usableRange:2.35,
+    flatSlope:0.052,
+    usableSlope:0.075,
+    yLift:0.12
+  };
+  let homeClearance=126;
+  let chosen=null;
+
+  world.updateChunksForCenters(offsets.map(offset=>({
+    x:homeX+forwardX*offset.forward+rightX*offset.right,
+    z:homeZ+forwardZ*offset.forward+rightZ*offset.right
+  })));
+  world.processChunkQueue(240,true);
+
+  for(let offset of offsets){
+    let x=homeX+forwardX*offset.forward+rightX*offset.right;
+    let z=homeZ+forwardZ*offset.forward+rightZ*offset.right;
+    let homeDx=x-homeX;
+    let homeDz=z-homeZ;
+    if(homeDx*homeDx+homeDz*homeDz<homeClearance*homeClearance) continue;
+
+    let info=tradingOutpostPlacementInfo(x,z,angle,tradingOutpostModel,placementOptions);
+    if(!info || !info.usable) continue;
+
+    let score=Math.hypot(offset.forward,offset.right)*0.22+info.range*150+info.maxSlope*1100+(info.flat ? 0 : 120);
+    if(!chosen || score<chosen.score) chosen={...info,score};
+  }
+
+  if(!chosen){
+    for(let offset of offsets){
+      let x=homeX+forwardX*offset.forward+rightX*offset.right;
+      let z=homeZ+forwardZ*offset.forward+rightZ*offset.right;
+      let homeDx=x-homeX;
+      let homeDz=z-homeZ;
+      if(homeDx*homeDx+homeDz*homeDz<homeClearance*homeClearance) continue;
+
+      let info=baseCampForcedPlacementInfo(x,z,angle,tradingOutpostModel);
+      let score=(info.maxWater || 0)*8000+info.range*180+info.maxSlope*1300+Math.hypot(offset.forward,offset.right)*0.24;
+      if(!chosen || score<chosen.score) chosen={...info,score};
+    }
+  }
+
+  if(!chosen) return;
+
+  let object=tradingOutpostModel.clone(true);
+  object.position.set(chosen.x,chosen.y,chosen.z);
+  object.rotation.y=angle;
+  tintTradingOutpostForEnvironment(object);
+  scene.add(object);
+
+  testingTradingOutpost={
+    key:"testing-home-trading-outpost",
+    object,
+    x:chosen.x,
+    z:chosen.z
+  };
+  registerTradingPlaceCollision(testingTradingOutpost,tradingOutpostModel,"trading");
+  scannedTradingOutposts.set(testingTradingOutpost.key,{x:chosen.x,z:chosen.z});
+  if(hud) hud.updateMapHud(true);
 }
 
 function tradingOutpostFootprintSize(model=tradingOutpostModel){
@@ -10769,6 +11142,7 @@ placeCarOnOpenField(playerCar,initialStartInfo);
 placeCarOnOpenField(secondCar,initialStartInfo);
 spawnGiantTestRobot(initialStartInfo);
 placeTradingOutpostNearStart(initialStartInfo);
+placeTestingTradingOutpostNearHomeBase();
 placeStartingCarsInsideBase("double");
 world.placeTestBossBaseNearStart(playerCar.x,playerCar.z,playerCar.angle);
 playerCar.cameraYaw=playerCar.angle;

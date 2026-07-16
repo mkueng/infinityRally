@@ -9,7 +9,6 @@ const compassFullCanvasWidth=430;
 const compassSplitCanvasWidth=300;
 const speedHudScale=1.2;
 const speedHudWidth=mapHudSize/speedHudScale;
-const speedHudGaugeHeight=100;
 
 export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStationState=()=>null,getNearestTradingOutpost=()=>null,getNearestBossBase=()=>null,getScannedBossBases=()=>[],getScannedTradingOutposts=()=>[],getScannedLandingSpaces=()=>[],getScannedPortals=()=>[],getPerformanceMode=()=>"full",getEnvironment=()=>({})}){
   let panels=[];
@@ -86,22 +85,16 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "pointer-events:none"
     ].join(";");
 
-    let speedCanvas=document.createElement("canvas");
-    speedCanvas.width=speedHudWidth;
-    speedCanvas.height=speedHudGaugeHeight;
-    speedCanvas.style.cssText=`display:block;width:${speedHudWidth}px;height:${speedHudGaugeHeight}px`;
-    let speedCtx=speedCanvas.getContext("2d");
-
     let ammoLabel=document.createElement("div");
     ammoLabel.style.cssText=[
       "position:absolute",
       "left:12px",
       "right:12px",
-      "top:104px",
+      "top:12px",
       "display:flex",
       "flex-direction:column",
-      "gap:5px",
-      "font-size:14px",
+      "gap:3px",
+      "font-size:15px",
       "font-weight:900",
       "line-height:1",
       "color:rgba(245,255,249,0.92)",
@@ -147,77 +140,16 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "transition:width 100ms linear"
     ].join(";");
     fuelTrack.appendChild(fuelFill);
-    speedHud.appendChild(speedCanvas);
     speedHud.appendChild(ammoLabel);
     speedHud.appendChild(boostTrack);
     speedHud.appendChild(fuelTrack);
     document.body.appendChild(speedHud);
-    panel.speedCanvas=speedCanvas;
-    panel.speedCtx=speedCtx;
     panel.ammoLabel=ammoLabel;
     panel.boostFill=boostFill;
     panel.fuelFill=fuelFill;
   }
 
   function drawSpeedHud(panel,state){
-    if(!panel.speedCtx) return;
-
-    let speed=Math.round(Math.abs(state.carSpeed)*50);
-    let maxSpeed=120;
-    let pct=Math.max(0,Math.min(1,speed/maxSpeed));
-    let start=Math.PI*0.82;
-    let end=Math.PI*2.18;
-    let angle=start+(end-start)*pct;
-    let cx=panel.speedCanvas.width*0.5;
-    let cy=55;
-    let radius=40;
-    let ctx=panel.speedCtx;
-
-    ctx.clearRect(0,0,panel.speedCanvas.width,panel.speedCanvas.height);
-    ctx.lineCap="round";
-
-    ctx.strokeStyle="rgba(255,255,255,0.18)";
-    ctx.lineWidth=7;
-    ctx.beginPath();
-    ctx.arc(cx,cy,radius,start,end);
-    ctx.stroke();
-
-    ctx.strokeStyle=panel.color;
-    ctx.lineWidth=7;
-    ctx.beginPath();
-    ctx.arc(cx,cy,radius,start,angle);
-    ctx.stroke();
-
-    for(let i=0;i<=8;i++){
-      let t=i/8;
-      let tickAngle=start+(end-start)*t;
-      let inner=radius-(i%2===0 ? 12 : 8);
-      let outer=radius-2;
-      ctx.strokeStyle=i%2===0 ? "rgba(255,255,255,0.8)" : "rgba(255,255,255,0.42)";
-      ctx.lineWidth=i%2===0 ? 2 : 1.5;
-      ctx.beginPath();
-      ctx.moveTo(cx+Math.cos(tickAngle)*inner,cy+Math.sin(tickAngle)*inner);
-      ctx.lineTo(cx+Math.cos(tickAngle)*outer,cy+Math.sin(tickAngle)*outer);
-      ctx.stroke();
-    }
-
-    ctx.strokeStyle="#f1f4f0";
-    ctx.lineWidth=3;
-    ctx.beginPath();
-    ctx.moveTo(cx,cy);
-    ctx.lineTo(cx+Math.cos(angle)*(radius-14),cy+Math.sin(angle)*(radius-14));
-    ctx.stroke();
-
-    ctx.fillStyle="#f1f4f0";
-    ctx.beginPath();
-    ctx.arc(cx,cy,4,0,Math.PI*2);
-    ctx.fill();
-
-    ctx.fillStyle="rgba(255,255,255,0.72)";
-    ctx.font="700 9px \"Astor\", Arial";
-    ctx.textAlign="center";
-    ctx.fillText("0",cx-radius+1,66);
-    ctx.fillText("120",cx+radius-1,66);
     if(panel.ammoLabel){
       let ammoRows=[
         {icon:"rocket",value:state.rocketAmmo ?? 0,color:"#e36b44"},
@@ -227,9 +159,9 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       ];
       panel.ammoLabel.innerHTML=[
         ...ammoRows.map(row=>[
-          `<span style="display:flex;align-items:center;justify-content:space-between;height:18px">`,
+          `<span style="display:flex;align-items:center;justify-content:space-between;height:22px;gap:8px">`,
           ammoIcon(row.icon,row.color),
-          `<span>${row.value}</span>`,
+          `<span style="min-width:38px;text-align:right">${row.value}</span>`,
           `</span>`
         ].join(""))
       ].join("");
@@ -247,43 +179,48 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
   function ammoIcon(kind,color){
     if(kind==="rocket"){
       return [
-        `<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">`,
-        `<path d="M9.8 1.5l4.4 2.6 1.2 3.8-4.9 5.2-5.6-5.4 4.9-6.2z" fill="#26313b"/>`,
-        `<path d="M10.2 3.2l2.6 1.5 0.6 2.1-3.2 3.5-3.1-3 3.1-4.1z" fill="${color}"/>`,
-        `<path d="M4.3 8.2l5.3 5.1-3.1 1.6-3.8-3.7 1.6-3z" fill="#51606c"/>`,
-        `<path d="M2.8 12.2l1.6 1.6-2.4 1.1 0.8-2.7z" fill="#b9f4ff"/>`,
+        `<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" style="flex:0 0 24px;filter:drop-shadow(0 0 5px ${color}) drop-shadow(0 2px 1px rgba(0,0,0,0.7))">`,
+        `<path d="M13.4 1.8l5.9 3.5 1.7 5.1-6.9 7.2-7.4-7.2 6.7-8.6z" fill="#1b232b" stroke="#d8f8ff" stroke-opacity="0.32" stroke-width="0.7"/>`,
+        `<path d="M13.8 4.2l3.5 2.1 0.9 2.9-4.5 4.8-4.3-4.1 4.4-5.7z" fill="${color}"/>`,
+        `<path d="M6 10.9l7.1 6.8-4.3 2.2-5.1-5 2.3-4z" fill="#56636d"/>`,
+        `<path d="M3.9 16.3l2.2 2.1-3.7 1.8 1.5-3.9z" fill="#b9f4ff"/>`,
+        `<path d="M15.4 6.7l1.4 0.9 0.4 1.2-2 2.2-1.7-1.7 1.9-2.6z" fill="#fff6cb" opacity="0.68"/>`,
         `</svg>`
       ].join("");
     }
     if(kind==="cannon"){
       return [
-        `<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">`,
-        `<path d="M2.2 9.1h8.7l1.2-1.6h3.6v3.1h-3.6l-1.2 1.5H2.2V9.1z" fill="#2b3942"/>`,
-        `<path d="M4.1 9.8h6.3v1.6H4.1V9.8z" fill="${color}"/>`,
-        `<path d="M2.9 12.2h3.1l1.2 2.1H4.1l-1.2-2.1z" fill="#64717a"/>`,
-        `<path d="M13.2 8.3h2.8v1.2h-2.8V8.3z" fill="#d8f8ff"/>`,
+        `<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" style="flex:0 0 24px;filter:drop-shadow(0 0 5px ${color}) drop-shadow(0 2px 1px rgba(0,0,0,0.7))">`,
+        `<path d="M2.5 12h12l1.8-2.2h5.1v4.2h-5.1l-1.8 2.1h-12V12z" fill="#202b33" stroke="#d8f8ff" stroke-opacity="0.24" stroke-width="0.7"/>`,
+        `<path d="M5.1 13h8.8v2H5.1v-2z" fill="${color}"/>`,
+        `<path d="M3.5 16.2h4.2l1.8 3H5.2l-1.7-3z" fill="#64717a"/>`,
+        `<path d="M16.9 10.7h4.1v1.5h-4.1v-1.5z" fill="#d8f8ff"/>`,
+        `<path d="M19.8 9.2l2.1-0.9-0.7 2.4-1.4-1.5z" fill="#fff6cb"/>`,
+        `<path d="M8.3 10.1h5.8l-1.3 1.4H8.3v-1.4z" fill="#5a6973"/>`,
         `</svg>`
       ].join("");
     }
     if(kind==="carRocket"){
       return [
-        `<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">`,
-        `<path d="M2.2 12.3h13.6v2H2.2v-2z" fill="#30383f"/>`,
-        `<path d="M4.1 10.1h9.8l1.2 2.2H2.9l1.2-2.2z" fill="#4c5961"/>`,
-        `<path d="M5.4 6.7h2.2v3.7H5.4V6.7z" fill="#26313b"/>`,
-        `<path d="M10.4 6.7h2.2v3.7h-2.2V6.7z" fill="#26313b"/>`,
-        `<path d="M6.5 2.3l1.5 1.3 0.3 2.9H4.8l0.3-2.9 1.4-1.3z" fill="${color}"/>`,
-        `<path d="M11.5 2.3l1.5 1.3 0.3 2.9H9.8l0.3-2.9 1.4-1.3z" fill="${color}"/>`,
-        `<path d="M5.6 7.5h1.8v1.3H5.6V7.5zM10.6 7.5h1.8v1.3h-1.8V7.5z" fill="#d8f8ff"/>`,
+        `<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" style="flex:0 0 24px;filter:drop-shadow(0 0 5px ${color}) drop-shadow(0 2px 1px rgba(0,0,0,0.7))">`,
+        `<path d="M2.8 16.5h18.4v2.7H2.8v-2.7z" fill="#2d363e"/>`,
+        `<path d="M5.1 13.3h13.8l1.7 3.2H3.4l1.7-3.2z" fill="#4c5961" stroke="#d8f8ff" stroke-opacity="0.18" stroke-width="0.6"/>`,
+        `<path d="M6.9 9h3.2v5H6.9V9zM13.9 9h3.2v5h-3.2V9z" fill="#202b33"/>`,
+        `<path d="M8.5 2.5l2 1.8 0.4 4.2H5.8l0.5-4.2 2.2-1.8z" fill="${color}"/>`,
+        `<path d="M15.5 2.5l2.1 1.8 0.4 4.2h-5.2l0.5-4.2 2.2-1.8z" fill="${color}"/>`,
+        `<path d="M7.2 10.1h2.5v1.8H7.2v-1.8zM14.2 10.1h2.5v1.8h-2.5v-1.8z" fill="#d8f8ff"/>`,
+        `<path d="M5.2 19.4h2.8l-1 2.1H4.4l0.8-2.1zM16 19.4h2.8l0.8 2.1H17l-1-2.1z" fill="#ffcf6a"/>`,
         `</svg>`
       ].join("");
     }
     return [
-      `<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">`,
-      `<path d="M5.2 6.2h6.2l2.4 3.6-1.8 5H4.6l-1.8-5 2.4-3.6z" fill="#2d3338"/>`,
-      `<path d="M6.3 7.4h4.1l1.7 2.6-1.1 3.2H5.7L4.6 10l1.7-2.6z" fill="${color}"/>`,
-      `<path d="M8.2 3.1h3.9v1.7H8.2V3.1z" fill="#6e7a82"/>`,
-      `<path d="M11.4 2.2h3.2v1.1h-3.2V2.2z" fill="#b9f4ff"/>`,
+      `<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" style="flex:0 0 24px;filter:drop-shadow(0 0 5px ${color}) drop-shadow(0 2px 1px rgba(0,0,0,0.7))">`,
+      `<path d="M6.4 8.2h8.4l3.2 4.9-2.4 6.7H5.4L3 13.1l3.4-4.9z" fill="#252d33" stroke="#d8f8ff" stroke-opacity="0.24" stroke-width="0.7"/>`,
+      `<path d="M7.7 9.7h5.7l2.2 3.5-1.5 4.2H7l-1.5-4.2 2.2-3.5z" fill="${color}"/>`,
+      `<path d="M10.6 4h5.1v2.3h-5.1V4z" fill="#6e7a82"/>`,
+      `<path d="M14.8 2.8h4.4v1.6h-4.4V2.8z" fill="#b9f4ff"/>`,
+      `<path d="M15.9 2.2l2.8-1.2-0.9 2.3-1.9-1.1z" fill="#fff6cb"/>`,
+      `<path d="M8 12.5h2.2v2.2H8v-2.2zM11.3 12.5h2.2v2.2h-2.2v-2.2z" fill="#2a2417" opacity="0.55"/>`,
       `</svg>`
     ].join("");
   }

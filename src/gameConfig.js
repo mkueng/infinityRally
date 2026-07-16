@@ -7,8 +7,8 @@ export const difficultySettings={
     fireDelay:1.55,
     villageBudget:0.42,
     hardFlight:false,
-    rocketAmmo:70,
-    carRocketAmmo:20,
+    rocketAmmo:250,
+    carRocketAmmo:250,
     cannonAmmo:500
   },
   medium:{
@@ -19,9 +19,9 @@ export const difficultySettings={
     fireDelay:1,
     villageBudget:1,
     hardFlight:false,
-    rocketAmmo:50,
-    carRocketAmmo:14,
-    cannonAmmo:300
+    rocketAmmo:250,
+    carRocketAmmo:250,
+    cannonAmmo:500
   },
   hard:{
     waveCount:1.65,
@@ -31,8 +31,8 @@ export const difficultySettings={
     fireDelay:0.5,
     villageBudget:1.45,
     hardFlight:true,
-    rocketAmmo:30,
-    carRocketAmmo:10,
-    cannonAmmo:200
+    rocketAmmo:250,
+    carRocketAmmo:250,
+    cannonAmmo:500
   }
 };
