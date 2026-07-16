@@ -771,6 +771,20 @@
       letter-spacing: 0.04em;
     }
 
+    .start-credits {
+      margin-top: 16px;
+      display: grid;
+      gap: 5px;
+      color: rgba(232,248,255,0.68);
+      font-size: 13px;
+      font-weight: 900;
+      line-height: 1.25;
+      text-align: center;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+      text-shadow: 0 2px 0 rgba(0,0,0,0.62), 0 0 8px rgba(103,244,255,0.24);
+    }
+
     .menu-robot-cursor {
       position: fixed;
       left: 0;
@@ -924,7 +938,7 @@
     <h1 class="start-title">SOL 8</h1>
     <div class="difficulty-actions" aria-label="Difficulty">
       <button type="button" data-difficulty="easy">Easy</button>
-      <button type="button" data-difficulty="medium" class="is-selected">Medium</button>
+      <button type="button" data-difficulty="medium" class="is-selected">Not so easy</button>
       <button type="button" data-difficulty="hard">Hard</button>
     </div>
     <div class="start-actions">
@@ -932,6 +946,12 @@
       <div class="saved-game-date" data-load-game-date></div>
       <button type="button" data-mode="single">Single Player</button>
       <button type="button" data-mode="double">Double Player</button>
+    </div>
+    <div class="start-credits" aria-label="Credits">
+      <div>design: Noa Kueng-Dinally</div>
+      <div>music and sound-effects: Noa Kueng-Dinally</div>
+      <div>testing: Yun Kueng-Dinally / Kai Kueng-Dinally</div>
+      <div>programming: codex / Marco Kueng</div>
     </div>
   </div>
   <div id="menuRobotCursor" class="menu-robot-cursor" aria-hidden="true">
@@ -1082,6 +1102,6 @@
     }
   }
 </script>
-<script type="module" src="./src/main.js?v=rain-audio"></script>
+<script type="module" src="./src/main.js?v=mothership-haze-depth"></script>
 </body>
 </html>

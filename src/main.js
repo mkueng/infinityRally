@@ -257,7 +257,8 @@ function updateWeather(){
   if(Math.abs(weatherTargetIntensity-rainIntensity)<weatherSnapThreshold) rainIntensity=weatherTargetIntensity;
 
   updateDayNight(now);
-  if(typeof motorAudio!=="undefined" && motorAudio.updateRain) motorAudio.updateRain(rainIntensity);
+  let audibleRainIntensity=rainRenderingSuppressed() ? 0 : rainIntensity;
+  if(typeof motorAudio!=="undefined" && motorAudio.updateRain) motorAudio.updateRain(audibleRainIntensity);
 }
 
 let scene=new THREE.Scene();
@@ -822,12 +823,13 @@ function enemyTargetableCars(){
   return activeCars().filter(car=>car && car.health>0 && car.group && car.group.visible);
 }
 
-function rainRenderingSuspendedByJet(){
+function rainRenderingSuppressed(){
   if(!gameStarted) return false;
 
   for(let car of activeCars()){
     if(!car || car.health<=0 || !car.group.visible) continue;
     if(car.jetMode || car.jetProgress>0.35) return true;
+    if(actorInsideHomeBase(car)) return true;
   }
 
   return false;
@@ -1041,7 +1043,7 @@ let stars=createStars(scene,()=>{
   return {x:x/active.length,y:y/active.length,z:z/active.length};
 },()=>dayNightState().nightAmount,()=>rainIntensity);
 let birds=createBirds(scene,()=>({carX:playerCar.x,carZ:playerCar.z}));
-let rain=createRain(scene,()=>({carX:px,carY:py,carZ:pz}),()=>rainRenderingSuspendedByJet() ? 0 : rainIntensity,()=>rainQualityScale());
+let rain=createRain(scene,()=>({carX:px,carY:py,carZ:pz}),()=>rainRenderingSuppressed() ? 0 : rainIntensity,()=>rainQualityScale());
 let ambientMotes=createAmbientMotes(scene,()=>({carX:px,carY:py,carZ:pz}),()=>rainIntensity);
 let dust=createDust(scene);
 let wheelTracks=createWheelTracks(scene);
@@ -2924,6 +2926,16 @@ function actorInsideBuilding(actor){
   }
 
   return false;
+}
+
+function actorInsideHomeBase(actor){
+  if(!actor || !tradingOutpostCollision || tradingOutpostCollision.terminalMode!=="mission") return false;
+
+  let local=worldToTradingOutpostLocal(actor.x,actor.z,tradingOutpostCollision);
+  if(!insideTradingOutpostFloor(local,0.35,tradingOutpostCollision)) return false;
+
+  let surfaceY=tradingOutpostCollision.y+(tradingOutpostCollision.floor ? tradingOutpostCollision.floor.y : 0);
+  return actor.y<=surfaceY+8.5;
 }
 
 function clickViewportForTradingTerminal(event){
@@ -7616,7 +7628,7 @@ function addMothershipHoverHaze(ship,bounds=null){
     material.color.set(color);
     material.opacity=opacity;
     material.depthWrite=false;
-    material.depthTest=false;
+    material.depthTest=true;
     material.side=THREE.DoubleSide;
     let haze=new THREE.Mesh(mothershipHoverHazeGeo,material);
     haze.position.set(center.x,lowerY+yOffset,center.z);
@@ -10521,7 +10533,12 @@ function moveCarToBaseStart(car,lateralSlot=0){
   car.x=chosen.x;
   car.z=chosen.z;
   car.y=drivingSurfaceHeight(car.x,car.z);
-  let facing=tradingOutpostCollision.angle;
+  let terminalWorld=tradingOutpostCollision.terminal
+    ? tradingOutpostLocalToWorld(tradingOutpostCollision.terminal,tradingOutpostCollision)
+    : null;
+  let facing=terminalWorld
+    ? Math.atan2(terminalWorld.x-car.x,terminalWorld.z-car.z)
+    : tradingOutpostCollision.angle;
   car.angle=facing;
   car.velAngle=facing;
   car.cameraYaw=facing;
