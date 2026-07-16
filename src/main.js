@@ -352,6 +352,7 @@ let bossBaseDamageMultiplier=0.38;
 let bossBaseClusterBombHits=5;
 let villageBuildingUnitAmount=50;
 let villageClearedUnitAmount=100;
+let cityClearedUnitAmount=1500;
 let scoredVillages=new WeakSet();
 let waterLevel=-20;
 let scannedBossBases=new Set();
@@ -510,6 +511,7 @@ let mothershipAuraColorA=new THREE.Color(0x6fb7ff);
 let mothershipAuraColorB=new THREE.Color(0xb18cff);
 let mothershipAuraColorC=new THREE.Color(0x78f0e6);
 let mothershipAuraColorTemp=new THREE.Color();
+let mothershipHoverHazeGeo=new THREE.SphereGeometry(1,48,16);
 let clusterBombRadius=300;
 let clusterBombCooldownFrames=150;
 let clusterBombInitialDropSpeed=0.22;
@@ -2407,7 +2409,7 @@ function destroyWorldObstacle(obstacle){
 
   if(obstacle.village && world.isVillageCleared(obstacle.village) && !scoredVillages.has(obstacle.village)){
     scoredVillages.add(obstacle.village);
-    addUnits(villageClearedUnitAmount);
+    addUnits(obstacle.village.city ? cityClearedUnitAmount : villageClearedUnitAmount);
   }
 
   return true;
@@ -4536,6 +4538,9 @@ function fireBoatMissile(boat,target){
     impactAge:Math.ceil(flightTime),
     ballistic:true,
     gravity,
+    boatMissile:true,
+    trailEvery:1,
+    trailScale:1.45,
     damage:22,
     blastRadius:18
   });
@@ -4958,18 +4963,38 @@ function updateRockets(){
     let trailEvery=rocket.trailEvery || 2;
     if(rocket.age%trailEvery===0){
       let trailScale=rocket.trailScale || 1;
-      let trailCount=rocket.longRange ? 2 : 1;
+      let trailCount=rocket.boatMissile ? 4 : rocket.longRange ? 2 : 1;
+      let speedLen=Math.max(0.001,Math.hypot(rocket.vx,rocket.vy,rocket.vz));
+      let backX=-rocket.vx/speedLen;
+      let backY=-rocket.vy/speedLen;
+      let backZ=-rocket.vz/speedLen;
       for(let t=0;t<trailCount;t++){
-        let offset=-0.62-(rocket.longRange ? t*0.42 : 0);
+        let offset=rocket.boatMissile
+          ? 0.78+t*0.54
+          : 0.62+(rocket.longRange ? t*0.42 : 0);
+        let sideSpread=rocket.boatMissile ? 0.34+0.12*t : 0.16;
+        let wakeSpeed=rocket.boatMissile ? 3.6+trailScale*0.9+t*0.34 : 2.4+trailScale*0.75;
         dust.spawnThrusterParticle(
-          rocket.x-Math.sin(rocket.angle)*Math.abs(offset),
-          rocket.y+(Math.random()-0.5)*0.16*trailScale,
-          rocket.z-Math.cos(rocket.angle)*Math.abs(offset),
-          -Math.sin(rocket.angle)*(2.4+trailScale*0.75)+(Math.random()-0.5)*0.8*trailScale,
-          -Math.cos(rocket.angle)*(2.4+trailScale*0.75)+(Math.random()-0.5)*0.8*trailScale,
-          (Math.random()-0.5)*0.8*trailScale,
-          0.18*trailScale,
-          0.07+Math.random()*0.04+rocket.longRange*0.035
+          rocket.x+backX*offset+(Math.random()-0.5)*sideSpread*trailScale,
+          rocket.y+backY*offset+(Math.random()-0.5)*sideSpread*trailScale,
+          rocket.z+backZ*offset+(Math.random()-0.5)*sideSpread*trailScale,
+          backX*wakeSpeed+(Math.random()-0.5)*0.9*trailScale,
+          backZ*wakeSpeed+(Math.random()-0.5)*0.9*trailScale,
+          backY*wakeSpeed+(Math.random()-0.5)*1.1*trailScale,
+          (rocket.boatMissile ? 0.24 : 0.18)*trailScale*(1+t*0.1),
+          rocket.boatMissile ? 0.14+Math.random()*0.08+t*0.012 : 0.07+Math.random()*0.04+rocket.longRange*0.035
+        );
+      }
+      if(rocket.boatMissile && rocket.age%2===0){
+        dust.spawnThrusterParticle(
+          rocket.x+backX*2.4,
+          rocket.y+backY*2.4,
+          rocket.z+backZ*2.4,
+          backX*2.2+(Math.random()-0.5)*0.5,
+          backZ*2.2+(Math.random()-0.5)*0.5,
+          backY*2.2+0.6+Math.random()*0.8,
+          0.44*trailScale,
+          0.22+Math.random()*0.08
         );
       }
     }
@@ -5875,6 +5900,31 @@ function updateMothership(){
   }
   if(mothership.group.userData.bay){
     mothership.group.userData.bay.scale.setScalar(1+Math.sin(mothership.age*0.18)*0.08);
+  }
+  if(mothership.group.userData.hoverHazeLower){
+    let pulse=0.5+0.5*Math.sin(mothership.age*0.11+mothership.phase);
+    let flicker=0.5+0.5*Math.sin(mothership.age*0.37+mothership.phase*1.7);
+    let lower=mothership.group.userData.hoverHazeLower;
+    let upper=mothership.group.userData.hoverHazeUpper;
+    let core=mothership.group.userData.hoverHazeCore;
+    lower.material.opacity=lower.userData.baseOpacity*(0.72+pulse*0.42);
+    lower.scale.set(
+      lower.userData.baseScale.x*(0.94+pulse*0.12),
+      lower.userData.baseScale.y*(0.82+flicker*0.18),
+      lower.userData.baseScale.z*(0.94+pulse*0.12)
+    );
+    upper.material.opacity=upper.userData.baseOpacity*(0.78+flicker*0.46);
+    upper.scale.set(
+      upper.userData.baseScale.x*(0.9+flicker*0.16),
+      upper.userData.baseScale.y*(0.82+pulse*0.18),
+      upper.userData.baseScale.z*(0.9+flicker*0.16)
+    );
+    core.material.opacity=core.userData.baseOpacity*(0.7+flicker*0.55);
+    core.scale.set(
+      core.userData.baseScale.x*(0.86+pulse*0.22),
+      core.userData.baseScale.y*(0.9+flicker*0.22),
+      core.userData.baseScale.z*(0.86+pulse*0.22)
+    );
   }
   if(mothership.group.userData.aura){
     let pulse=0.5+0.5*Math.sin(mothership.age*0.045+mothership.phase);
@@ -7551,9 +7601,62 @@ function makeRobotBoatModel(seed=0){
   return boat;
 }
 
+function addMothershipHoverHaze(ship,bounds=null){
+  let box=bounds && !bounds.isEmpty() ? bounds.clone() : new THREE.Box3().setFromObject(ship);
+  let size=box.getSize(new THREE.Vector3());
+  let center=box.getCenter(new THREE.Vector3());
+  let halfX=clamp(size.x*0.34,12,30);
+  let halfZ=clamp(size.z*0.34,8,22);
+  let lowerY=box.min.y-Math.max(5.5,size.y*0.24);
+
+  function makeHaze(color,opacity,scale,yOffset,renderOrder){
+    let material=mothershipAuraMat.clone();
+    material.color.set(color);
+    material.opacity=opacity;
+    material.depthWrite=false;
+    material.depthTest=false;
+    material.side=THREE.DoubleSide;
+    let haze=new THREE.Mesh(mothershipHoverHazeGeo,material);
+    haze.position.set(center.x,lowerY+yOffset,center.z);
+    haze.scale.copy(scale);
+    haze.renderOrder=renderOrder;
+    haze.userData.baseScale=scale.clone();
+    haze.userData.baseOpacity=opacity;
+    ship.add(haze);
+    return haze;
+  }
+
+  let lowerHaze=makeHaze(
+    0x78f0e6,
+    0.16,
+    new THREE.Vector3(halfX*1.12,1.15,halfZ*1.02),
+    -1.2,
+    4
+  );
+  let upperHaze=makeHaze(
+    0xb9ffff,
+    0.2,
+    new THREE.Vector3(halfX*0.68,0.75,halfZ*0.62),
+    1.35,
+    5
+  );
+  let coreHaze=makeHaze(
+    0xe8ffff,
+    0.24,
+    new THREE.Vector3(halfX*0.28,0.95,halfZ*0.26),
+    0.05,
+    6
+  );
+
+  ship.userData.hoverHazeLower=lowerHaze;
+  ship.userData.hoverHazeUpper=upperHaze;
+  ship.userData.hoverHazeCore=coreHaze;
+}
+
 function makeMothershipModel(){
   if(enemyShipModel){
     let ship=enemyShipModel.clone(true);
+    let shipBounds=new THREE.Box3().setFromObject(ship);
     let aura=new THREE.Mesh(new THREE.SphereGeometry(1,32,16),mothershipAuraMat.clone());
     aura.scale.set(34,8.2,18);
     aura.renderOrder=4;
@@ -7570,6 +7673,7 @@ function makeMothershipModel(){
     bay.position.y=-3.9;
     bay.rotation.x=Math.PI/2;
     ship.add(bay);
+    addMothershipHoverHaze(ship,shipBounds);
 
     ship.userData.bay=bay;
     ship.userData.aura=aura;
@@ -7649,6 +7753,9 @@ function makeMothershipModel(){
       ship.add(light);
     }
   }
+
+  let shipBounds=new THREE.Box3().setFromObject(ship);
+  addMothershipHoverHaze(ship,shipBounds);
 
   ship.userData.bay=bay;
   ship.userData.aura=aura;
