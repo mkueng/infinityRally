@@ -1,5 +1,5 @@
 import { THREE } from "./three.js";
-import { gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize, viewDistance, mothershipDropCount, mothershipDropInterval, mothershipDropLineSpacing, mothershipHoverDistance, mothershipHoverFrames, mothershipMinDelay, mothershipRandomDelay, mothershipRocketHits } from "./constants.js";
+import { carRadius, gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize, viewDistance, mothershipDropCount, mothershipDropInterval, mothershipDropLineSpacing, mothershipHoverDistance, mothershipHoverFrames, mothershipMinDelay, mothershipRandomDelay, mothershipRocketHits } from "./constants.js";
 import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=no-ramps";
 import { createInput } from "./input.js?v=scanner-bumper";
 import { createHud } from "./hud.js?v=scanner-map-features";
@@ -8,7 +8,7 @@ import { createWorld } from "./world.js?v=landing-touchdown-back";
 import { createMotorAudio } from "./audio.js?v=scanner-mp3-quiet";
 import { worldEnvironments } from "./environments.js";
 import { difficultySettings } from "./gameConfig.js";
-import { loadBackPackModel, loadBaseStationModel, loadCarModel, loadJetModel, loadLandingSpaceModel, loadTradingOutpostModel, loadTreasureChestModels, makeMechModel } from "./models.js?v=base-station";
+import { loadBackPackModel, loadBaseStationModel, loadCarModel, loadEnemyBattleShipModel, loadJetModel, loadLandingSpaceModel, loadTradingOutpostModel, loadTreasureChestModels, makeMechModel } from "./models.js?v=base-station";
 import { makeSkyTexture } from "./textures.js?v=night-stars";
 import { createPortalSystem } from "./portals.js";
 import { approach, clamp, clamp01, hash01, randomRange, smoothStep } from "./utils.js";
@@ -79,7 +79,7 @@ const minNormalFogNear=520;
 const minNormalFogDepth=650;
 const dreamFogNear=45;
 const dreamFogFar=520;
-const rareTradingOutpostChunkProbability=0.02;
+const rareTradingOutpostChunkProbability=0.06;
 
 let currentEnvironment=worldEnvironments[Math.floor(Math.random()*worldEnvironments.length)];
 let rainIntensity=0;
@@ -323,14 +323,16 @@ let mothership=null;
 let giantTestRobot=null;
 let mothershipDelay=mothershipMinDelay+Math.floor(Math.random()*mothershipRandomDelay);
 let baseStationModel=null;
+let enemyShipModel=null;
 let tradingOutpostModel=null;
 let tradingOutpost=null;
 let tradingOutpostCollision=null;
 let tradingTerminalObject=null;
 let tradingPlaceCollisions=[];
+let homeTradingOutpost=null;
 let currentStartInfo=null;
 let jetUnlocked=false;
-let initialUnits=500;
+let initialUnits=5000;
 let units=initialUnits;
 let purchasedTradingItems=new Set();
 let normalEnemyUnitAmount=20;
@@ -524,6 +526,11 @@ let mouseAimRaycaster=new THREE.Raycaster();
 let mouseAimPointer=new THREE.Vector2();
 let terminalClickRaycaster=new THREE.Raycaster();
 let terminalClickPointer=new THREE.Vector2();
+let terminalFocusRaycaster=new THREE.Raycaster();
+let terminalFocusPointer=new THREE.Vector2();
+let terminalFocusOrigin=new THREE.Vector3();
+let terminalFocusDirection=new THREE.Vector3();
+let terminalFocusWorldPoint=new THREE.Vector3();
 let mouseAimHitPoint=new THREE.Vector3();
 let mouseAimRayPoint=new THREE.Vector3();
 let mouseAimRayStart=new THREE.Vector3();
@@ -1337,25 +1344,38 @@ function createTradingScreen(){
   let availableList=makeTradeColumn("Available");
   let boughtList=makeTradeColumn("Bought");
   let tradeItems=[
-    {id:"rocket-launcher",name:"Rocket launcher",price:2000},
+    {id:"rocket-launcher",name:"Rocket launcher",price:1000},
     {id:"scanner",name:"Scanner",price:1000},
-    {id:"jet",name:"Jet",price:5000}
+    {id:"jet",name:"Jet",price:5000},
+    {id:"fuel",name:"Fuel",price:200,repeatable:true}
   ];
   let lastTradeRenderKey="";
+
+  function fuelIsFull(){
+    return activeCars().every(car=>!car || !car.group || !car.group.visible || car.health<=0 || (car.fuel ?? maxFuel)>=maxFuel-0.001);
+  }
 
   function tradeRenderKey(){
     return [
       Math.max(0,Math.round(units || 0)),
-      Array.from(purchasedTradingItems).sort().join(",")
+      Array.from(purchasedTradingItems).sort().join(","),
+      activeCars().map(car=>Math.round(car && Number.isFinite(car.fuel) ? car.fuel : maxFuel)).join(",")
     ].join("|");
   }
 
   function buyTradingItem(item){
-    if(!item || purchasedTradingItems.has(item.id) || units<item.price) return;
+    if(!item || (!item.repeatable && purchasedTradingItems.has(item.id)) || units<item.price) return;
+    if(item.id==="fuel" && fuelIsFull()) return;
+
     units=Math.max(0,units-item.price);
-    purchasedTradingItems.add(item.id);
+    if(!item.repeatable) purchasedTradingItems.add(item.id);
     if(item.id==="scanner") scannerReadyAt=0;
     if(item.id==="jet") jetUnlocked=true;
+    if(item.id==="fuel"){
+      for(let car of activeCars()){
+        if(car && car.group && car.group.visible && car.health>0) car.fuel=maxFuel;
+      }
+    }
     if(hud){
       hud.updateSpeedHud();
       hud.updateCompassHud();
@@ -1373,34 +1393,35 @@ function createTradingScreen(){
     boughtList.innerHTML="";
 
     for(let item of tradeItems){
-      let owned=purchasedTradingItems.has(item.id);
+      let owned=!item.repeatable && purchasedTradingItems.has(item.id);
+      let unavailable=item.id==="fuel" && fuelIsFull();
       let affordable=units>=item.price;
       let row=document.createElement("button");
       row.type="button";
-      row.disabled=owned || !affordable;
+      row.disabled=owned || unavailable || !affordable;
       row.style.cssText=[
         "width:100%",
         "display:grid",
         "grid-template-columns:1fr auto",
         "align-items:center",
         "gap:12px",
-        "border:1px solid "+(owned ? "rgba(124,255,120,0.26)" : affordable ? "rgba(239,207,114,0.62)" : "rgba(154,248,255,0.12)"),
-        "background:"+(owned ? "rgba(20,48,28,0.5)" : affordable ? "rgba(214,178,90,0.18)" : "rgba(45,54,58,0.36)"),
-        "color:"+(owned ? "rgba(196,255,190,0.78)" : affordable ? "#ecfbff" : "rgba(236,251,255,0.34)"),
+        "border:1px solid "+(owned ? "rgba(124,255,120,0.26)" : affordable && !unavailable ? "rgba(239,207,114,0.62)" : "rgba(154,248,255,0.12)"),
+        "background:"+(owned ? "rgba(20,48,28,0.5)" : affordable && !unavailable ? "rgba(214,178,90,0.18)" : "rgba(45,54,58,0.36)"),
+        "color:"+(owned ? "rgba(196,255,190,0.78)" : affordable && !unavailable ? "#ecfbff" : "rgba(236,251,255,0.34)"),
         `font-family:${gameFontFamily}`,
         "font-size:15px",
         "font-weight:900",
         "text-align:left",
         "padding:13px 14px",
         "box-sizing:border-box",
-        "cursor:"+(owned || !affordable ? "default" : "pointer"),
+        "cursor:"+(owned || unavailable || !affordable ? "default" : "pointer"),
         "text-transform:uppercase"
       ].join(";");
       let name=document.createElement("span");
-      name.textContent=owned ? item.name+" / Owned" : item.name;
+      name.textContent=owned ? item.name+" / Owned" : unavailable ? item.name+" / Full" : item.name;
       let price=document.createElement("span");
       price.textContent=item.price+" units";
-      price.style.cssText="color:"+(affordable && !owned ? "#efcf72" : "inherit");
+      price.style.cssText="color:"+(affordable && !owned && !unavailable ? "#efcf72" : "inherit");
       row.appendChild(name);
       row.appendChild(price);
       row.addEventListener("click",event=>{
@@ -1411,7 +1432,7 @@ function createTradingScreen(){
       availableList.appendChild(row);
     }
 
-    let boughtItems=tradeItems.filter(item=>purchasedTradingItems.has(item.id));
+    let boughtItems=tradeItems.filter(item=>!item.repeatable && purchasedTradingItems.has(item.id));
     if(boughtItems.length===0){
       let empty=document.createElement("div");
       empty.textContent="No items bought";
@@ -1958,9 +1979,7 @@ function enemyUnitReward(enemy){
 }
 
 function treasureUnitAmount(type){
-  if(type==="rare") return 300;
-  if(type==="normal") return 180;
-  return 90;
+  return 200;
 }
 
 function updateTreasurePickups(){
@@ -2334,6 +2353,17 @@ function tradingOutpostLocalToWorld(local,collision=tradingOutpostCollision){
   };
 }
 
+function tradingOutpostLocalVectorToWorld(localX,localZ,collision=tradingOutpostCollision){
+  if(!collision) return {x:0,z:0};
+
+  let c=Math.cos(collision.angle);
+  let s=Math.sin(collision.angle);
+  return {
+    x:localX*c+localZ*s,
+    z:-localX*s+localZ*c
+  };
+}
+
 function tradingOutpostSafePointOutside(actor,x,z){
   let actorRadius=actor && Number.isFinite(actor.collisionRadius)
     ? actor.collisionRadius
@@ -2376,12 +2406,13 @@ function tradingOutpostTerminalLocalInfo(bounds={}){
   let floorMaxX=Number.isFinite(bounds.floorMaxX) ? bounds.floorMaxX : 20;
   let usableHalfX=Math.max(10,Math.min(Math.abs(floorMinX),Math.abs(floorMaxX)));
   let depth=Math.max(16,floorMaxZ-floorMinZ);
+  let terminalStandOff=Math.min(18,Math.max(12,depth*0.28));
 
   return {
     x:Math.min(usableHalfX-7,Math.max(-usableHalfX+7,-usableHalfX*0.36)),
-    z:floorMinZ+Math.min(20,depth*0.38),
-    halfX:7.5,
-    halfZ:6.5,
+    z:floorMinZ-terminalStandOff,
+    halfX:3.9,
+    halfZ:3.1,
     interactionRadius:42
   };
 }
@@ -2401,12 +2432,49 @@ function carNearTradingTerminal(car,collision=tradingOutpostCollision){
   if(!terminal || !collision || !car || !car.group.visible || car.health<=0) return false;
 
   let local=worldToTradingOutpostLocal(car.x,car.z,collision);
-  if(!insideTradingOutpostFloor(local,1.8,collision)) return false;
-
   let dx=local.x-terminal.x;
   let dz=local.z-terminal.z;
   let radius=terminal.interactionRadius+(car.collisionRadius || 2.35);
   return dx*dx+dz*dz<=radius*radius;
+}
+
+function setTerminalFocusRayForCar(car){
+  if(!car || !car.camera) return false;
+
+  terminalFocusRaycaster.near=0;
+  terminalFocusRaycaster.far=110;
+
+  if(gameMode==="single" && car===playerCar && car.hasMouseAimPoint && input.mouse.hasPosition){
+    let rect=renderer.domElement.getBoundingClientRect();
+    let pointerX=clamp(input.mouse.x-rect.left,0,Math.max(1,rect.width));
+    let pointerY=clamp(input.mouse.y-rect.top,0,Math.max(1,rect.height));
+    terminalFocusPointer.set(
+      (pointerX/Math.max(1,rect.width))*2-1,
+      -(pointerY/Math.max(1,rect.height))*2+1
+    );
+    terminalFocusRaycaster.setFromCamera(terminalFocusPointer,car.camera);
+    return true;
+  }
+
+  let aimDisplayDistance=car.aimDistance || 32;
+  let forwardX=Math.sin(car.angle);
+  let forwardZ=Math.cos(car.angle);
+  let rightX=Math.cos(car.angle);
+  let rightZ=-Math.sin(car.angle);
+
+  terminalFocusOrigin.set(car.x,car.y+2.6,car.z);
+  terminalFocusWorldPoint.set(
+    car.x+forwardX*aimDisplayDistance+rightX*(car.aimOffsetX || 0),
+    car.y+3.15+(car.aimOffsetY || 0),
+    car.z+forwardZ*aimDisplayDistance+rightZ*(car.aimOffsetX || 0)
+  );
+  terminalFocusDirection.copy(terminalFocusWorldPoint).sub(terminalFocusOrigin);
+  if(terminalFocusDirection.lengthSq()<0.001) return false;
+
+  terminalFocusDirection.normalize();
+  terminalFocusRaycaster.ray.origin.copy(terminalFocusOrigin);
+  terminalFocusRaycaster.ray.direction.copy(terminalFocusDirection);
+  return true;
 }
 
 function carAimFocusesTradingTerminal(car,collision){
@@ -2414,6 +2482,37 @@ function carAimFocusesTradingTerminal(car,collision){
   if(!terminal) return false;
   if(!car || !isPlayerActor(car) || !car.group || !car.group.visible || car.health<=0) return false;
   if(!car.aimCross || car.jetMode || car.jetProgress>0.35) return false;
+
+  if(collision.terminalObject && setTerminalFocusRayForCar(car)){
+    let hits=terminalFocusRaycaster.intersectObject(collision.terminalObject,true);
+    if(hits.length) return true;
+
+    terminalFocusWorldPoint.copy(terminalFocusRaycaster.ray.direction)
+      .multiplyScalar(terminalFocusRaycaster.far)
+      .add(terminalFocusRaycaster.ray.origin);
+    let rayStartLocal=worldToTradingOutpostLocal(
+      terminalFocusRaycaster.ray.origin.x,
+      terminalFocusRaycaster.ray.origin.z,
+      collision
+    );
+    let rayEndLocal=worldToTradingOutpostLocal(
+      terminalFocusWorldPoint.x,
+      terminalFocusWorldPoint.z,
+      collision
+    );
+    if(rayStartLocal && rayEndLocal){
+      let focusReach=Math.max(terminal.halfX,terminal.halfZ)+5;
+      let rayDistanceSq=distanceSqToLocalSegment(
+        terminal.x,
+        terminal.z,
+        rayStartLocal.x,
+        rayStartLocal.z,
+        rayEndLocal.x,
+        rayEndLocal.z
+      );
+      if(rayDistanceSq<=focusReach*focusReach) return true;
+    }
+  }
 
   let aimDisplayDistance=car.aimDistance || 32;
   let forwardX=Math.sin(car.angle);
@@ -2635,6 +2734,15 @@ function collidesWithSingleTradingOutpost(actor,x,z,fromX=null,fromZ=null,collis
   }
 
   for(let wall of collision.walls){
+    if(wall.kind==="rect"){
+      let depth=localRectContainmentDepth(local,wall,actorRadius);
+      if(depth>0){
+        let fromDepth=localRectContainmentDepth(fromLocal,wall,actorRadius);
+        if(fromDepth<=0 || depth>fromDepth+0.03) return true;
+      }
+      continue;
+    }
+
     let radius=wall.r+actorRadius;
     let distanceSq=distanceSqToLocalSegment(local.x,local.z,wall.ax,wall.az,wall.bx,wall.bz);
     let radiusSq=radius*radius;
@@ -2676,6 +2784,11 @@ function collidesWithLandingPad(actor,x,z,fromX=null,fromZ=null){
   return distSq<fromDistSq-0.03;
 }
 
+function obstacleCollisionDamagesPlayer(obstacle){
+  if(!obstacle) return true;
+  return obstacle.type!=="building" && obstacle.type!=="wall";
+}
+
 function movementCollision(car,fromX,fromZ,toX,toZ){
   let dx=toX-fromX;
   let dz=toZ-fromZ;
@@ -2696,16 +2809,29 @@ function movementCollision(car,fromX,fromZ,toX,toZ){
     let x=fromX+dx*t;
     let z=fromZ+dz*t;
     let otherCar=collidesWithOtherCars(car,x,z);
+    let obstacleCollision=world.collidesWithObstacles(x,z);
+    let obstacle=obstacleCollision && world.obstacleAt
+      ? world.obstacleAt(x,z,carRadius)
+      : null;
+    let tradingCollision=collidesWithTradingOutpostWalls(car,x,z,safeX,safeZ);
+    let landingCollision=collidesWithLandingPad(car,x,z,safeX,safeZ);
 
-    if(world.collidesWithObstacles(x,z) || collidesWithTradingOutpostWalls(car,x,z,safeX,safeZ) || collidesWithLandingPad(car,x,z,safeX,safeZ) || otherCar){
-      return {hit:true,otherCar,safeX,safeZ};
+    if(obstacleCollision || tradingCollision || landingCollision || otherCar){
+      return {
+        hit:true,
+        otherCar,
+        obstacle,
+        damagesPlayer:!!otherCar || (obstacleCollision && obstacleCollisionDamagesPlayer(obstacle)),
+        safeX,
+        safeZ
+      };
     }
 
     safeX=x;
     safeZ=z;
   }
 
-  return {hit:false,otherCar:null,safeX:toX,safeZ:toZ};
+  return {hit:false,otherCar:null,obstacle:null,damagesPlayer:false,safeX:toX,safeZ:toZ};
 }
 
 function terrainCollisionAlongSegment(fromX,fromY,fromZ,toX,toY,toZ,clearance=1.15){
@@ -4249,7 +4375,12 @@ function updateCannonInput(car){
   let mouseShot=gameMode==="single" && car===playerCar && input.mouse.left;
   let cannonButton=buttons.rightTrigger || mouseShot;
   let pressedCannonButton=cannonButton && !car.lastCannonButton;
-  if(pressedCannonButton && buttons.rightTrigger && openFocusedTradingTerminalForCar(car)){
+  let terminalFocused=playerAimingAtTradingTerminal(car);
+  if(pressedCannonButton && buttons.rightTrigger && terminalFocused && openFocusedTradingTerminalForCar(car)){
+    car.lastCannonButton=cannonButton;
+    return;
+  }
+  if(terminalFocused){
     car.lastCannonButton=cannonButton;
     return;
   }
@@ -6766,6 +6897,31 @@ function makeRobotBoatModel(seed=0){
 }
 
 function makeMothershipModel(){
+  if(enemyShipModel){
+    let ship=enemyShipModel.clone(true);
+    let aura=new THREE.Mesh(new THREE.SphereGeometry(1,32,16),mothershipAuraMat.clone());
+    aura.scale.set(34,8.2,18);
+    aura.renderOrder=4;
+    ship.add(aura);
+
+    let lowerAura=new THREE.Mesh(new THREE.SphereGeometry(1,32,12),mothershipAuraMat.clone());
+    lowerAura.position.y=-3.25;
+    lowerAura.scale.set(24,3.6,13);
+    lowerAura.material.opacity=0.22;
+    lowerAura.renderOrder=5;
+    ship.add(lowerAura);
+
+    let bay=new THREE.Mesh(new THREE.CylinderGeometry(4.8,6.2,0.56,32),mothershipGlowMat);
+    bay.position.y=-3.9;
+    bay.rotation.x=Math.PI/2;
+    ship.add(bay);
+
+    ship.userData.bay=bay;
+    ship.userData.aura=aura;
+    ship.userData.lowerAura=lowerAura;
+    return ship;
+  }
+
   let ship=new THREE.Group();
   let hull=new THREE.Mesh(new THREE.SphereGeometry(1,32,16),mothershipHullMat);
   hull.scale.set(28,5.2,13.5);
@@ -7431,6 +7587,100 @@ function clearGiantFireballs(){
   giantFireballs=[];
 }
 
+function tradingOutpostAvoidanceAt(actor,x,z,padding=72){
+  let actorRadius=actor && Number.isFinite(actor.collisionRadius)
+    ? actor.collisionRadius
+    : 2.35;
+  let best=null;
+
+  for(let collision of activeTradingOutpostCollisions()){
+    let floor=collision && collision.floor;
+    if(!floor) continue;
+
+    let local=worldToTradingOutpostLocal(x,z,collision);
+    if(!local) continue;
+
+    let minX=floor.minX-actorRadius-padding;
+    let maxX=floor.maxX+actorRadius+padding;
+    let minZ=floor.minZ-actorRadius-padding;
+    let maxZ=floor.maxZ+actorRadius+padding;
+    if(local.x<minX || local.x>maxX || local.z<minZ || local.z>maxZ) continue;
+
+    let distances=[
+      {x:-1,z:0,value:local.x-minX},
+      {x:1,z:0,value:maxX-local.x},
+      {x:0,z:-1,value:local.z-minZ},
+      {x:0,z:1,value:maxZ-local.z}
+    ].sort((a,b)=>a.value-b.value);
+    let nearest=distances[0];
+    let worldVector=tradingOutpostLocalVectorToWorld(nearest.x,nearest.z,collision);
+    let strength=1+clamp((padding+actorRadius-nearest.value)/Math.max(1,padding+actorRadius),0,1.8);
+
+    if(!best || strength>best.strength){
+      best={x:worldVector.x,z:worldVector.z,strength};
+    }
+  }
+
+  return best;
+}
+
+function landingPadAvoidanceAt(actor,x,z,padding=68){
+  if(!world || !world.landingSurfaceAt) return null;
+
+  let surface=world.landingSurfaceAt(x,z,true);
+  if(!surface) return null;
+
+  let actorRadius=actor && Number.isFinite(actor.collisionRadius)
+    ? actor.collisionRadius
+    : 2.35;
+  let dx=x-surface.x;
+  let dz=z-surface.z;
+  let distance=Math.max(0.001,Math.hypot(dx,dz));
+  let limit=(surface.padR || surface.r || 0)+actorRadius+padding;
+  if(distance>limit) return null;
+
+  return {
+    x:dx/distance,
+    z:dz/distance,
+    strength:1+clamp((limit-distance)/Math.max(1,limit),0,1.5)
+  };
+}
+
+function giantBuildingAvoidanceVector(robot){
+  if(!robot) return null;
+
+  let forwardX=Math.sin(robot.angle);
+  let forwardZ=Math.cos(robot.angle);
+  let lookAhead=Math.max(95,(robot.collisionRadius || 29)*3.8);
+  let samples=[
+    {x:robot.x,z:robot.z,weight:1.35,padding:78},
+    {x:robot.x+forwardX*lookAhead,z:robot.z+forwardZ*lookAhead,weight:1,padding:92}
+  ];
+  let vx=0;
+  let vz=0;
+  let strength=0;
+
+  for(let sample of samples){
+    let avoid=tradingOutpostAvoidanceAt(robot,sample.x,sample.z,sample.padding)
+      || landingPadAvoidanceAt(robot,sample.x,sample.z,sample.padding*0.85);
+    if(!avoid) continue;
+
+    let weight=sample.weight*(avoid.strength || 1);
+    vx+=avoid.x*weight;
+    vz+=avoid.z*weight;
+    strength+=weight;
+  }
+
+  let length=Math.hypot(vx,vz);
+  if(length<0.001) return null;
+
+  return {
+    x:vx/length,
+    z:vz/length,
+    strength
+  };
+}
+
 function spawnGiantTestRobot(startInfo){
   clearGiantTestRobot();
 
@@ -7562,12 +7812,29 @@ function updateGiantTestRobot(){
     robot.velAngle=robot.angle;
   }
 
+  let buildingAvoidance=giantBuildingAvoidanceVector(robot);
+  if(buildingAvoidance){
+    let avoidAngle=Math.atan2(buildingAvoidance.x,buildingAvoidance.z);
+    let avoidTurn=normalizeAngle(avoidAngle-robot.angle);
+    let turnLimit=buildingAvoidance.strength>2 ? 0.06 : 0.034;
+    robot.angle=normalizeAngle(robot.angle+clamp(avoidTurn,-turnLimit,turnLimit));
+    robot.velAngle=robot.angle;
+    robot.patrolSign=avoidTurn>=0 ? 1 : -1;
+  }
+
   let previousSpeed=robot.speed;
   let nextX=robot.x+Math.sin(robot.angle)*robot.speed;
   let nextZ=robot.z+Math.cos(robot.angle)*robot.speed;
   if(collidesWithTradingOutpostWalls(robot,nextX,nextZ,robot.x,robot.z) || collidesWithLandingPad(robot,nextX,nextZ,robot.x,robot.z)){
-    robot.patrolSign=-(robot.patrolSign || 1);
-    robot.angle=normalizeAngle(robot.angle+robot.patrolSign*0.48);
+    let avoid=giantBuildingAvoidanceVector(robot);
+    if(avoid){
+      robot.angle=normalizeAngle(Math.atan2(avoid.x,avoid.z));
+      robot.x+=avoid.x*0.42;
+      robot.z+=avoid.z*0.42;
+    }else{
+      robot.patrolSign=-(robot.patrolSign || 1);
+      robot.angle=normalizeAngle(robot.angle+robot.patrolSign*0.48);
+    }
     robot.velAngle=robot.angle;
   }else{
     robot.x=nextX;
@@ -8156,9 +8423,11 @@ function updateCar(car){
     car.z=collision.safeZ;
     car.y=prevY;
     car.speed=0;
-    car.angle+=collision.otherCar ? Math.PI*0.12 : Math.PI*0.18;
-    car.velAngle=car.angle;
-    damageCar(car,collision.otherCar ? 1 : 3);
+    if(collision.otherCar){
+      car.angle+=Math.PI*0.12;
+      car.velAngle=car.angle;
+    }
+    if(collision.damagesPlayer) damageCar(car,collision.otherCar ? 1 : 3);
     surfaceY=surfaceHeightForActor(car,car.x,car.z);
     if(car.y<surfaceY) car.y=surfaceY;
   }
@@ -8456,6 +8725,13 @@ function scanVisibleChunksForTradingOutposts(){
       found=true;
     }
   }
+  if(homeTradingOutpost && objectInVisibleChunk(homeTradingOutpost)){
+    let key="home-trading-outpost";
+    if(!scannedTradingOutposts.has(key)){
+      scannedTradingOutposts.set(key,{x:homeTradingOutpost.x,z:homeTradingOutpost.z});
+      found=true;
+    }
+  }
   if(found && hud) hud.updateMapHud(true);
   return found;
 }
@@ -8525,6 +8801,13 @@ function clearRareTradingOutposts(clearScanned=false){
   if(clearScanned) scannedTradingOutposts.clear();
 }
 
+function clearHomeTradingOutpost(){
+  unregisterTradingPlaceCollision(homeTradingOutpost);
+  if(homeTradingOutpost && homeTradingOutpost.object) scene.remove(homeTradingOutpost.object);
+  homeTradingOutpost=null;
+  scannedTradingOutposts.delete("home-trading-outpost");
+}
+
 function rareTradingOutpostCandidateForChunk(cx,cz){
   if(!tradingOutpostModel) return null;
   if(hash01(cx+931,cz-577)>rareTradingOutpostChunkProbability) return null;
@@ -8586,6 +8869,81 @@ function updateRareTradingOutposts(){
     registerTradingPlaceCollision(outpost,tradingOutpostModel);
     rareTradingOutposts.set(key,outpost);
   }
+}
+
+function placeHomeTradingOutpostNearStart(startInfo=currentStartInfo){
+  if(startInfo) currentStartInfo=startInfo;
+  clearHomeTradingOutpost();
+  if(!tradingOutpostModel || !currentStartInfo) return;
+
+  let startPoint=roadPointForOffset(currentStartInfo.z,currentStartInfo.fieldOffset);
+  let angle=currentStartInfo.angle || 0;
+  let forwardX=Math.sin(angle);
+  let forwardZ=Math.cos(angle);
+  let rightX=Math.cos(angle);
+  let rightZ=-Math.sin(angle);
+  let outwardSign=Math.sign(currentStartInfo.fieldOffset || 1);
+  let baseClearanceSq=150*150;
+  let farSide=-outwardSign;
+  let offsets=[
+    {forward:34,right:farSide*132},
+    {forward:-34,right:farSide*132},
+    {forward:82,right:farSide*118},
+    {forward:-82,right:farSide*118},
+    {forward:0,right:farSide*154},
+    {forward:126,right:farSide*146},
+    {forward:-126,right:farSide*146}
+  ];
+
+  world.updateChunksForCenters(offsets.map(offset=>({
+    x:startPoint.x+forwardX*offset.forward+rightX*offset.right,
+    z:startPoint.z+forwardZ*offset.forward+rightZ*offset.right
+  })));
+  world.processChunkQueue(100,true);
+
+  let chosen=null;
+  for(let offset of offsets){
+    let x=startPoint.x+forwardX*offset.forward+rightX*offset.right;
+    let z=startPoint.z+forwardZ*offset.forward+rightZ*offset.right;
+    let facing=angle+Math.PI*0.5*Math.sign(offset.right || outwardSign);
+    if(tradingOutpost){
+      let dx=x-tradingOutpost.position.x;
+      let dz=z-tradingOutpost.position.z;
+      if(dx*dx+dz*dz<baseClearanceSq) continue;
+    }
+    let info=tradingOutpostPlacementInfo(x,z,facing,tradingOutpostModel);
+    if(!info) continue;
+
+    let score=info.range*120+info.maxSlope*900+Math.hypot(offset.forward,offset.right)*0.08;
+    if(!chosen || score<chosen.score) chosen={...info,angle:facing,score};
+  }
+
+  if(!chosen){
+    let forward=34;
+    let right=farSide*132;
+    let x=startPoint.x+forwardX*forward+rightX*right;
+    let z=startPoint.z+forwardZ*forward+rightZ*right;
+    chosen={
+      x,
+      z,
+      y:drivingSurfaceHeight(x,z)+0.04,
+      angle:angle+Math.PI*0.5*outwardSign
+    };
+  }
+
+  let object=tradingOutpostModel.clone(true);
+  object.position.set(chosen.x,chosen.y,chosen.z);
+  object.rotation.y=chosen.angle;
+  tintTradingOutpostForEnvironment(object);
+  scene.add(object);
+
+  homeTradingOutpost={
+    key:"home-trading-outpost",
+    object,
+    x:chosen.x,
+    z:chosen.z
+  };
+  registerTradingPlaceCollision(homeTradingOutpost,tradingOutpostModel);
 }
 
 function makeSurfaceScanLine(pointCount,material,renderOrder=24){
@@ -9192,6 +9550,7 @@ function startGame(mode,difficulty="medium",savedStatus=null){
   scannedLandingSpaces=new Map();
   scannedPortals=new Map();
   clearRareTradingOutposts(true);
+  clearHomeTradingOutpost();
   portalSystem.clearRandomPortals();
   tradingPlaceCollisions=[];
   scannerKeyDown=false;
@@ -9223,6 +9582,7 @@ function startGame(mode,difficulty="medium",savedStatus=null){
   }
   spawnGiantTestRobot(startInfo);
   placeTradingOutpostNearStart(startInfo);
+  placeHomeTradingOutpostNearStart(startInfo);
   world.placeTestBossBaseNearStart(playerCar.x,playerCar.z,playerCar.angle);
   spawnBossBaseGuards();
   setCarActive(playerCar,true);
@@ -9308,6 +9668,14 @@ loadJetModel(0x2f66d8)
     console.error("Failed to load second jet model:",error);
   });
 
+loadEnemyBattleShipModel()
+  .then(model=>{
+    enemyShipModel=model;
+  })
+  .catch(error=>{
+    console.error("Failed to load enemy ship model:",error);
+  });
+
 loadLandingSpaceModel()
   .then(model=>{
     world.setLandingSpaceModel(model);
@@ -9328,6 +9696,7 @@ loadBaseStationModel()
   .then(model=>{
     baseStationModel=model;
     placeTradingOutpostNearStart(currentStartInfo);
+    placeHomeTradingOutpostNearStart(currentStartInfo);
   })
   .catch(error=>{
     console.error("Failed to load base station model:",error);
@@ -9336,6 +9705,7 @@ loadBaseStationModel()
 loadTradingOutpostModel()
   .then(model=>{
     tradingOutpostModel=model;
+    placeHomeTradingOutpostNearStart(currentStartInfo);
     updateRareTradingOutposts();
   })
   .catch(error=>{
@@ -9443,12 +9813,50 @@ function makeTradingOutpostCollision(x,z,angle,y,model=tradingOutpostModel,objec
   let wallMaxZ=Number.isFinite(bounds.wallMaxZInner) ? bounds.wallMaxZInner : maxZ;
   let entranceHalfWidth=Math.max(13,Math.min((wallRightX-wallLeftX)*0.24,Math.min(Math.abs(wallLeftX),Math.abs(wallRightX))*0.78));
   let wallInset=0;
-  let wallRadius=4.5;
+  let wallRadius=2.4;
   let floorInset=1.8;
   let floorMinX=Number.isFinite(bounds.floorMinX) ? bounds.floorMinX+floorInset : minX+wallRadius;
   let floorMaxX=Number.isFinite(bounds.floorMaxX) ? bounds.floorMaxX-floorInset : maxX-wallRadius;
   let floorMinZ=Number.isFinite(bounds.floorMinZ) ? bounds.floorMinZ+floorInset : minZ+wallRadius;
   let floorMaxZ=Number.isFinite(bounds.floorMaxZ) ? bounds.floorMaxZ-floorInset : maxZ-wallRadius;
+  let preciseWalls=Array.isArray(bounds.wallSegments)
+    ? bounds.wallSegments.reduce((items,wall)=>{
+      if(!wall) return items;
+      if(wall.kind==="rect"
+        && Number.isFinite(wall.minX)
+        && Number.isFinite(wall.maxX)
+        && Number.isFinite(wall.minZ)
+        && Number.isFinite(wall.maxZ)){
+        items.push({
+          kind:"rect",
+          minX:Math.min(wall.minX,wall.maxX),
+          maxX:Math.max(wall.minX,wall.maxX),
+          minZ:Math.min(wall.minZ,wall.maxZ),
+          maxZ:Math.max(wall.minZ,wall.maxZ)
+        });
+      }else if(Number.isFinite(wall.ax)
+        && Number.isFinite(wall.az)
+        && Number.isFinite(wall.bx)
+        && Number.isFinite(wall.bz)){
+        items.push({
+          kind:"segment",
+          ax:wall.ax,
+          az:wall.az,
+          bx:wall.bx,
+          bz:wall.bz,
+          r:Number.isFinite(wall.r) ? Math.max(0.45,Math.min(3.0,wall.r)) : wallRadius
+        });
+      }
+      return items;
+    },[])
+    : [];
+  let fallbackWalls=[
+    {ax:wallLeftX,az:wallMinZ+wallInset,bx:wallLeftX,bz:wallMaxZ-wallInset,r:wallRadius},
+    {ax:wallRightX,az:wallMinZ+wallInset,bx:wallRightX,bz:wallMaxZ-wallInset,r:wallRadius},
+    {ax:wallLeftX+wallInset,az:wallMinZ,bx:wallRightX-wallInset,bz:wallMinZ,r:wallRadius},
+    {ax:wallLeftX,az:wallMaxZ,bx:-entranceHalfWidth,bz:wallMaxZ,r:wallRadius},
+    {ax:entranceHalfWidth,az:wallMaxZ,bx:wallRightX,bz:wallMaxZ,r:wallRadius}
+  ];
   return {
     object,
     terminalObject,
@@ -9463,22 +9871,9 @@ function makeTradingOutpostCollision(x,z,angle,y,model=tradingOutpostModel,objec
       maxZ:Math.max(floorMinZ,floorMaxZ),
       y:Number.isFinite(bounds.floorY) ? bounds.floorY : 0
     },
-    room:{
-      left:wallLeftX,
-      right:wallRightX,
-      back:wallMinZ,
-      front:wallMaxZ,
-      entranceHalfWidth,
-      wallRadius
-    },
+    room:null,
     terminal:tradingOutpostTerminalLocalInfo(bounds),
-    walls:[
-      {ax:wallLeftX,az:wallMinZ+wallInset,bx:wallLeftX,bz:wallMaxZ-wallInset,r:wallRadius},
-      {ax:wallRightX,az:wallMinZ+wallInset,bx:wallRightX,bz:wallMaxZ-wallInset,r:wallRadius},
-      {ax:wallLeftX+wallInset,az:wallMinZ,bx:wallRightX-wallInset,bz:wallMinZ,r:wallRadius},
-      {ax:wallLeftX,az:wallMaxZ,bx:-entranceHalfWidth,bz:wallMaxZ,r:wallRadius},
-      {ax:entranceHalfWidth,az:wallMaxZ,bx:wallRightX,bz:wallMaxZ,r:wallRadius}
-    ]
+    walls:preciseWalls.length ? preciseWalls : fallbackWalls
   };
 }
 
@@ -9682,11 +10077,12 @@ function placeTradingOutpostNearStart(startInfo){
   let rightX=Math.cos(angle);
   let rightZ=-Math.sin(angle);
   let offsets=[
-    {forward:34,right:-112},
-    {forward:-38,right:116},
-    {forward:126,right:-96},
-    {forward:-126,right:96},
-    {forward:0,right:138}
+    {forward:18,right:-58},
+    {forward:-18,right:58},
+    {forward:48,right:-54},
+    {forward:-48,right:54},
+    {forward:0,right:68},
+    {forward:0,right:-68}
   ];
   let chosen=null;
   let best=null;
@@ -9699,8 +10095,8 @@ function placeTradingOutpostNearStart(startInfo){
     offsets.push({forward,right});
   }
 
-  for(let forward=-210;forward<=210;forward+=42){
-    for(let right of [-252,-210,-168,-126,126,168,210,252]){
+  for(let forward=-126;forward<=126;forward+=42){
+    for(let right of [-146,-116,-88,-68,68,88,116,146]){
       addOffset(forward,right);
     }
   }
@@ -9717,7 +10113,7 @@ function placeTradingOutpostNearStart(startInfo){
     let info=tradingOutpostPlacementInfo(x,z,angle+Math.PI*0.5,baseStationModel);
     if(!info) continue;
 
-    let distanceScore=Math.hypot(offset.forward,offset.right)*0.025;
+    let distanceScore=Math.hypot(offset.forward,offset.right)*0.18;
     let score=info.range*120+info.maxSlope*900+distanceScore;
     if(!best || score<best.score) best={...info,score};
     if(info.flat && (!chosen || score<chosen.score)) chosen={...info,score};
@@ -9727,9 +10123,9 @@ function placeTradingOutpostNearStart(startInfo){
 
   if(!chosen){
     chosen={
-      x:basePoint.x+rightX*-112+forwardX*34,
-      z:basePoint.z+rightZ*-112+forwardZ*34,
-      y:drivingSurfaceHeight(basePoint.x+rightX*-112+forwardX*34,basePoint.z+rightZ*-112+forwardZ*34)+0.04
+      x:basePoint.x+rightX*-58+forwardX*18,
+      z:basePoint.z+rightZ*-58+forwardZ*18,
+      y:drivingSurfaceHeight(basePoint.x+rightX*-58+forwardX*18,basePoint.z+rightZ*-58+forwardZ*18)+0.04
     };
   }
 
@@ -9750,6 +10146,7 @@ placeCarOnOpenField(playerCar,initialStartInfo);
 placeCarOnOpenField(secondCar,initialStartInfo);
 spawnGiantTestRobot(initialStartInfo);
 placeTradingOutpostNearStart(initialStartInfo);
+placeHomeTradingOutpostNearStart(initialStartInfo);
 world.placeTestBossBaseNearStart(playerCar.x,playerCar.z,playerCar.angle);
 playerCar.cameraYaw=playerCar.angle;
 secondCar.cameraYaw=secondCar.angle;

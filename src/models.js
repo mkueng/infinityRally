@@ -348,6 +348,75 @@ export function loadJetModel(accentColor=0xb83a32){
   });
 }
 
+export function normalizeEnemyBattleShipModel(ship){
+  let model=new THREE.Group();
+  let asset=new THREE.Group();
+  ship.rotation.x=-Math.PI/2;
+  asset.add(ship);
+  model.add(asset);
+  model.updateMatrixWorld(true);
+
+  let box=new THREE.Box3().setFromObject(model);
+  let size=new THREE.Vector3();
+  let center=new THREE.Vector3();
+  box.getSize(size);
+  box.getCenter(center);
+
+  let scale=58/Math.max(size.x,size.z,0.001);
+  model.scale.setScalar(scale);
+  model.updateMatrixWorld(true);
+
+  box.setFromObject(model);
+  box.getCenter(center);
+  asset.position.x-=center.x/scale;
+  asset.position.y-=center.y/scale;
+  asset.position.z-=center.z/scale;
+
+  model.traverse(child=>{
+    if(child.isMesh){
+      child.castShadow=true;
+      child.receiveShadow=true;
+      if(child.geometry) child.geometry.computeVertexNormals();
+      if(child.material){
+        let materials=Array.isArray(child.material) ? child.material : [child.material];
+        for(let material of materials){
+          material.side=THREE.FrontSide;
+          material.roughness=material.roughness ?? 0.54;
+          material.metalness=material.metalness ?? 0.28;
+        }
+      }
+    }
+  });
+
+  return model;
+}
+
+export function loadEnemyBattleShipModel(){
+  let mtlLoader=new MTLLoader();
+  mtlLoader.setPath("assets/enemyBattleShip/");
+
+  return new Promise((resolve,reject)=>{
+    mtlLoader.load(
+      "obj.mtl",
+      materials=>{
+        materials.preload();
+
+        let objLoader=new OBJLoader();
+        objLoader.setPath("assets/enemyBattleShip/");
+        objLoader.setMaterials(materials);
+        objLoader.load(
+          "tinker.obj",
+          object=>resolve(normalizeEnemyBattleShipModel(object)),
+          undefined,
+          reject
+        );
+      },
+      undefined,
+      reject
+    );
+  });
+}
+
 export function normalizeLandingSpaceModel(landingSpace){
   let model=new THREE.Group();
   let asset=new THREE.Group();
@@ -521,7 +590,8 @@ function makeMissionOutpostTerminal(bounds){
   let floorMaxX=Number.isFinite(bounds.floorMaxX) ? bounds.floorMaxX : 20;
   let usableHalfX=Math.max(10,Math.min(Math.abs(floorMinX),Math.abs(floorMaxX)));
   let depth=Math.max(16,floorMaxZ-floorMinZ);
-  let z=floorMinZ+Math.min(12,depth*0.24);
+  let terminalStandOff=Math.min(18,Math.max(12,depth*0.28));
+  let z=floorMinZ-terminalStandOff;
   let x=Math.min(usableHalfX-7,Math.max(-usableHalfX+7,-usableHalfX*0.36));
 
   terminal.position.set(x,floorY,z);
@@ -695,6 +765,43 @@ export function normalizeTradingOutpostModel(outpost,options={}){
   let rightWallInnerX=Infinity;
   let minZWallInnerZ=-Infinity;
   let maxZWallInnerZ=Infinity;
+  let wallSegments=[];
+
+  function addCollisionPrimitive(childBox,childSize){
+    let centerX=(childBox.min.x+childBox.max.x)*0.5;
+    let centerZ=(childBox.min.z+childBox.max.z)*0.5;
+    let longer=Math.max(childSize.x,childSize.z);
+    let shorter=Math.min(childSize.x,childSize.z);
+
+    if(longer>3.2 && shorter>0.2 && longer>shorter*1.35){
+      if(childSize.x>=childSize.z){
+        wallSegments.push({
+          ax:childBox.min.x,
+          az:centerZ,
+          bx:childBox.max.x,
+          bz:centerZ,
+          r:Math.max(0.85,Math.min(2.6,childSize.z*0.5+0.32))
+        });
+      }else{
+        wallSegments.push({
+          ax:centerX,
+          az:childBox.min.z,
+          bx:centerX,
+          bz:childBox.max.z,
+          r:Math.max(0.85,Math.min(2.6,childSize.x*0.5+0.32))
+        });
+      }
+    }else if(childSize.y>2.8 && childSize.x>0.45 && childSize.z>0.45){
+      wallSegments.push({
+        kind:"rect",
+        minX:childBox.min.x,
+        maxX:childBox.max.x,
+        minZ:childBox.min.z,
+        maxZ:childBox.max.z
+      });
+    }
+  }
+
   model.traverse(child=>{
     if(!child.isMesh || !child.material) return;
 
@@ -703,10 +810,18 @@ export function normalizeTradingOutpostModel(outpost,options={}){
     childBox.getSize(childSize);
     let materials=Array.isArray(child.material) ? child.material : [child.material];
     let materialNames=materials.map(material=>material && material.name);
+    let floorLike=childBox.min.y<2.1 && childSize.y<2.2 && (childSize.x>18 || childSize.z>18);
+    let wallMaterial=materialNames.includes("color_7720667");
+    let playerHeightSolid=childBox.min.y<30
+      && childBox.max.y>1.2
+      && childSize.y>4.2
+      && childSize.x>1.05
+      && childSize.z>1.05;
 
-    if(materialNames.includes("color_7720667")){
+    if(wallMaterial){
       wallBounds.union(childBox);
       hasWallBounds=true;
+      addCollisionPrimitive(childBox,childSize);
       if(childSize.x<childSize.z){
         if(childBox.max.x<0) leftWallInnerX=Math.max(leftWallInnerX,childBox.max.x);
         if(childBox.min.x>0) rightWallInnerX=Math.min(rightWallInnerX,childBox.min.x);
@@ -715,7 +830,8 @@ export function normalizeTradingOutpostModel(outpost,options={}){
         if(childBox.min.z>0) maxZWallInnerZ=Math.min(maxZWallInnerZ,childBox.min.z);
       }
     }
-    if(childBox.min.y<2.1 && childSize.y<2.2 && (childSize.x>18 || childSize.z>18)){
+    if(!wallMaterial && !floorLike && playerHeightSolid) addCollisionPrimitive(childBox,childSize);
+    if(floorLike){
       floorBounds.union(childBox);
       hasFloorBounds=true;
     }
@@ -737,7 +853,8 @@ export function normalizeTradingOutpostModel(outpost,options={}){
       floorMinZ:hasFloorBounds ? floorBounds.min.z : -model.userData.footprintHalfZ,
       floorMaxZ:hasFloorBounds ? floorBounds.max.z : model.userData.footprintHalfZ,
       floorY,
-      ceilingY:hasWallBounds ? Math.max(floorY+7,wallBounds.max.y-1.4) : floorY+11.5
+      ceilingY:hasWallBounds ? Math.max(floorY+7,wallBounds.max.y-1.4) : floorY+11.5,
+      wallSegments
     };
   }
 

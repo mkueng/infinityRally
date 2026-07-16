@@ -438,7 +438,6 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
 
     drawVillages(mapCtx,centerX,centerZ,radius,size,palette);
     drawScannedLandingSpaces(mapCtx,getScannedLandingSpaces(),centerX,centerZ,radius,size,palette);
-    drawScannedTradingOutposts(mapCtx,getScannedTradingOutposts(),centerX,centerZ,radius,size,palette);
     drawScannedBossBases(mapCtx,getScannedBossBases(),centerX,centerZ,radius,size,palette);
     drawEnemyDots(mapCtx,enemies,centerX,centerZ,radius,size);
     drawOtherCars(mapCtx,state,states,centerX,centerZ,radius,size,palette);
@@ -458,6 +457,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     mapCtx.fill();
     mapCtx.stroke();
     mapCtx.restore();
+    drawScannedTradingOutposts(mapCtx,getScannedTradingOutposts(),centerX,centerZ,radius,size,palette);
     mapCtx.restore();
   }
 
@@ -600,6 +600,13 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
 
       mapCtx.fillStyle=palette.scannedOutpostStroke;
       mapCtx.fillRect(-2,-2,4,4);
+
+      mapCtx.strokeStyle=`rgba(255,255,255,${0.48+pulse*0.28})`;
+      mapCtx.lineWidth=1.2;
+      mapCtx.beginPath();
+      mapCtx.arc(0,0,outer+4.2,Math.PI*0.18,Math.PI*0.82);
+      mapCtx.arc(0,0,outer+4.2,Math.PI*1.18,Math.PI*1.82);
+      mapCtx.stroke();
       mapCtx.restore();
     }
   }

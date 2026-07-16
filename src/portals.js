@@ -2,8 +2,8 @@ import { THREE } from "./three.js";
 import { chunkSize } from "./constants.js";
 import { hash01, smoothStep } from "./utils.js";
 
-const randomPortalChunkProbability=0.025;
-const randomPortalMinSpacing=chunkSize*3.0;
+const randomPortalChunkProbability=0.009;
+const randomPortalMinSpacing=chunkSize*5.0;
 const portalSurfaceWaterDepthThreshold=0.3;
 const portalSurfaceWaterLift=0.1;
 const portalPlacementWaterDepthThreshold=0.45;
