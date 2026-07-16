@@ -14,6 +14,7 @@ export function createMotorAudio(cars){
   let scannerBuffer=null;
   let scannerBufferPromise=null;
   let mothershipHum=null;
+  let rainAudio=null;
   let supported=true;
   let sfxVolume=1;
   let musicVolume=0.0;
@@ -144,6 +145,133 @@ export function createMotorAudio(cars){
       music:musicVolume,
       sfx:sfxVolume
     };
+  }
+
+  function ensureRainAudio(){
+    ensureContext();
+    if(!context || !supported || rainAudio) return rainAudio;
+
+    let rainNoise=context.createBufferSource();
+    let rainFilter=context.createBiquadFilter();
+    let rainGain=context.createGain();
+    let patterNoise=context.createBufferSource();
+    let patterFilter=context.createBiquadFilter();
+    let patterGain=context.createGain();
+    let output=context.createGain();
+
+    rainNoise.buffer=noiseBuffer || createNoiseBuffer();
+    rainNoise.loop=true;
+    rainFilter.type="bandpass";
+    rainFilter.frequency.value=1450;
+    rainFilter.Q.value=0.9;
+    rainGain.gain.value=0;
+
+    patterNoise.buffer=noiseBuffer || createNoiseBuffer();
+    patterNoise.loop=true;
+    patterFilter.type="highpass";
+    patterFilter.frequency.value=4200;
+    patterFilter.Q.value=0.45;
+    patterGain.gain.value=0;
+    output.gain.value=1;
+
+    rainNoise.connect(rainFilter);
+    rainFilter.connect(rainGain);
+    patterNoise.connect(patterFilter);
+    patterFilter.connect(patterGain);
+    rainGain.connect(output);
+    patterGain.connect(output);
+    output.connect(master);
+
+    rainNoise.start();
+    patterNoise.start();
+
+    rainAudio={
+      rainFilter,
+      rainGain,
+      patterFilter,
+      patterGain,
+      output
+    };
+    return rainAudio;
+  }
+
+  function updateRain(intensity=0){
+    let level=clamp(Number(intensity) || 0,0,1);
+    if(level<=0.002 && !rainAudio) return;
+
+    let audio=ensureRainAudio();
+    if(!audio || !context || !supported) return;
+
+    let now=context.currentTime;
+    let audible=Math.pow(level,0.82);
+    audio.rainGain.gain.setTargetAtTime(audible*0.18,now,0.65);
+    audio.patterGain.gain.setTargetAtTime(Math.pow(level,1.25)*0.075,now,0.42);
+    audio.rainFilter.frequency.setTargetAtTime(900+level*1450,now,0.8);
+    audio.patterFilter.frequency.setTargetAtTime(3300+level*2200,now,0.55);
+  }
+
+  function listenerState(){
+    let active=cars.filter(car=>car && (!car.group || car.group.visible) && car.health>0);
+    let car=active[0] || cars[0];
+    if(!car) return null;
+
+    return {
+      x:Number.isFinite(car.x) ? car.x : 0,
+      z:Number.isFinite(car.z) ? car.z : 0,
+      yaw:Number.isFinite(car.cameraYaw) ? car.cameraYaw : Number.isFinite(car.angle) ? car.angle : 0
+    };
+  }
+
+  function spatialMetrics(position,options={}){
+    if(!position || !Number.isFinite(position.x) || !Number.isFinite(position.z)) return {gain:1,pan:0};
+
+    let listener=listenerState();
+    if(!listener) return {gain:1,pan:0};
+
+    let dx=position.x-listener.x;
+    let dz=position.z-listener.z;
+    let distance=Math.hypot(dx,dz);
+    let minDistance=options.minDistance ?? 24;
+    let maxDistance=options.maxDistance ?? 760;
+    let rolloff=options.rolloff ?? 2.8;
+    let volume=options.volume ?? 1;
+    let falloff=distance<=minDistance
+      ? 1
+      : 1/(1+((distance-minDistance)/Math.max(1,maxDistance-minDistance))*rolloff);
+    let gain=clamp(falloff*volume,options.floor ?? 0.025,1.25);
+
+    let rightX=Math.cos(listener.yaw);
+    let rightZ=-Math.sin(listener.yaw);
+    let pan=distance>0.001 ? clamp((dx*rightX+dz*rightZ)/distance,-1,1) : 0;
+    let panStrength=options.panStrength ?? 0.82;
+    return {gain,pan:-pan*panStrength};
+  }
+
+  function spatialDestination(position,options={}){
+    if(!context || !supported) return master;
+    let metrics=spatialMetrics(position,options);
+    let distanceGain=context.createGain();
+    distanceGain.gain.value=metrics.gain;
+
+    if(context.createStereoPanner){
+      let pan=context.createStereoPanner();
+      pan.pan.value=metrics.pan;
+      pan.connect(distanceGain);
+      distanceGain.connect(master);
+      return pan;
+    }
+
+    distanceGain.connect(master);
+    return distanceGain;
+  }
+
+  function updateSpatialRoute(route,position,options={}){
+    if(!route || !context || !supported) return 1;
+    let metrics=spatialMetrics(position,options);
+    let now=context.currentTime;
+    if(route.gain) route.gain.gain.setTargetAtTime(metrics.gain,now,0.18);
+    if(route.pan) route.pan.pan.setTargetAtTime(metrics.pan,now,0.18);
+    return metrics.gain;
   }
 
   function createNoiseBuffer(){
@@ -329,7 +457,7 @@ export function createMotorAudio(cars){
     }
   }
 
-  function playRocketLaunch(car){
+  function playRocketLaunch(car,position=car){
     ensureContext();
     if(!context || !supported) return;
     if(context.state==="suspended") context.resume();
@@ -338,8 +466,7 @@ export function createMotorAudio(cars){
       return;
     }
 
-    let motor=motors.find(item=>item.car===car);
-    let destination=motor ? (motor.pan || motor.output) : master;
+    let destination=spatialDestination(position,{minDistance:18,maxDistance:520,rolloff:3.2,volume:1});
     let time=context.currentTime+0.01;
     let source=context.createBufferSource();
     let gain=context.createGain();
@@ -357,13 +484,12 @@ export function createMotorAudio(cars){
     source.stop(time+Math.min(rocketLaunchBuffer.duration,1.6));
   }
 
-  function playCannonFire(car){
+  function playCannonFire(car,position=car){
     ensureContext();
     if(!context || !supported) return;
     if(context.state==="suspended") context.resume();
 
-    let motor=motors.find(item=>item.car===car);
-    let destination=motor ? (motor.pan || motor.output) : master;
+    let destination=spatialDestination(position,{minDistance:20,maxDistance:560,rolloff:3.4,volume:1});
     let time=context.currentTime+0.006;
     let crack=context.createBufferSource();
     let crackFilter=context.createBiquadFilter();
@@ -428,7 +554,7 @@ export function createMotorAudio(cars){
     snap.stop(time+0.04);
   }
 
-  function playExplosion(){
+  function playExplosion(position=null){
     ensureContext();
     if(!context || !supported) return;
     if(context.state==="suspended") context.resume();
@@ -439,6 +565,7 @@ export function createMotorAudio(cars){
     let noise=context.createBufferSource();
     let noiseFilter=context.createBiquadFilter();
     let noiseGain=context.createGain();
+    let destination=spatialDestination(position,{minDistance:34,maxDistance:980,rolloff:2.2,volume:1});
 
     noise.buffer=noiseBuffer || createNoiseBuffer();
     boom.type="sine";
@@ -457,10 +584,10 @@ export function createMotorAudio(cars){
     noiseGain.gain.exponentialRampToValueAtTime(0.0001,time+1.45);
 
     boom.connect(boomGain);
-    boomGain.connect(master);
+    boomGain.connect(destination);
     noise.connect(noiseFilter);
     noiseFilter.connect(noiseGain);
-    noiseGain.connect(master);
+    noiseGain.connect(destination);
 
     boom.start(time);
     noise.start(time);
@@ -468,7 +595,7 @@ export function createMotorAudio(cars){
     noise.stop(time+1.5);
   }
 
-  function playRocketImpact(){
+  function playRocketImpact(position=null){
     ensureContext();
     if(!context || !supported) return;
     if(context.state==="suspended") context.resume();
@@ -480,6 +607,7 @@ export function createMotorAudio(cars){
     let time=context.currentTime+0.004;
     let source=context.createBufferSource();
     let gain=context.createGain();
+    let destination=spatialDestination(position,{minDistance:26,maxDistance:820,rolloff:2.8,volume:1});
 
     source.buffer=rocketImpactBuffer;
     source.playbackRate.setValueAtTime(0.98+Math.random()*0.04,time);
@@ -488,13 +616,13 @@ export function createMotorAudio(cars){
     gain.gain.setTargetAtTime(0.0001,time+0.1,0.42);
 
     source.connect(gain);
-    gain.connect(master);
+    gain.connect(destination);
 
     source.start(time);
     source.stop(time+Math.min(rocketImpactBuffer.duration,1.8));
   }
 
-  function playCannonImpact(){
+  function playCannonImpact(position=null){
     ensureContext();
     if(!context || !supported) return;
     if(context.state==="suspended") context.resume();
@@ -506,6 +634,7 @@ export function createMotorAudio(cars){
     let time=context.currentTime+0.004;
     let source=context.createBufferSource();
     let gain=context.createGain();
+    let destination=spatialDestination(position,{minDistance:22,maxDistance:700,rolloff:3.1,volume:1});
 
     source.buffer=cannonImpactBuffer;
     source.playbackRate.setValueAtTime(0.98+Math.random()*0.04,time);
@@ -514,13 +643,13 @@ export function createMotorAudio(cars){
     gain.gain.setTargetAtTime(0.0001,time+0.08,0.32);
 
     source.connect(gain);
-    gain.connect(master);
+    gain.connect(destination);
 
     source.start(time);
     source.stop(time+Math.min(cannonImpactBuffer.duration,1.4));
   }
 
-  function playBombExplosion(){
+  function playBombExplosion(position=null){
     ensureContext();
     if(!context || !supported) return;
     if(context.state==="suspended") context.resume();
@@ -533,6 +662,7 @@ export function createMotorAudio(cars){
     let noise=context.createBufferSource();
     let noiseFilter=context.createBiquadFilter();
     let noiseGain=context.createGain();
+    let destination=spatialDestination(position,{minDistance:52,maxDistance:1300,rolloff:1.8,volume:1.1});
 
     noise.buffer=noiseBuffer || createNoiseBuffer();
 
@@ -562,9 +692,9 @@ export function createMotorAudio(cars){
     body.connect(bodyGain);
     noise.connect(noiseFilter);
     noiseFilter.connect(noiseGain);
-    subGain.connect(master);
-    bodyGain.connect(master);
-    noiseGain.connect(master);
+    subGain.connect(destination);
+    bodyGain.connect(destination);
+    noiseGain.connect(destination);
 
     sub.start(time);
     body.start(time);
@@ -574,7 +704,7 @@ export function createMotorAudio(cars){
     noise.stop(time+2.45);
   }
 
-  function playGiantFootstep(intensity=1){
+  function playGiantFootstep(intensity=1,position=null){
     ensureContext();
     if(!context || !supported) return;
     if(context.state==="suspended") context.resume();
@@ -589,6 +719,7 @@ export function createMotorAudio(cars){
     let time=context.currentTime+0.004;
     let source=context.createBufferSource();
     let gain=context.createGain();
+    let destination=spatialDestination(position,{minDistance:34,maxDistance:720,rolloff:2.4,volume:1,panStrength:0.62});
 
     source.buffer=giantFootstepBuffer;
     source.playbackRate.setValueAtTime(0.96+Math.random()*0.08,time);
@@ -597,7 +728,7 @@ export function createMotorAudio(cars){
     gain.gain.setTargetAtTime(0.0001,time+0.08,0.32);
 
     source.connect(gain);
-    gain.connect(master);
+    gain.connect(destination);
 
     source.start(time);
     source.stop(time+Math.min(giantFootstepBuffer.duration,1.4));
@@ -635,7 +766,7 @@ export function createMotorAudio(cars){
     source.stop(time+buffer.duration);
   }
 
-  function playLaserFire(){
+  function playLaserFire(position=null){
     ensureContext();
     if(!context || !supported) return;
     if(context.state==="suspended") context.resume();
@@ -648,6 +779,7 @@ export function createMotorAudio(cars){
     let noise=context.createBufferSource();
     let noiseFilter=context.createBiquadFilter();
     let noiseGain=context.createGain();
+    let destination=spatialDestination(position,{minDistance:30,maxDistance:760,rolloff:3.0,volume:1});
 
     zap.type="sawtooth";
     zap.frequency.setValueAtTime(1800,time);
@@ -676,9 +808,9 @@ export function createMotorAudio(cars){
     body.connect(bodyGain);
     noise.connect(noiseFilter);
     noiseFilter.connect(noiseGain);
-    zapGain.connect(master);
-    bodyGain.connect(master);
-    noiseGain.connect(master);
+    zapGain.connect(destination);
+    bodyGain.connect(destination);
+    noiseGain.connect(destination);
 
     zap.start(time);
     body.start(time);
@@ -688,7 +820,7 @@ export function createMotorAudio(cars){
     noise.stop(time+0.2);
   }
 
-  function startMothershipHum(){
+  function startMothershipHum(position=null){
     ensureContext();
     if(!context || !supported) return;
     if(context.state==="suspended") context.resume();
@@ -703,6 +835,8 @@ export function createMotorAudio(cars){
     let noiseFilter=context.createBiquadFilter();
     let noiseGain=context.createGain();
     let output=context.createGain();
+    let spatialGain=context.createGain();
+    let spatialPan=context.createStereoPanner ? context.createStereoPanner() : null;
 
     low.type="sawtooth";
     high.type="triangle";
@@ -727,7 +861,16 @@ export function createMotorAudio(cars){
     noise.connect(noiseFilter);
     noiseFilter.connect(noiseGain);
     noiseGain.connect(output);
-    output.connect(master);
+    if(spatialPan){
+      output.connect(spatialPan);
+      spatialPan.connect(spatialGain);
+    }else{
+      output.connect(spatialGain);
+    }
+    spatialGain.connect(master);
+    let initialSpatial=spatialMetrics(position,{minDistance:80,maxDistance:1450,rolloff:1.7,volume:1,panStrength:0.7});
+    spatialGain.gain.value=initialSpatial.gain;
+    if(spatialPan) spatialPan.pan.value=initialSpatial.pan;
 
     low.start(time);
     high.start(time);
@@ -741,15 +884,22 @@ export function createMotorAudio(cars){
       noiseFilter,
       noiseGain,
       output,
+      spatialGain,
+      spatialPan,
       stopping:false
     };
   }
 
-  function updateMothershipHum(intensity=1){
+  function updateMothershipHum(intensity=1,position=null){
     if(!mothershipHum || !context || !supported) return;
     let now=context.currentTime;
     let level=clamp(intensity,0,1);
     let wobble=0.5+0.5*Math.sin(now*1.8);
+    updateSpatialRoute(
+      {gain:mothershipHum.spatialGain,pan:mothershipHum.spatialPan},
+      position,
+      {minDistance:80,maxDistance:1450,rolloff:1.7,volume:1,panStrength:0.7}
+    );
 
     mothershipHum.low.frequency.setTargetAtTime(34+level*9+wobble*2.2,now,0.18);
     mothershipHum.high.frequency.setTargetAtTime(68+level*18+wobble*5.5,now,0.16);
@@ -773,6 +923,8 @@ export function createMotorAudio(cars){
     window.setTimeout(()=>{
       if(mothershipHum===hum) mothershipHum=null;
       try{ hum.output.disconnect(); }catch(error){}
+      try{ hum.spatialGain.disconnect(); }catch(error){}
+      try{ if(hum.spatialPan) hum.spatialPan.disconnect(); }catch(error){}
     },immediate ? 40 : 850);
   }
 
@@ -794,6 +946,7 @@ export function createMotorAudio(cars){
     playLaserFire,
     startMothershipHum,
     updateMothershipHum,
-    stopMothershipHum
+    stopMothershipHum,
+    updateRain
   };
 }

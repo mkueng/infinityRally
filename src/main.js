@@ -5,7 +5,7 @@ import { createInput } from "./input.js?v=scanner-bumper";
 import { createHud } from "./hud.js?v=no-speedometer";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=night-stars";
 import { createWorld } from "./world.js?v=landing-touchdown-back";
-import { createMotorAudio } from "./audio.js?v=mothership-hum";
+import { createMotorAudio } from "./audio.js?v=rain-audio";
 import { worldEnvironments } from "./environments.js";
 import { difficultySettings } from "./gameConfig.js?v=ammo-caps";
 import { loadBackPackModel, loadBaseStationModel, loadCarModel, loadEnemyBattleShipModel, loadJetModel, loadLandingSpaceModel, loadTradingOutpostModel, loadTreasureChestModels, makeMechModel } from "./models.js?v=base-station";
@@ -257,6 +257,7 @@ function updateWeather(){
   if(Math.abs(weatherTargetIntensity-rainIntensity)<weatherSnapThreshold) rainIntensity=weatherTargetIntensity;
 
   updateDayNight(now);
+  if(typeof motorAudio!=="undefined" && motorAudio.updateRain) motorAudio.updateRain(rainIntensity);
 }
 
 let scene=new THREE.Scene();
@@ -3270,9 +3271,10 @@ function makeRocketMesh(){
 
 function spawnRocketExplosion(x,y,z,playSound=true,soundType="rocket"){
   if(playSound){
-    if(soundType==="cannon" && motorAudio.playCannonImpact) motorAudio.playCannonImpact();
-    else if(motorAudio.playRocketImpact) motorAudio.playRocketImpact();
-    else motorAudio.playExplosion();
+    let soundPosition={x,y,z};
+    if(soundType==="cannon" && motorAudio.playCannonImpact) motorAudio.playCannonImpact(soundPosition);
+    else if(motorAudio.playRocketImpact) motorAudio.playRocketImpact(soundPosition);
+    else motorAudio.playExplosion(soundPosition);
   }
 
   let flash=new THREE.Mesh(explosionFlashGeo,explosionFlashMat.clone());
@@ -3407,7 +3409,7 @@ function spawnMothershipImpactBurst(x,y,z){
 }
 
 function spawnRadiusExplosion(x,y,z,radius,playSound=true){
-  if(playSound) motorAudio.playExplosion();
+  if(playSound) motorAudio.playExplosion({x,y,z});
 
   let flash=new THREE.Mesh(explosionFlashGeo,explosionFlashMat.clone());
   flash.position.set(x,y,z);
@@ -4838,8 +4840,8 @@ function detonateClusterBomb(owner,x,y,z){
     );
   }
 
-  if(motorAudio.playBombExplosion) motorAudio.playBombExplosion();
-  else motorAudio.playExplosion();
+  if(motorAudio.playBombExplosion) motorAudio.playBombExplosion({x,y,z});
+  else motorAudio.playExplosion({x,y,z});
 }
 
 function updateCannonInput(car){
@@ -5736,7 +5738,7 @@ function spawnMothership(){
   group.rotation.y=Math.atan2(dx,dz);
   group.scale.setScalar(0.04);
   scene.add(group);
-  if(motorAudio.startMothershipHum) motorAudio.startMothershipHum();
+  if(motorAudio.startMothershipHum) motorAudio.startMothershipHum({x,y,z});
 
   mothership={
     group,
@@ -5887,7 +5889,7 @@ function updateMothership(){
   }
   if(motorAudio.updateMothershipHum){
     let beamIntensity=mothership.materializing || mothership.beamingOut ? materializeScale : 1;
-    motorAudio.updateMothershipHum(beamIntensity);
+    motorAudio.updateMothershipHum(beamIntensity,{x:mothership.x,y:mothership.group.position.y,z:mothership.z});
   }
   if(mothership.shadow){
     let surfaceY=drivingSurfaceHeight(mothership.x,mothership.z);
@@ -6396,7 +6398,7 @@ function updateBossBaseDefenses(){
       if(turret.cooldown<=0 && Math.abs(normalizeAngle(angle-base.angle-turret.object.rotation.y))<0.34){
         bossLaserPointB.set(target.x,target.y+2.1,target.z);
         spawnBossLaserBeam(bossLaserPointA,bossLaserPointB);
-        if(motorAudio.playLaserFire) motorAudio.playLaserFire();
+        if(motorAudio.playLaserFire) motorAudio.playLaserFire({x:bossLaserPointA.x,y:bossLaserPointA.y,z:bossLaserPointA.z});
         damageCar(target,7,{x:bossLaserPointB.x,y:bossLaserPointB.y,z:bossLaserPointB.z});
         rattleActor(target,0.45);
         turret.cooldown=72+Math.floor(Math.random()*38);
@@ -7988,7 +7990,7 @@ function triggerGiantFootstepShake(robot,sideName){
     : 0.35;
   let sideVariation=sideName==="left" ? 1 : 0.92;
   triggerScreenShake(0.82*distanceFalloff*sideVariation);
-  if(motorAudio.playGiantFootstep) motorAudio.playGiantFootstep(distanceFalloff*sideVariation);
+  if(motorAudio.playGiantFootstep) motorAudio.playGiantFootstep(distanceFalloff*sideVariation,{x:robot.x,y:robot.y,z:robot.z});
 }
 
 function giantRobotStepPose(phaseOffset,stride){
