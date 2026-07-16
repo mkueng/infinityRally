@@ -2,7 +2,7 @@ import { THREE } from "./three.js";
 import { carRadius, gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize, viewDistance, mothershipDropCount, mothershipDropInterval, mothershipDropLineSpacing, mothershipHoverDistance, mothershipHoverFrames, mothershipMinDelay, mothershipRandomDelay, mothershipRocketHits } from "./constants.js";
 import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=no-ramps";
 import { createInput } from "./input.js?v=scanner-bumper";
-import { createHud } from "./hud.js?v=scanner-map-features";
+import { createHud } from "./hud.js?v=transparent-compass-arc";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=night-stars";
 import { createWorld } from "./world.js?v=landing-touchdown-back";
 import { createMotorAudio } from "./audio.js?v=scanner-mp3-quiet";
@@ -79,7 +79,8 @@ const minNormalFogNear=520;
 const minNormalFogDepth=650;
 const dreamFogNear=45;
 const dreamFogFar=520;
-const rareTradingOutpostChunkProbability=0.14;
+const rareTradingOutpostChunkProbability=0.055;
+const rareTradingOutpostMinSpacing=1800;
 
 let currentEnvironment=worldEnvironments[Math.floor(Math.random()*worldEnvironments.length)];
 let rainIntensity=0;
@@ -331,8 +332,10 @@ let tradingOutpostCollision=null;
 let tradingTerminalObject=null;
 let tradingPlaceCollisions=[];
 let currentStartInfo=null;
+let currentGameFromSave=false;
 let jetUnlocked=false;
-let initialUnits=5000;
+let initialUnits=500;
+let testingScannerAvailableFromStart=true;
 let units=initialUnits;
 let purchasedTradingItems=new Set();
 let normalEnemyUnitAmount=20;
@@ -375,6 +378,9 @@ let aimOffsetYMax=21;
 let cameraAimPitchMin=-8.4;
 let cameraAimPitchMax=8.8;
 let initialClusterBombAmmo=10;
+let rocketLauncherPurchaseAmmo=50;
+let tradingCannonShotAmount=100;
+let tradingRocketAmount=50;
 let maxBoostCharge=100;
 let maxFuel=100;
 let carFuelDrainRate=0.003;
@@ -846,12 +852,34 @@ function tradingItemOwned(id){
   return purchasedTradingItems.has(id);
 }
 
+function applyTestingStartItems(){
+  if(testingScannerAvailableFromStart) purchasedTradingItems.add("scanner");
+}
+
 function rocketLauncherUnlocked(){
   return tradingItemOwned("rocket-launcher");
 }
 
 function scannerUnlocked(){
   return tradingItemOwned("scanner");
+}
+
+function shieldUnlocked(){
+  return tradingItemOwned("shield");
+}
+
+function portalKeyUnlocked(){
+  return tradingItemOwned("portal-key");
+}
+
+function updateUnlockedRandomPortals(){
+  if(!portalSystem) return;
+  if(!portalKeyUnlocked()){
+    portalSystem.clearRandomPortals();
+    scannedPortals.clear();
+    return;
+  }
+  portalSystem.updateRandomPortals();
 }
 
 function scaledDelay(frames,scale){
@@ -1218,6 +1246,39 @@ function createPauseMenu(audio){
 
 let pauseMenu=createPauseMenu(motorAudio);
 
+function makeTerminalCloseButton(onClose){
+  let button=document.createElement("button");
+  button.type="button";
+  button.textContent="X";
+  button.setAttribute("aria-label","Close terminal");
+  button.style.cssText=[
+    "position:absolute",
+    "top:12px",
+    "right:12px",
+    "width:34px",
+    "height:34px",
+    "border:1px solid rgba(154,248,255,0.36)",
+    "background:rgba(6,12,15,0.72)",
+    "color:#ecfbff",
+    `font-family:${gameFontFamily}`,
+    "font-size:18px",
+    "font-weight:900",
+    "line-height:1",
+    "display:flex",
+    "align-items:center",
+    "justify-content:center",
+    "box-shadow:0 0 16px rgba(38,226,255,0.16)",
+    "cursor:pointer",
+    "z-index:2"
+  ].join(";");
+  button.addEventListener("click",event=>{
+    event.preventDefault();
+    event.stopPropagation();
+    onClose();
+  });
+  return button;
+}
+
 function createMissionScreen(){
   let overlay=document.createElement("div");
   overlay.id="missionTerminalOverlay";
@@ -1248,6 +1309,7 @@ function createMissionScreen(){
     "padding:24px",
     "overflow:auto"
   ].join(";");
+  panel.appendChild(makeTerminalCloseButton(closeMissionScreen));
 
   let title=document.createElement("div");
   title.textContent="Mission Terminal";
@@ -1381,6 +1443,7 @@ function createTradingScreen(){
     "padding:24px",
     "overflow:auto"
   ].join(";");
+  panel.appendChild(makeTerminalCloseButton(closeTradingScreen));
 
   let title=document.createElement("div");
   title.textContent="Trading Terminal";
@@ -1479,7 +1542,11 @@ function createTradingScreen(){
   let tradeItems=[
     {id:"rocket-launcher",name:"Rocket launcher",price:1000},
     {id:"scanner",name:"Scanner",price:1000},
+    {id:"portal-key",name:"Portal key",price:5000},
     {id:"jet",name:"Jet",price:5000},
+    {id:"cannon-shots",name:"Cannon shots x100",price:100,repeatable:true},
+    {id:"rockets",name:"Rockets x50",price:200,repeatable:true},
+    {id:"shield",name:"Shield x1",price:5500},
     {id:"fuel",name:"Fuel",price:200,repeatable:true}
   ];
   let lastTradeRenderKey="";
@@ -1502,8 +1569,30 @@ function createTradingScreen(){
 
     units=Math.max(0,units-item.price);
     if(!item.repeatable) purchasedTradingItems.add(item.id);
+    if(item.id==="rocket-launcher"){
+      for(let car of activeCars()){
+        if(car && car.group && car.group.visible && car.health>0){
+          car.rocketAmmo=rocketLauncherPurchaseAmmo;
+          car.carRocketAmmo=rocketLauncherPurchaseAmmo;
+        }
+      }
+    }
     if(item.id==="scanner") scannerReadyAt=0;
+    if(item.id==="portal-key") updateUnlockedRandomPortals();
     if(item.id==="jet") jetUnlocked=true;
+    if(item.id==="cannon-shots"){
+      for(let car of activeCars()){
+        if(car && car.group && car.group.visible && car.health>0) car.cannonAmmo+=tradingCannonShotAmount;
+      }
+    }
+    if(item.id==="rockets"){
+      for(let car of activeCars()){
+        if(car && car.group && car.group.visible && car.health>0){
+          car.rocketAmmo+=tradingRocketAmount;
+          car.carRocketAmmo+=tradingRocketAmount;
+        }
+      }
+    }
     if(item.id==="fuel"){
       for(let car of activeCars()){
         if(car && car.group && car.group.visible && car.health>0) car.fuel=maxFuel;
@@ -1641,6 +1730,44 @@ function visibleTradingOutpostsForMap(){
   return outposts;
 }
 
+function nearestTradingOutpostForCompass(state){
+  if(!state) return null;
+  let nearest=null;
+  let nearestDistSq=Infinity;
+
+  for(let outpost of visibleTradingOutpostsForMap()){
+    let dx=outpost.x-state.carX;
+    let dz=outpost.z-state.carZ;
+    let distSq=dx*dx+dz*dz;
+    if(distSq<nearestDistSq){
+      nearest=outpost;
+      nearestDistSq=distSq;
+    }
+  }
+
+  return nearest;
+}
+
+function nearestBossBaseForCompass(state){
+  if(!state || !scannerUnlocked()) return null;
+
+  let nearest=null;
+  let nearestDistSq=Infinity;
+  for(let base of scannedBossBases){
+    if(!base || base.active===false || base.health<=0) continue;
+
+    let dx=base.x-state.carX;
+    let dz=base.z-state.carZ;
+    let distSq=dx*dx+dz*dz;
+    if(distSq<nearestDistSq){
+      nearest=base;
+      nearestDistSq=distSq;
+    }
+  }
+
+  return nearest;
+}
+
 let hud=createHud({
   getPerformanceMode:()=>gameMode==="double" ? "split" : "full",
   getEnvironment:()=>currentEnvironment,
@@ -1671,6 +1798,8 @@ let hud=createHud({
   getScannedTradingOutposts:visibleTradingOutpostsForMap,
   getScannedLandingSpaces:()=>Array.from(scannedLandingSpaces.values()),
   getScannedPortals:()=>Array.from(scannedPortals.values()),
+  getNearestTradingOutpost:nearestTradingOutpostForCompass,
+  getNearestBossBase:nearestBossBaseForCompass,
   getStationState:()=>tradingOutpost ? ({
     x:tradingOutpost.position.x,
     z:tradingOutpost.position.z
@@ -1752,13 +1881,29 @@ function mapSnapshot(map){
   })).filter(item=>Number.isFinite(item.x) && Number.isFinite(item.z));
 }
 
+function formatSavedGameDate(savedAt){
+  let date=new Date(savedAt);
+  if(!Number.isFinite(date.getTime())) return "";
+
+  try{
+    return new Intl.DateTimeFormat(undefined,{
+      dateStyle:"medium",
+      timeStyle:"short"
+    }).format(date);
+  }catch(error){
+    return date.toLocaleString();
+  }
+}
+
 function saveGameStatus(){
   if(!gameStarted || gameOver) return false;
 
   let environmentIndex=worldEnvironments.indexOf(currentEnvironment);
+  let savedAt=Date.now();
   let status={
     version:saveGameVersion,
-    savedAt:Date.now(),
+    savedAt,
+    savedAtText:formatSavedGameDate(savedAt),
     mode:gameMode,
     difficulty:gameDifficulty,
     terrainSeed,
@@ -1818,11 +1963,16 @@ function readSavedGameStatus(){
 
 function updateLoadGameButton(){
   let button=document.querySelector("[data-load-game]");
+  let dateEl=document.querySelector("[data-load-game-date]");
   if(!button) return;
 
   let status=readSavedGameStatus();
   button.disabled=!status;
   button.textContent=status ? "Load Last Game" : "No Saved Game";
+  if(dateEl){
+    let savedAtText=status ? (status.savedAtText || formatSavedGameDate(status.savedAt)) : "";
+    dateEl.textContent=savedAtText ? `Saved ${savedAtText}` : "";
+  }
 }
 
 function restoreDamageState(saved){
@@ -1916,6 +2066,7 @@ function applySavedWorldSettings(status){
 function restoreSavedRuntimeStatus(status){
   units=Math.max(0,Math.floor(finiteOr(status.units,status.score ?? 0)));
   purchasedTradingItems=new Set(Array.isArray(status.purchasedTradingItems) ? status.purchasedTradingItems : []);
+  applyTestingStartItems();
   jetUnlocked=!!status.jetUnlocked || purchasedTradingItems.has("jet");
   if(jetUnlocked) purchasedTradingItems.add("jet");
   enemyWaveDelay=Math.max(0,Math.floor(finiteOr(status.enemyWaveDelay,enemyWaveDelay)));
@@ -1927,6 +2078,7 @@ function restoreSavedRuntimeStatus(status){
   restoreScannedMap(scannedTradingOutposts,status.scannedTradingOutposts);
   restoreScannedMap(scannedLandingSpaces,status.scannedLandingSpaces);
   restoreScannedMap(scannedPortals,status.scannedPortals);
+  updateUnlockedRandomPortals();
 }
 
 function setGamePaused(paused){
@@ -2007,10 +2159,11 @@ window.addEventListener("keydown",event=>{
 
 function damageCar(car,amount,hitPoint=null){
   if(healthDamageCooldown>0 || car.health<=0) return;
-  let reducedAmount=Math.max(1,Math.ceil(amount*0.5));
+  let shielded=shieldUnlocked();
+  let reducedAmount=Math.max(1,Math.floor(amount*(shielded ? 0.08 : 0.2)));
   car.health=Math.max(0,car.health-reducedAmount);
   addRobotDamage(car,reducedAmount,hitPoint);
-  healthDamageCooldown=42;
+  healthDamageCooldown=shielded ? 84 : 42;
   hud.updateHealthHud();
   if(activeCars().some(item=>item.health<=0)) showGameOver();
 }
@@ -2548,41 +2701,6 @@ function tradingOutpostLocalVectorToWorld(localX,localZ,collision=tradingOutpost
   };
 }
 
-function tradingOutpostSafePointOutside(actor,x,z){
-  let actorRadius=actor && Number.isFinite(actor.collisionRadius)
-    ? actor.collisionRadius
-    : 2.35;
-
-  for(let collision of activeTradingOutpostCollisions()){
-    let local=worldToTradingOutpostLocal(x,z,collision);
-    let floor=collision.floor;
-    if(!local || !floor) continue;
-
-    let padding=actorRadius+(collision.room ? collision.room.wallRadius : 4.5)+0.8;
-    let minX=floor.minX-padding;
-    let maxX=floor.maxX+padding;
-    let minZ=floor.minZ-padding;
-    let maxZ=floor.maxZ+padding;
-    if(local.x<minX || local.x>maxX || local.z<minZ || local.z>maxZ) continue;
-
-    let distances=[
-      {side:"left",value:local.x-minX},
-      {side:"right",value:maxX-local.x},
-      {side:"back",value:local.z-minZ},
-      {side:"front",value:maxZ-local.z}
-    ].sort((a,b)=>a.value-b.value);
-    let safe={x:local.x,z:local.z};
-    if(distances[0].side==="left") safe.x=minX-0.8;
-    else if(distances[0].side==="right") safe.x=maxX+0.8;
-    else if(distances[0].side==="back") safe.z=minZ-0.8;
-    else safe.z=maxZ+0.8;
-
-    return tradingOutpostLocalToWorld(safe,collision);
-  }
-
-  return null;
-}
-
 function tradingOutpostTerminalLocalInfo(bounds={}){
   let floorMinZ=Number.isFinite(bounds.floorMinZ) ? bounds.floorMinZ : -18;
   let floorMaxZ=Number.isFinite(bounds.floorMaxZ) ? bounds.floorMaxZ : 18;
@@ -2591,10 +2709,13 @@ function tradingOutpostTerminalLocalInfo(bounds={}){
   let usableHalfX=Math.max(10,Math.min(Math.abs(floorMinX),Math.abs(floorMaxX)));
   let depth=Math.max(16,floorMaxZ-floorMinZ);
   let terminalStandOff=Math.min(18,Math.max(12,depth*0.28));
+  let terminalInset=Number.isFinite(bounds.terminalInset) ? bounds.terminalInset : null;
 
   return {
     x:Math.min(usableHalfX-7,Math.max(-usableHalfX+7,-usableHalfX*0.36)),
-    z:floorMinZ-terminalStandOff,
+    z:Number.isFinite(terminalInset)
+      ? Math.min(floorMaxZ-10,floorMinZ+terminalInset)
+      : floorMinZ-terminalStandOff,
     halfX:3.9,
     halfZ:3.1,
     interactionRadius:42
@@ -2985,13 +3106,6 @@ function movementCollision(car,fromX,fromZ,toX,toZ){
   let steps=Math.max(1,Math.min(24,Math.ceil(distance/0.45)));
   let safeX=fromX;
   let safeZ=fromZ;
-  let tradingEscape=collidesWithTradingOutpostWalls(car,fromX,fromZ)
-    ? tradingOutpostSafePointOutside(car,fromX,fromZ)
-    : null;
-  if(tradingEscape){
-    safeX=tradingEscape.x;
-    safeZ=tradingEscape.z;
-  }
 
   for(let i=1;i<=steps;i++){
     let t=i/steps;
@@ -3119,6 +3233,58 @@ function spawnRocketExplosion(x,y,z,playSound=true,soundType="rocket"){
       1.4+Math.random()*4.2,
       0.24+Math.random()*0.22,
       0.12+Math.random()*0.12
+    );
+  }
+}
+
+function spawnMothershipImpactBurst(x,y,z){
+  if(!mothership) return;
+
+  let shipY=mothership.group ? mothership.group.position.y : mothership.y;
+  let normal=new THREE.Vector3(x-mothership.x,(y-shipY)*0.65,z-mothership.z);
+  if(normal.lengthSq()<0.001) normal.set(0,1,0);
+  normal.normalize();
+
+  let impactX=x+normal.x*2.8;
+  let impactY=y+normal.y*2.8;
+  let impactZ=z+normal.z*2.8;
+
+  let flash=new THREE.Mesh(explosionFlashGeo,explosionFlashMat.clone());
+  flash.position.set(impactX,impactY,impactZ);
+  flash.scale.setScalar(0.9);
+  scene.add(flash);
+
+  let ring=new THREE.Mesh(explosionRingGeo,explosionRingMat.clone());
+  ring.position.set(impactX,impactY,impactZ);
+  ring.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),normal);
+  ring.scale.setScalar(1.1);
+  scene.add(ring);
+
+  explosionBursts.push({
+    flash,
+    ring,
+    age:0,
+    life:0.55,
+    startFlashScale:0.9,
+    endFlashScale:5.2,
+    startRingScale:1.1,
+    endRingScale:9,
+    flashOpacity:1,
+    ringOpacity:0.95
+  });
+
+  for(let i=0;i<18;i++){
+    let sideAngle=Math.random()*Math.PI*2;
+    let sideSpeed=1.2+Math.random()*2.2;
+    dust.spawnThrusterParticle(
+      impactX,
+      impactY,
+      impactZ,
+      normal.x*(2.8+Math.random()*3.2)+Math.cos(sideAngle)*sideSpeed,
+      normal.z*(2.8+Math.random()*3.2)+Math.sin(sideAngle)*sideSpeed,
+      normal.y*(2.4+Math.random()*3.4)+(Math.random()-0.25)*2.2,
+      0.24+Math.random()*0.16,
+      0.11+Math.random()*0.08
     );
   }
 }
@@ -5273,6 +5439,7 @@ function damageMothership(x,y,z,amount=1){
   if(!mothership || mothership.health<=0) return;
   mothership.health-=amount;
   mothership.hitFlash=Math.max(mothership.hitFlash,10);
+  spawnMothershipImpactBurst(x,y,z);
 
   for(let i=0;i<8;i++){
     dust.spawnThrusterParticle(
@@ -8968,6 +9135,7 @@ function scanVisibleChunksForLandingSpaces(){
 }
 
 function scanVisibleChunksForPortals(){
+  if(!portalKeyUnlocked()) return false;
   if(!portalSystem || !portalSystem.getPortals) return false;
 
   let found=false;
@@ -9012,7 +9180,7 @@ function rareTradingOutpostCandidateForChunk(cx,cz){
   if(hash01(cx+931,cz-577)>rareTradingOutpostChunkProbability) return null;
 
   let best=null;
-  for(let attempt=0;attempt<4;attempt++){
+  for(let attempt=0;attempt<5;attempt++){
     let x=(cx+0.16+hash01(cx*7+13+attempt*37,cz*5-19-attempt*23)*0.68)*chunkSize;
     let z=(cz+0.16+hash01(cx*11-29-attempt*31,cz*3+31+attempt*41)*0.68)*chunkSize;
     let angle=hash01(cx-71+attempt*17,cz+151-attempt*29)*Math.PI*2;
@@ -9020,15 +9188,27 @@ function rareTradingOutpostCandidateForChunk(cx,cz){
     if(tradingOutpost){
       let dx=x-tradingOutpost.position.x;
       let dz=z-tradingOutpost.position.z;
-      if(dx*dx+dz*dz<900*900) continue;
+      if(dx*dx+dz*dz<650*650) continue;
     }
+
+    let tooCloseToTradingOutpost=false;
+    for(let outpost of rareTradingOutposts.values()){
+      if(!outpost) continue;
+      let dx=x-outpost.x;
+      let dz=z-outpost.z;
+      if(dx*dx+dz*dz<rareTradingOutpostMinSpacing*rareTradingOutpostMinSpacing){
+        tooCloseToTradingOutpost=true;
+        break;
+      }
+    }
+    if(tooCloseToTradingOutpost) continue;
 
     let tooCloseToBoss=false;
     for(let base of world.bossBases || []){
       if(!base || base.active===false) continue;
       let dx=x-base.x;
       let dz=z-base.z;
-      if(dx*dx+dz*dz<520*520){
+      if(dx*dx+dz*dz<430*430){
         tooCloseToBoss=true;
         break;
       }
@@ -9280,7 +9460,7 @@ function chunkSignatureForCars(){
 
 function fixedUpdateGame(){
   updateRareTradingOutposts();
-  portalSystem.updateRandomPortals();
+  updateUnlockedRandomPortals();
   updateScannerMode();
   for(let car of activeCars()){
     updateCar(car);
@@ -9394,7 +9574,7 @@ function loop(timestamp=performance.now()){
   let chunkBudget=chunkBuildBudget();
   world.processChunkQueue(chunkBudget.items,false,chunkBudget.frameMs);
   updateRareTradingOutposts();
-  portalSystem.updateRandomPortals();
+  updateUnlockedRandomPortals();
   pauseMenu.update(timestamp);
   renderGame();
 }
@@ -9656,6 +9836,7 @@ function spawnBossBaseGuards(){
 function startGame(mode,difficulty="medium",savedStatus=null){
   gameMode=mode;
   gameDifficulty=difficultySettings[difficulty] ? difficulty : "medium";
+  currentGameFromSave=!!savedStatus;
   enemyBudgetRun++;
   gameStarted=true;
   input.requestPointerLock(renderer.domElement);
@@ -9684,6 +9865,7 @@ function startGame(mode,difficulty="medium",savedStatus=null){
   lastLoopTime=null;
   units=initialUnits;
   purchasedTradingItems=new Set();
+  applyTestingStartItems();
   scoredVillages=new WeakSet();
   scannedBossBases=new Set();
   scannedLandingSpaces=new Map();
@@ -9720,6 +9902,7 @@ function startGame(mode,difficulty="medium",savedStatus=null){
   }
   spawnGiantTestRobot(startInfo);
   placeTradingOutpostNearStart(startInfo);
+  if(!savedStatus) placeStartingCarsInsideBase(mode);
   world.placeTestBossBaseNearStart(playerCar.x,playerCar.z,playerCar.angle);
   spawnBossBaseGuards();
   setCarActive(playerCar,true);
@@ -9833,6 +10016,7 @@ loadBaseStationModel()
   .then(model=>{
     baseStationModel=model;
     placeTradingOutpostNearStart(currentStartInfo);
+    if(gameStarted && !currentGameFromSave) placeStartingCarsInsideBase(gameMode);
   })
   .catch(error=>{
     console.error("Failed to load base station model:",error);
@@ -9924,6 +10108,68 @@ function placeCarOnOpenField(car,startInfo){
   car.group.rotation.z=0;
   updateMechAnimation(car);
   updateMorphVisual(car);
+}
+
+function moveCarToBaseStart(car,lateralSlot=0){
+  if(!car || !tradingOutpostCollision || !tradingOutpostCollision.floor) return false;
+
+  let floor=tradingOutpostCollision.floor;
+  let safeX=Math.max(floor.minX+10,Math.min(floor.maxX-10,lateralSlot));
+  let candidateZ=[
+    floor.maxZ-15,
+    (floor.minZ+floor.maxZ)*0.5,
+    floor.minZ+13
+  ];
+  let chosen=null;
+
+  for(let z of candidateZ){
+    let local={x:safeX,z:Math.max(floor.minZ+9,Math.min(floor.maxZ-9,z))};
+    let worldPoint=tradingOutpostLocalToWorld(local,tradingOutpostCollision);
+    if(!worldPoint) continue;
+    if(collidesWithTradingOutpostWalls(car,worldPoint.x,worldPoint.z)) continue;
+    chosen=worldPoint;
+    break;
+  }
+
+  if(!chosen){
+    chosen=tradingOutpostLocalToWorld({
+      x:safeX,
+      z:(floor.minZ+floor.maxZ)*0.5
+    },tradingOutpostCollision);
+  }
+  if(!chosen) return false;
+
+  car.x=chosen.x;
+  car.z=chosen.z;
+  car.y=drivingSurfaceHeight(car.x,car.z);
+  let facing=tradingOutpostCollision.angle;
+  car.angle=facing;
+  car.velAngle=facing;
+  car.cameraYaw=facing;
+  car.speed=0;
+  car.throttleEase=0;
+  car.turnInputEase=0;
+  car.turnVelocity=0;
+  car.speedDelta=0;
+  car.surfaceDistance=roadDistance(car.x,car.z);
+  car.vy=0;
+  car.onGround=true;
+  car.airborne=false;
+  car.lastWalkX=car.x;
+  car.lastWalkZ=car.z;
+  car.jetAltitudeTarget=car.y+8;
+  car.group.position.set(car.x,car.y,car.z);
+  car.group.rotation.y=car.angle;
+  car.group.rotation.x=0;
+  car.group.rotation.z=0;
+  updateMechAnimation(car);
+  updateMorphVisual(car);
+  return true;
+}
+
+function placeStartingCarsInsideBase(mode){
+  moveCarToBaseStart(playerCar,mode==="double" ? -5.5 : 0);
+  if(mode==="double") moveCarToBaseStart(secondCar,5.5);
 }
 
 function clearTradingOutpost(){
@@ -10193,16 +10439,35 @@ function tradingOutpostFootprintSize(model=tradingOutpostModel){
   };
 }
 
-function tradingOutpostPlacementInfo(x,z,angle,model=tradingOutpostModel){
-  if(waterDepthAt(x,z)>0.18) return null;
+function tradingOutpostPlacementInfo(x,z,angle,model=tradingOutpostModel,options={}){
+  let waterLimit=Number.isFinite(options.waterLimit) ? options.waterLimit : 0.08;
+  let centerWaterLimit=Number.isFinite(options.centerWaterLimit) ? options.centerWaterLimit : Math.max(0.18,waterLimit);
+  let roadCenterClearance=Number.isFinite(options.roadCenterClearance) ? options.roadCenterClearance : 42;
+  let roadSampleClearance=Number.isFinite(options.roadSampleClearance) ? options.roadSampleClearance : 30;
+  let centerObstacleRadius=Number.isFinite(options.centerObstacleRadius) ? options.centerObstacleRadius : 22;
+  let sampleObstacleRadius=Number.isFinite(options.sampleObstacleRadius) ? options.sampleObstacleRadius : 5;
+  let sampleDivisions=Math.max(4,Math.floor(options.sampleDivisions || 4));
+  let footprintPadding=Number.isFinite(options.footprintPadding) ? options.footprintPadding : 0;
+  let flatRange=Number.isFinite(options.flatRange) ? options.flatRange : 1.65;
+  let usableRange=Number.isFinite(options.usableRange) ? options.usableRange : 2.6;
+  let flatSlope=Number.isFinite(options.flatSlope) ? options.flatSlope : 0.045;
+  let usableSlope=Number.isFinite(options.usableSlope) ? options.usableSlope : 0.075;
+  let yLift=Number.isFinite(options.yLift) ? options.yLift : 0.04;
+
+  if(waterDepthAt(x,z)>centerWaterLimit) return null;
   if(groundHoleAt(x,z)) return null;
-  if(roadDistance(x,z)<42) return null;
-  if(world.collidesWithObstacles(x,z,22)) return null;
+  if(roadDistance(x,z)<roadCenterClearance) return null;
+  if(world.collidesWithObstacles(x,z,centerObstacleRadius)) return null;
 
   let footprint=tradingOutpostFootprintSize(model);
+  footprint.halfX+=footprintPadding;
+  footprint.halfZ+=footprintPadding;
   let c=Math.cos(angle);
   let s=Math.sin(angle);
-  let steps=[-1,-0.5,0,0.5,1];
+  let steps=[];
+  for(let i=0;i<=sampleDivisions;i++){
+    steps.push(-1+(i/sampleDivisions)*2);
+  }
   let heights=[];
   let minH=Infinity;
   let maxH=-Infinity;
@@ -10216,10 +10481,10 @@ function tradingOutpostPlacementInfo(x,z,angle,model=tradingOutpostModel){
       let wx=x+localX*c+localZ*s;
       let wz=z-localX*s+localZ*c;
 
-      if(waterDepthAt(wx,wz)>0.08) return null;
+      if(waterDepthAt(wx,wz)>waterLimit) return null;
       if(groundHoleAt(wx,wz)) return null;
-      if(roadDistance(wx,wz)<30) return null;
-      if(world.collidesWithObstacles(wx,wz,5)) return null;
+      if(roadDistance(wx,wz)<roadSampleClearance) return null;
+      if(world.collidesWithObstacles(wx,wz,sampleObstacleRadius)) return null;
 
       let h=groundHeight(wx,wz);
       heights[ix][iz]=h;
@@ -10241,11 +10506,117 @@ function tradingOutpostPlacementInfo(x,z,angle,model=tradingOutpostModel){
   return {
     x,
     z,
-    y:maxH+0.04,
+    y:maxH+yLift,
     range,
     maxSlope,
-    flat:range<=1.65 && maxSlope<=0.045,
-    usable:range<=2.6 && maxSlope<=0.075
+    flat:range<=flatRange && maxSlope<=flatSlope,
+    usable:range<=usableRange && maxSlope<=usableSlope
+  };
+}
+
+function baseCampEmergencyPlacementInfo(x,z,angle,model=baseStationModel){
+  if(waterDepthAt(x,z)>0.08) return null;
+  if(groundHoleAt(x,z)) return null;
+  if(roadDistance(x,z)<38) return null;
+
+  let footprint=tradingOutpostFootprintSize(model);
+  footprint.halfX+=8;
+  footprint.halfZ+=8;
+  let c=Math.cos(angle);
+  let s=Math.sin(angle);
+  let steps=[-1,-0.66,-0.33,0,0.33,0.66,1];
+  let heights=[];
+  let minH=Infinity;
+  let maxH=-Infinity;
+  let maxSlope=0;
+
+  for(let ix=0;ix<steps.length;ix++){
+    heights[ix]=[];
+    for(let iz=0;iz<steps.length;iz++){
+      let localX=steps[ix]*footprint.halfX;
+      let localZ=steps[iz]*footprint.halfZ;
+      let wx=x+localX*c+localZ*s;
+      let wz=z-localX*s+localZ*c;
+
+      if(waterDepthAt(wx,wz)>0.08) return null;
+      if(groundHoleAt(wx,wz)) return null;
+
+      let h=groundHeight(wx,wz);
+      heights[ix][iz]=h;
+      minH=Math.min(minH,h);
+      maxH=Math.max(maxH,h);
+
+      if(ix>0){
+        let distance=(steps[ix]-steps[ix-1])*footprint.halfX;
+        maxSlope=Math.max(maxSlope,Math.abs(h-heights[ix-1][iz])/distance);
+      }
+      if(iz>0){
+        let distance=(steps[iz]-steps[iz-1])*footprint.halfZ;
+        maxSlope=Math.max(maxSlope,Math.abs(h-heights[ix][iz-1])/distance);
+      }
+    }
+  }
+
+  let range=maxH-minH;
+  return {
+    x,
+    z,
+    y:maxH+0.65,
+    range,
+    maxSlope,
+    flat:range<=2.4 && maxSlope<=0.085,
+    usable:true
+  };
+}
+
+function baseCampForcedPlacementInfo(x,z,angle,model=baseStationModel){
+  let footprint=tradingOutpostFootprintSize(model);
+  footprint.halfX+=8;
+  footprint.halfZ+=8;
+  let c=Math.cos(angle);
+  let s=Math.sin(angle);
+  let steps=[-1,-0.5,0,0.5,1];
+  let heights=[];
+  let minH=Infinity;
+  let maxH=-Infinity;
+  let maxSlope=0;
+  let maxWater=0;
+
+  for(let ix=0;ix<steps.length;ix++){
+    heights[ix]=[];
+    for(let iz=0;iz<steps.length;iz++){
+      let localX=steps[ix]*footprint.halfX;
+      let localZ=steps[iz]*footprint.halfZ;
+      let wx=x+localX*c+localZ*s;
+      let wz=z-localX*s+localZ*c;
+      let h=groundHeight(wx,wz);
+
+      heights[ix][iz]=h;
+      minH=Math.min(minH,h);
+      maxH=Math.max(maxH,h);
+      maxWater=Math.max(maxWater,waterDepthAt(wx,wz));
+
+      if(ix>0){
+        let distance=(steps[ix]-steps[ix-1])*footprint.halfX;
+        maxSlope=Math.max(maxSlope,Math.abs(h-heights[ix-1][iz])/distance);
+      }
+      if(iz>0){
+        let distance=(steps[iz]-steps[iz-1])*footprint.halfZ;
+        maxSlope=Math.max(maxSlope,Math.abs(h-heights[ix][iz-1])/distance);
+      }
+    }
+  }
+
+  let range=maxH-minH;
+  return {
+    x,
+    z,
+    y:Math.max(maxH,waterLevel)+0.85,
+    range,
+    maxSlope,
+    maxWater,
+    flat:false,
+    usable:true
   };
 }
 
@@ -10262,6 +10633,32 @@ function placeTradingOutpostNearStart(startInfo){
   let forwardZ=Math.cos(angle);
   let rightX=Math.cos(angle);
   let rightZ=-Math.sin(angle);
+  let baseCampPlacementOptions={
+    footprintPadding:26,
+    sampleDivisions:8,
+    waterLimit:0.015,
+    centerWaterLimit:0.03,
+    roadCenterClearance:46,
+    roadSampleClearance:34,
+    centerObstacleRadius:30,
+    sampleObstacleRadius:8,
+    flatRange:1.05,
+    usableRange:1.55,
+    flatSlope:0.032,
+    usableSlope:0.048,
+    yLift:0.16
+  };
+  let baseCampRelaxedPlacementOptions={
+    ...baseCampPlacementOptions,
+    footprintPadding:18,
+    waterLimit:0.025,
+    centerWaterLimit:0.04,
+    flatRange:1.45,
+    usableRange:2.05,
+    flatSlope:0.042,
+    usableSlope:0.062,
+    yLift:0.22
+  };
   let offsets=[
     {forward:18,right:-58},
     {forward:-18,right:58},
@@ -10281,8 +10678,13 @@ function placeTradingOutpostNearStart(startInfo){
     offsets.push({forward,right});
   }
 
-  for(let forward=-126;forward<=126;forward+=42){
-    for(let right of [-146,-116,-88,-68,68,88,116,146]){
+  for(let forward=-336;forward<=336;forward+=42){
+    for(let right of [-296,-254,-212,-176,-146,-116,-88,-68,68,88,116,146,176,212,254,296]){
+      addOffset(forward,right);
+    }
+  }
+  for(let forward=-504;forward<=504;forward+=84){
+    for(let right of [-464,-380,-338,338,380,464]){
       addOffset(forward,right);
     }
   }
@@ -10291,12 +10693,12 @@ function placeTradingOutpostNearStart(startInfo){
     x:basePoint.x+forwardX*offset.forward+rightX*offset.right,
     z:basePoint.z+forwardZ*offset.forward+rightZ*offset.right
   })));
-  world.processChunkQueue(100,true);
+  world.processChunkQueue(520,true);
 
   for(let offset of offsets){
     let x=basePoint.x+forwardX*offset.forward+rightX*offset.right;
     let z=basePoint.z+forwardZ*offset.forward+rightZ*offset.right;
-    let info=tradingOutpostPlacementInfo(x,z,angle+Math.PI*0.5,baseStationModel);
+    let info=tradingOutpostPlacementInfo(x,z,angle+Math.PI*0.5,baseStationModel,baseCampPlacementOptions);
     if(!info) continue;
 
     let distanceScore=Math.hypot(offset.forward,offset.right)*0.18;
@@ -10308,11 +10710,46 @@ function placeTradingOutpostNearStart(startInfo){
   if(!chosen && best && best.usable) chosen=best;
 
   if(!chosen){
-    chosen={
-      x:basePoint.x+rightX*-58+forwardX*18,
-      z:basePoint.z+rightZ*-58+forwardZ*18,
-      y:drivingSurfaceHeight(basePoint.x+rightX*-58+forwardX*18,basePoint.z+rightZ*-58+forwardZ*18)+0.04
-    };
+    for(let offset of offsets){
+      let x=basePoint.x+forwardX*offset.forward+rightX*offset.right;
+      let z=basePoint.z+forwardZ*offset.forward+rightZ*offset.right;
+      let info=tradingOutpostPlacementInfo(x,z,angle+Math.PI*0.5,baseStationModel,baseCampRelaxedPlacementOptions);
+      if(!info || !info.usable) continue;
+
+      let distanceScore=Math.hypot(offset.forward,offset.right)*0.18;
+      let score=info.range*160+info.maxSlope*1200+distanceScore;
+      if(info.flat && (!chosen || score<chosen.score)) chosen={...info,score};
+      else if(!chosen || score<chosen.score) chosen={...info,score};
+    }
+  }
+
+  if(!chosen){
+    for(let offset of offsets){
+      let x=basePoint.x+forwardX*offset.forward+rightX*offset.right;
+      let z=basePoint.z+forwardZ*offset.forward+rightZ*offset.right;
+      let info=baseCampEmergencyPlacementInfo(x,z,angle+Math.PI*0.5,baseStationModel);
+      if(!info) continue;
+
+      let distanceScore=Math.hypot(offset.forward,offset.right)*0.18;
+      let score=info.range*220+info.maxSlope*1500+distanceScore;
+      if(info.flat && (!chosen || score<chosen.score)) chosen={...info,score};
+      else if(!chosen || score<chosen.score) chosen={...info,score};
+    }
+  }
+
+  if(!chosen){
+    let fallback=null;
+    for(let offset of offsets){
+      let x=basePoint.x+forwardX*offset.forward+rightX*offset.right;
+      let z=basePoint.z+forwardZ*offset.forward+rightZ*offset.right;
+      let info=baseCampForcedPlacementInfo(x,z,angle+Math.PI*0.5,baseStationModel);
+      let distanceScore=Math.hypot(offset.forward,offset.right)*0.18;
+      let roadPenalty=roadDistance(x,z)<38 ? 10000 : 0;
+      let score=(info.maxWater || 0)*9000+info.range*260+info.maxSlope*1800+distanceScore+roadPenalty;
+      if(!fallback || score<fallback.score) fallback={...info,score};
+    }
+    chosen=fallback;
+    console.warn("Using raised fallback base camp placement; no fully dry, flat candidate was found.");
   }
 
   tradingOutpost=baseStationModel.clone(true);
@@ -10332,6 +10769,7 @@ placeCarOnOpenField(playerCar,initialStartInfo);
 placeCarOnOpenField(secondCar,initialStartInfo);
 spawnGiantTestRobot(initialStartInfo);
 placeTradingOutpostNearStart(initialStartInfo);
+placeStartingCarsInsideBase("double");
 world.placeTestBossBaseNearStart(playerCar.x,playerCar.z,playerCar.angle);
 playerCar.cameraYaw=playerCar.angle;
 secondCar.cameraYaw=secondCar.angle;
@@ -10340,7 +10778,7 @@ updateCameras();
 lastChunkSignature=chunkSignatureForCars();
 world.updateChunksForCenters(chunkCentersForActiveCars());
 world.processChunkQueue(80,true);
-portalSystem.updateRandomPortals();
+updateUnlockedRandomPortals();
 clouds.makeClouds();
 birds.makeBirds();
 loop();

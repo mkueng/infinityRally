@@ -3,11 +3,15 @@ import { carSurfaceHeight } from "./terrain.js?v=no-ramps";
 
 const gameFontFamily="\"Astor\", Arial, sans-serif";
 const mapHudSize=216;
+const healthHudFullWidth="min(430px,58vw)";
+const healthHudSplitWidth="min(300px,40vw)";
+const compassFullCanvasWidth=430;
+const compassSplitCanvasWidth=300;
 const speedHudScale=1.2;
 const speedHudWidth=mapHudSize/speedHudScale;
 const speedHudGaugeHeight=100;
 
-export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStationState=()=>null,getScannedBossBases=()=>[],getScannedTradingOutposts=()=>[],getScannedLandingSpaces=()=>[],getScannedPortals=()=>[],getPerformanceMode=()=>"full",getEnvironment=()=>({})}){
+export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStationState=()=>null,getNearestTradingOutpost=()=>null,getNearestBossBase=()=>null,getScannedBossBases=()=>[],getScannedTradingOutposts=()=>[],getScannedLandingSpaces=()=>[],getScannedPortals=()=>[],getPerformanceMode=()=>"full",getEnvironment=()=>({})}){
   let panels=[];
   let gameOverOverlay;
   let mapUpdateFrame=0;
@@ -25,7 +29,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "top:18px",
       `left:${panel.side==="full" ? "50%" : panel.side==="left" ? "25%" : "75%"}`,
       "transform:translateX(-50%)",
-      `width:${panel.side==="full" ? "min(430px,58vw)" : "min(300px,40vw)"}`,
+      `width:${panel.side==="full" ? healthHudFullWidth : healthHudSplitWidth}`,
       "height:22px",
       "background:rgba(18,7,43,0.1)",
       "box-shadow:0 4px 14px rgba(0,0,0,0.08)",
@@ -318,14 +322,14 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "top:44px",
       `left:${panel.side==="full" ? "50%" : panel.side==="left" ? "25%" : "75%"}`,
       "transform:translateX(-50%)",
-      `width:${panel.side==="full" ? "min(430px,58vw)" : "min(300px,40vw)"}`,
+      `width:${panel.side==="full" ? healthHudFullWidth : healthHudSplitWidth}`,
       "height:74px",
       "z-index:11",
       "pointer-events:none"
     ].join(";");
 
     let compassCanvas=document.createElement("canvas");
-    compassCanvas.width=430;
+    compassCanvas.width=panel.side==="full" ? compassFullCanvasWidth : compassSplitCanvasWidth;
     compassCanvas.height=74;
     compassCanvas.style.cssText="display:block;width:100%;height:74px";
     let compassCtx=compassCanvas.getContext("2d");
@@ -413,7 +417,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     let size=mapCanvas.width;
     let centerX=state.carX;
     let centerZ=state.carZ;
-    let radius=chunkSize*2.3;
+    let radius=chunkSize*3.312;
     let palette=mapPalette();
 
     mapCtx.clearRect(0,0,size,size);
@@ -692,9 +696,9 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
         p.y=Math.max(margin,Math.min(size-margin,p.y));
       }
 
-      let outer=8.5+pulse*2.4;
+      let outer=6.2+pulse*1.6;
       let inner=outer*0.42;
-      let glow=outer+4.5+pulse*3.2;
+      let glow=outer+3.2+pulse*2.2;
       mapCtx.save();
       mapCtx.translate(p.x,p.y);
       mapCtx.globalAlpha=offMap ? 0.7 : 1;
@@ -713,7 +717,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       }
 
       mapCtx.shadowColor=palette.scannedPortalStroke;
-      mapCtx.shadowBlur=10+pulse*8;
+      mapCtx.shadowBlur=7+pulse*5;
       mapCtx.strokeStyle=palette.scannedPortalStroke;
       mapCtx.fillStyle=palette.scannedPortalFill;
       mapCtx.lineWidth=1.8;
@@ -730,13 +734,13 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
 
       mapCtx.strokeStyle=`rgba(232,221,255,${0.28+pulse*0.3})`;
       mapCtx.lineWidth=0.9;
-      starPath(outer+4.2,inner+2.1,8,Math.PI*0.125-Math.PI*0.5);
+      starPath(outer+2.8,inner+1.4,8,Math.PI*0.125-Math.PI*0.5);
       mapCtx.stroke();
 
       mapCtx.shadowBlur=6;
       mapCtx.fillStyle=palette.scannedPortalStroke;
       mapCtx.beginPath();
-      mapCtx.arc(0,0,2.2+pulse*0.6,0,Math.PI*2);
+      mapCtx.arc(0,0,1.7+pulse*0.45,0,Math.PI*2);
       mapCtx.fill();
       mapCtx.shadowBlur=0;
       mapCtx.restore();
@@ -805,7 +809,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     let inView=Math.abs(delta)<=viewHalf;
     let t=Math.max(-1,Math.min(1,delta/viewHalf));
     let theta=-Math.PI/2+t*arcHalf;
-    let markerRadius=radius-42;
+    let markerRadius=radius-10;
     let x=cx+Math.cos(theta)*markerRadius;
     let y=cy+Math.sin(theta)*markerRadius;
     let pulse=0.5+0.5*Math.sin(performance.now()*0.006);
@@ -842,6 +846,90 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     ctx.restore();
   }
 
+  function drawCompassTradingOutpostMarker(ctx,state,cx,cy,radius,arcHalf,viewHalf,palette){
+    let outpost=getNearestTradingOutpost(state);
+    if(!outpost) return;
+
+    let dx=outpost.x-state.carX;
+    let dz=outpost.z-state.carZ;
+    if(dx*dx+dz*dz<1) return;
+
+    let heading=state.carVelAngle || 0;
+    let outpostAngle=Math.atan2(dx,dz);
+    let delta=normalizeAngle(outpostAngle-heading);
+    let inView=Math.abs(delta)<=viewHalf;
+    let t=Math.max(-1,Math.min(1,delta/viewHalf));
+    let theta=-Math.PI/2+t*arcHalf;
+    let markerRadius=radius-10;
+    let x=cx+Math.cos(theta)*markerRadius;
+    let y=cy+Math.sin(theta)*markerRadius;
+    let pulse=0.5+0.5*Math.sin(performance.now()*0.0065);
+    let alpha=inView ? 0.8+pulse*0.18 : 0.46+pulse*0.16;
+
+    ctx.save();
+    ctx.translate(x,y);
+    ctx.font=`900 ${inView ? 18 : 16}px "Astor", Arial`;
+    ctx.textAlign="center";
+    ctx.textBaseline="middle";
+    ctx.strokeStyle="rgba(18,7,43,0.84)";
+    ctx.lineWidth=4;
+    ctx.strokeText("T",0,0);
+    ctx.fillStyle=inView ? palette.scannedOutpostStroke : `rgba(239,207,114,${alpha})`;
+    ctx.fillText("T",0,0);
+    ctx.strokeStyle=`rgba(239,207,114,${alpha*0.72})`;
+    ctx.lineWidth=1.2;
+    ctx.beginPath();
+    ctx.arc(0,0,9+pulse*1.4,0,Math.PI*2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawCompassBossBaseMarker(ctx,state,cx,cy,radius,arcHalf,viewHalf,palette){
+    let base=getNearestBossBase(state);
+    if(!base) return;
+
+    let dx=base.x-state.carX;
+    let dz=base.z-state.carZ;
+    if(dx*dx+dz*dz<1) return;
+
+    let heading=state.carVelAngle || 0;
+    let baseAngle=Math.atan2(dx,dz);
+    let delta=normalizeAngle(baseAngle-heading);
+    let inView=Math.abs(delta)<=viewHalf;
+    let t=Math.max(-1,Math.min(1,delta/viewHalf));
+    let theta=-Math.PI/2+t*arcHalf;
+    let markerRadius=radius-10;
+    let x=cx+Math.cos(theta)*markerRadius;
+    let y=cy+Math.sin(theta)*markerRadius;
+    let pulse=0.5+0.5*Math.sin(performance.now()*0.0078);
+    let alpha=inView ? 0.82+pulse*0.16 : 0.48+pulse*0.16;
+
+    ctx.save();
+    ctx.translate(x,y);
+    ctx.font=`900 ${inView ? 17 : 15}px "Astor", Arial`;
+    ctx.textAlign="center";
+    ctx.textBaseline="middle";
+    ctx.strokeStyle="rgba(18,7,43,0.88)";
+    ctx.lineWidth=4;
+    ctx.strokeText("B",0,0);
+    ctx.fillStyle=inView ? palette.scannedBossStroke : `rgba(255,96,183,${alpha})`;
+    ctx.fillText("B",0,0);
+    ctx.strokeStyle=`rgba(255,96,183,${alpha*0.68})`;
+    ctx.lineWidth=1.3;
+    ctx.beginPath();
+    ctx.moveTo(0,-10-pulse*1.2);
+    ctx.lineTo(3.2,-3.2);
+    ctx.lineTo(10+pulse*1.2,0);
+    ctx.lineTo(3.2,3.2);
+    ctx.lineTo(0,10+pulse*1.2);
+    ctx.lineTo(-3.2,3.2);
+    ctx.lineTo(-10-pulse*1.2,0);
+    ctx.lineTo(-3.2,-3.2);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.restore();
+  }
+
   function drawCompassHud(panel,state){
     if(!panel.compassCtx || !state) return;
 
@@ -850,21 +938,14 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     let width=canvas.width;
     let height=canvas.height;
     let cx=width*0.5;
-    let cy=112;
-    let radius=99;
-    let arcHalf=Math.PI*0.36;
+    let arcHalf=0.54;
+    let radius=(width-26)/(2*Math.sin(arcHalf));
+    let cy=radius+12;
     let viewHalf=Math.PI*0.82;
     let heading=state.carVelAngle || 0;
     let palette=mapPalette();
 
     ctx.clearRect(0,0,width,height);
-
-    let gradient=ctx.createLinearGradient(0,0,0,height);
-    gradient.addColorStop(0,"rgba(18,7,43,0.08)");
-    gradient.addColorStop(0.55,"rgba(51,20,95,0.2)");
-    gradient.addColorStop(1,"rgba(18,7,43,0)");
-    ctx.fillStyle=gradient;
-    ctx.fillRect(0,0,width,height);
 
     ctx.lineCap="round";
     ctx.strokeStyle="rgba(141,255,242,0.34)";
@@ -883,8 +964,8 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       let t=i/4;
       let theta=-Math.PI/2+t*arcHalf;
       let major=i===0 || Math.abs(i)===4;
-      let inner=radius-(major ? 16 : 10);
-      let outer=radius-1;
+      let inner=radius-(major ? 7 : 4);
+      let outer=radius+2;
       ctx.strokeStyle=major ? "rgba(141,255,242,0.78)" : "rgba(141,255,242,0.38)";
       ctx.lineWidth=major ? 2 : 1;
       ctx.beginPath();
@@ -908,8 +989,8 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
 
       let t=delta/viewHalf;
       let theta=-Math.PI/2+t*arcHalf;
-      let x=cx+Math.cos(theta)*(radius-25);
-      let y=cy+Math.sin(theta)*(radius-25);
+      let x=cx+Math.cos(theta)*(radius-10);
+      let y=cy+Math.sin(theta)*(radius-10);
       let alpha=1-Math.pow(Math.abs(t),1.8)*0.58;
       let scale=1.12-Math.abs(t)*0.22;
 
@@ -922,6 +1003,8 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     }
 
     drawCompassStationMarker(ctx,state,cx,cy,radius,arcHalf,viewHalf,palette);
+    drawCompassBossBaseMarker(ctx,state,cx,cy,radius,arcHalf,viewHalf,palette);
+    drawCompassTradingOutpostMarker(ctx,state,cx,cy,radius,arcHalf,viewHalf,palette);
 
     ctx.strokeStyle="rgba(255,255,255,0.92)";
     ctx.fillStyle="rgba(255,255,255,0.92)";

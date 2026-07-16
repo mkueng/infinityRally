@@ -591,8 +591,13 @@ function makeMissionOutpostTerminal(bounds){
   let usableHalfX=Math.max(10,Math.min(Math.abs(floorMinX),Math.abs(floorMaxX)));
   let depth=Math.max(16,floorMaxZ-floorMinZ);
   let terminalStandOff=Math.min(18,Math.max(12,depth*0.28));
-  let z=floorMinZ-terminalStandOff;
+  let terminalInset=Number.isFinite(bounds.terminalInset) ? bounds.terminalInset : null;
+  let z=Number.isFinite(terminalInset)
+    ? Math.min(floorMaxZ-10,floorMinZ+terminalInset)
+    : floorMinZ-terminalStandOff;
   let x=Math.min(usableHalfX-7,Math.max(-usableHalfX+7,-usableHalfX*0.36));
+  let screenSide=Number.isFinite(terminalInset) ? 1 : -1;
+  let screenTilt=-screenSide*0.34;
 
   terminal.position.set(x,floorY,z);
   terminal.rotation.y=0;
@@ -600,8 +605,8 @@ function makeMissionOutpostTerminal(bounds){
   box("terminal_base",5.8,1.1,4.2,bodyMat,0,0.55,0);
   box("terminal_column",2.4,3.6,2.2,darkMat,0,2.35,-0.18);
   box("terminal_console_slab",6.8,0.7,4.1,bodyMat,0,4.15,0.45,-0.22,0,0);
-  box("terminal_screen_frame",5.9,3.4,0.5,bodyMat,0,5.95,-1.05,-0.34,0,0);
-  box("terminal_screen",4.95,2.35,0.12,screenMat,0,6.03,-1.34,-0.34,0,0);
+  box("terminal_screen_frame",5.9,3.4,0.5,bodyMat,0,5.95,screenSide*1.05,screenTilt,0,0);
+  box("terminal_screen",4.95,2.35,0.12,screenMat,0,6.03,screenSide*1.34,screenTilt,0,0);
   box("terminal_keyboard",5.6,0.18,1.35,darkMat,0,4.65,1.36,-0.22,0,0);
 
   for(let i=0;i<5;i++){
@@ -616,7 +621,7 @@ function makeMissionOutpostTerminal(bounds){
 
   let glow=new THREE.PointLight(0x35eaff,1.25,18,2.2);
   glow.name="terminal_screen_glow";
-  glow.position.set(0,6.2,-1.0);
+  glow.position.set(0,6.2,screenSide*1.0);
   terminal.add(glow);
 
   return terminal;
@@ -855,7 +860,8 @@ export function normalizeTradingOutpostModel(outpost,options={}){
       floorMaxZ:hasFloorBounds ? floorBounds.max.z : model.userData.footprintHalfZ,
       floorY,
       ceilingY:hasWallBounds ? Math.max(floorY+7,wallBounds.max.y-1.4) : floorY+11.5,
-      wallSegments
+      wallSegments,
+      terminalInset:Number.isFinite(options.terminalInset) ? options.terminalInset : null
     };
   }
 
@@ -935,7 +941,7 @@ export function loadBaseStationModel(){
         objLoader.setMaterials(materials);
         objLoader.load(
           "tinker.obj",
-          object=>resolve(normalizeTradingOutpostModel(object,{standingLights:true})),
+          object=>resolve(normalizeTradingOutpostModel(object,{standingLights:true,terminalInset:16})),
           undefined,
           reject
         );

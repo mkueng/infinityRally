@@ -61,6 +61,7 @@ export const worldEnvironments=[
     groundTexture:{base:"#275f35",dark:[24,70,36],bright:[86,150,62],streak:"124,255,120"},
     rainChance:0.72,
     rainIntensity:[0.38,0.82],
+    settlements:{villagesPerChunk:1.55,villageSpawnChance:0.58,patchRadiusScale:1.12,smallTownMaxRange:9.5,largeTownMaxRange:10.5},
     vegetation:{treeClusters:3,treesPerCluster:8,treeClusterRadius:34,crownsPerTree:7,podsPerTree:3,trunkHeightBase:1.55,trunkHeightVariance:0.58,trunkWidthBase:0.64,trunkWidthVariance:0.28,leanAmount:0.24,crownBaseScale:1.45,crownScaleStep:0.045,crownSpreadBase:2.0,crownSpreadVariance:3.2,crownLiftBase:11.2,crownLiftStep:0.42,crownWidthScale:1.35,crownFlatness:0.78,crownDepthScale:1.35,podScaleBase:0.26,podScaleVariance:0.2,podLiftBase:8.8,podLiftVariance:3.2,podElongation:1.8,grassClusters:24,grassPerCluster:300,grassClusterRadius:15}
   },
   {
@@ -77,6 +78,7 @@ export const worldEnvironments=[
     groundTexture:{base:"#24543c",dark:[20,62,45],bright:[80,132,70],streak:"94,230,154"},
     rainChance:0.88,
     rainIntensity:[0.48,0.96],
+    settlements:{villagesPerChunk:1.55,villageSpawnChance:0.66,patchRadiusScale:1.08,smallTownMaxRange:8.5,largeTownMaxRange:9.25},
     vegetation:{treeClusters:4,treesPerCluster:7,treeClusterRadius:38,crownsPerTree:6,podsPerTree:4,trunkHeightBase:1.2,trunkHeightVariance:0.38,trunkWidthBase:0.9,trunkWidthVariance:0.35,leanAmount:0.42,crownBaseScale:1.28,crownScaleStep:0.06,crownSpreadBase:2.7,crownSpreadVariance:2.9,crownLiftBase:8.4,crownLiftStep:0.18,crownWidthScale:1.75,crownFlatness:0.48,crownDepthScale:1.55,podScaleBase:0.22,podScaleVariance:0.22,podLiftBase:6.2,podLiftVariance:2.1,podElongation:1.2,grassClusters:25,grassPerCluster:280,grassClusterRadius:18}
   },
   {

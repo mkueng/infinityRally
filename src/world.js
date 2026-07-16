@@ -193,6 +193,17 @@ function environmentVegetation(){
   return {...defaultEnvironment.vegetation,...(currentEnvironment.vegetation || {})};
 }
 
+function environmentSettlements(){
+  return {
+    villagesPerChunk:1.15,
+    villageSpawnChance:0.5,
+    patchRadiusScale:1.28,
+    smallTownMaxRange:6.5,
+    largeTownMaxRange:8,
+    ...(currentEnvironment.settlements || {})
+  };
+}
+
 function setMaterialColor(material,color,emissive=null){
   if(material.color && color!=null) material.color.set(color);
   if(material.emissive && emissive!=null) material.emissive.set(emissive);
@@ -1519,7 +1530,13 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   chunkRoot.add(gravel);
   yield;
 
-  let maxBuildings=cityMode ? 70 : 120;
+  let settlements=environmentSettlements();
+  let villageAttemptRoll=settlements.villagesPerChunk || 1;
+  let villagesPerChunk=cityMode
+    ? 1
+    : Math.max(1,Math.min(3,Math.floor(villageAttemptRoll)+(r01(cx*919+17,cz*613-23)<villageAttemptRoll%1 ? 1 : 0)));
+  let villageSpawnChance=cityMode ? 1 : Math.max(0,Math.min(1,settlements.villageSpawnChance ?? 0.45));
+  let maxBuildings=cityMode ? 70 : 120*villagesPerChunk;
   let maxWindowInstances=maxBuildings*(cityMode ? 48 : 8);
   let buildingBodies=new THREE.InstancedMesh(buildingGeo,buildingWallMat,maxBuildings);
   let maxRoofInstances=cityMode ? maxBuildings*2 : maxBuildings;
@@ -1530,8 +1547,6 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   let buildingChimneys=new THREE.InstancedMesh(chimneyGeo,chimneyMat,maxBuildings);
   let buildingTrims=new THREE.InstancedMesh(trimGeo,houseTrimMat,maxTrimInstances);
   let buildingPorches=new THREE.InstancedMesh(porchGeo,houseTrimMat,maxBuildings);
-  let villagesPerChunk=1;
-  let villageSpawnChance=cityMode ? 1 : 0.45;
   let villageWalls=new THREE.InstancedMesh(brickWallGeo,brickWallMat,villagesPerChunk*18);
   let cityStreets=new THREE.InstancedMesh(cityStreetGeo,cityStreetMat,cityMode ? villagesPerChunk*8 : 1);
   let buildingUsed=0;
@@ -1560,7 +1575,9 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
       ? 86+r01(cx-v*3,cz+v*9)*34
       : 20+(r01(cx-v*3,cz+v*9)*24)+(largeTown ? 16+r01(cx*503-v*7,cz*211+v*5)*10 : 0);
     if(pointInHole(holes,centerX,centerZ,villageRadius+18)) continue;
-    if(!terrainPatchOk(centerX,centerZ,villageRadius*(cityMode ? 1.08 : 1.28),largeTown ? 25 : 23,cityMode ? 7.5 : largeTown ? 8 : 6.5)) continue;
+    let patchRadiusScale=cityMode ? 1.08 : settlements.patchRadiusScale;
+    let patchMaxRange=cityMode ? 7.5 : largeTown ? settlements.largeTownMaxRange : settlements.smallTownMaxRange;
+    if(!terrainPatchOk(centerX,centerZ,villageRadius*patchRadiusScale,largeTown ? 25 : 23,patchMaxRange)) continue;
 
     let bossVillage=largeTown && r01(cx*1741+v*71,cz*927-v*37)>0.42;
     let enemyBudget=(cityMode ? 8 : 5)+Math.floor(r01(cx*811+v*31,cz*337-v*13)*(cityMode ? 10 : 7))+(bossVillage ? 5 : largeTown ? 2 : 0);

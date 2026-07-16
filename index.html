@@ -710,7 +710,7 @@
 
     .start-actions {
       display: grid;
-      gap: 12px;
+      gap: 10px;
     }
 
     .difficulty-actions {
@@ -757,6 +757,18 @@
       background: rgba(20,28,34,0.58);
       color: rgba(232,248,255,0.42);
       border: 1px solid rgba(141,255,242,0.18);
+    }
+
+    .saved-game-date {
+      min-height: 16px;
+      margin-top: -4px;
+      margin-bottom: 2px;
+      color: rgba(232,248,255,0.66);
+      font-size: 12px;
+      font-weight: 900;
+      text-align: center;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
     }
 
     .menu-robot-cursor {
@@ -917,6 +929,7 @@
     </div>
     <div class="start-actions">
       <button type="button" data-load-game disabled>Load Last Game</button>
+      <div class="saved-game-date" data-load-game-date></div>
       <button type="button" data-mode="single">Single Player</button>
       <button type="button" data-mode="double">Double Player</button>
     </div>
@@ -943,6 +956,7 @@
     let cursorX = innerWidth * 0.5;
     let cursorY = innerHeight * 0.5;
     let lastFire = false;
+    let lastMenuRoot = null;
 
     function visibleMenuElement(id) {
       const element = document.getElementById(id);
@@ -1011,6 +1025,7 @@
         updateCursorVisibility();
         cursor.classList.remove("is-pressing");
         lastFire = false;
+        lastMenuRoot = null;
         return;
       }
       updateCursorVisibility();
@@ -1018,6 +1033,10 @@
       const pads = navigator.getGamepads ? navigator.getGamepads() : [];
       const pad = Array.from(pads).find(item => item && item.connected);
       if (!pad) return;
+
+      const menuRoot = activeMenuRoot();
+      const rootChanged = menuRoot !== lastMenuRoot;
+      lastMenuRoot = menuRoot;
 
       const moveX = axis(pad.axes[0] || 0);
       const moveY = axis(pad.axes[1] || 0);
@@ -1028,10 +1047,13 @@
 
       const fire = buttonValue(pad.buttons[7]) > 0.35;
       cursor.classList.toggle("is-pressing", fire);
+      if (rootChanged) {
+        lastFire = fire;
+        return;
+      }
       if (fire && !lastFire) {
         const target = document.elementFromPoint(cursorX, cursorY);
         const button = target && target.closest("button");
-        const menuRoot = activeMenuRoot();
         if (button && menuRoot && menuRoot.contains(button)) button.click();
       }
       lastFire = fire;
