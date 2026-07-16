@@ -310,6 +310,7 @@ let cars=[];
 let gameStarted=false;
 let gamePaused=false;
 let tradingScreenOpen=false;
+let missionScreenOpen=false;
 let gameMode="single";
 let gameDifficulty="medium";
 const saveGameStorageKey="sol8.lastGameStatus.v1";
@@ -1218,9 +1219,142 @@ function createPauseMenu(audio){
 
 let pauseMenu=createPauseMenu(motorAudio);
 
-function createTradingScreen(){
+function createMissionScreen(){
   let overlay=document.createElement("div");
   overlay.id="missionTerminalOverlay";
+  overlay.style.cssText=[
+    "position:fixed",
+    "inset:0",
+    "display:none",
+    "z-index:31",
+    "background:rgba(2,7,10,0.62)",
+    "backdrop-filter:blur(4px)",
+    `font-family:${gameFontFamily}`,
+    "color:#ecfbff",
+    "pointer-events:auto"
+  ].join(";");
+
+  let panel=document.createElement("div");
+  panel.style.cssText=[
+    "position:absolute",
+    "left:50%",
+    "top:50%",
+    "transform:translate(-50%,-50%)",
+    "width:min(780px,calc(100vw - 44px))",
+    "max-height:calc(100vh - 48px)",
+    "background:rgba(12,19,23,0.9)",
+    "border:1px solid rgba(109,242,255,0.34)",
+    "box-shadow:0 18px 52px rgba(0,0,0,0.48),0 0 34px rgba(38,226,255,0.12)",
+    "box-sizing:border-box",
+    "padding:24px",
+    "overflow:auto"
+  ].join(";");
+
+  let title=document.createElement("div");
+  title.textContent="Mission Terminal";
+  title.style.cssText=[
+    "font-size:26px",
+    "font-weight:900",
+    "text-transform:uppercase",
+    "letter-spacing:0.04em",
+    "margin-bottom:18px",
+    "color:#9af8ff",
+    "text-shadow:0 0 16px rgba(69,235,255,0.48)"
+  ].join(";");
+  panel.appendChild(title);
+
+  let subhead=document.createElement("div");
+  subhead.textContent="Home base command uplink";
+  subhead.style.cssText=[
+    "font-size:12px",
+    "font-weight:900",
+    "text-transform:uppercase",
+    "letter-spacing:0.12em",
+    "color:rgba(236,251,255,0.58)",
+    "margin-top:-10px",
+    "margin-bottom:16px"
+  ].join(";");
+  panel.appendChild(subhead);
+
+  let status=document.createElement("div");
+  status.style.cssText=[
+    "display:grid",
+    "grid-template-columns:repeat(3,minmax(0,1fr))",
+    "gap:12px",
+    "margin-bottom:18px"
+  ].join(";");
+
+  function addStatus(label,value){
+    let cell=document.createElement("div");
+    cell.style.cssText=[
+      "border:1px solid rgba(154,248,255,0.18)",
+      "background:rgba(6,12,15,0.58)",
+      "padding:13px 14px",
+      "box-sizing:border-box"
+    ].join(";");
+    let labelEl=document.createElement("div");
+    labelEl.textContent=label;
+    labelEl.style.cssText="font-size:11px;font-weight:900;text-transform:uppercase;color:rgba(236,251,255,0.52);margin-bottom:7px";
+    let valueEl=document.createElement("div");
+    valueEl.textContent=value;
+    valueEl.style.cssText="font-size:20px;font-weight:900;color:#efcf72";
+    cell.appendChild(labelEl);
+    cell.appendChild(valueEl);
+    status.appendChild(cell);
+    return valueEl;
+  }
+
+  let unitsEl=addStatus("Units",String(Math.max(0,Math.round(units || 0))));
+  let bossEl=addStatus("Boss bases",String((world.bossBases || []).filter(base=>base && base.active).length));
+  let scannerEl=addStatus("Scanner",scannerUnlocked() ? "Online" : "Locked");
+  panel.appendChild(status);
+
+  let list=document.createElement("div");
+  list.style.cssText=[
+    "border:1px solid rgba(154,248,255,0.18)",
+    "background:rgba(8,16,20,0.62)",
+    "padding:16px",
+    "box-sizing:border-box",
+    "display:flex",
+    "flex-direction:column",
+    "gap:12px"
+  ].join(";");
+
+  for(let text of [
+    "Primary objective: locate and destroy active boss bases.",
+    "Earn units by destroying hostile robots, collecting treasures, and clearing villages.",
+    "Use field trading terminals to buy equipment and fuel."
+  ]){
+    let row=document.createElement("div");
+    row.textContent=text;
+    row.style.cssText="font-size:15px;font-weight:900;text-transform:uppercase;color:rgba(236,251,255,0.88)";
+    list.appendChild(row);
+  }
+  panel.appendChild(list);
+
+  overlay.appendChild(panel);
+  document.body.appendChild(overlay);
+
+  function refresh(){
+    unitsEl.textContent=String(Math.max(0,Math.round(units || 0)));
+    bossEl.textContent=String((world.bossBases || []).filter(base=>base && base.active).length);
+    scannerEl.textContent=scannerUnlocked() ? "Online" : "Locked";
+  }
+
+  function setVisible(visible){
+    overlay.style.display=visible ? "block" : "none";
+    if(visible) refresh();
+  }
+
+  return {
+    setVisible,
+    update:refresh
+  };
+}
+
+function createTradingScreen(){
+  let overlay=document.createElement("div");
+  overlay.id="tradingTerminalOverlay";
   overlay.style.cssText=[
     "position:fixed",
     "inset:0",
@@ -1484,6 +1618,7 @@ function createTradingScreen(){
   };
 }
 
+let missionScreen=createMissionScreen();
 let tradingScreen=createTradingScreen();
 let hud=createHud({
   getPerformanceMode:()=>gameMode==="double" ? "split" : "full",
@@ -1779,40 +1914,68 @@ function setGamePaused(paused){
   gamePaused=paused;
   fixedAccumulator=0;
   lastLoopTime=null;
-  motorAudio.setPaused(gamePaused || tradingScreenOpen);
+  motorAudio.setPaused(gamePaused || terminalOverlayOpen());
   pauseMenu.setVisible(gamePaused);
+}
+
+function terminalOverlayOpen(){
+  return tradingScreenOpen || missionScreenOpen;
+}
+
+function stopActiveCarsForTerminal(){
+  for(let car of activeCars()){
+    car.speed=0;
+    car.vy=0;
+    car.throttleEase=0;
+    car.turnInputEase=0;
+    car.turnVelocity=0;
+  }
+  if(document.pointerLockElement && document.exitPointerLock){
+    document.exitPointerLock();
+  }
+}
+
+function setMissionScreenOpen(open){
+  if(open && (!gameStarted || gameOver)) open=false;
+  if(open && tradingScreenOpen) setTradingScreenOpen(false);
+  if(missionScreenOpen===open) return;
+  missionScreenOpen=open;
+  fixedAccumulator=0;
+  lastLoopTime=null;
+  missionScreen.setVisible(missionScreenOpen);
+  motorAudio.setPaused(gamePaused || terminalOverlayOpen());
+
+  if(missionScreenOpen) stopActiveCarsForTerminal();
 }
 
 function setTradingScreenOpen(open){
   if(open && (!gameStarted || gameOver)) open=false;
+  if(open && missionScreenOpen) setMissionScreenOpen(false);
   if(tradingScreenOpen===open) return;
   tradingScreenOpen=open;
   fixedAccumulator=0;
   lastLoopTime=null;
   tradingScreen.setVisible(tradingScreenOpen);
-  motorAudio.setPaused(gamePaused || tradingScreenOpen);
+  motorAudio.setPaused(gamePaused || terminalOverlayOpen());
 
-  if(tradingScreenOpen){
-    for(let car of activeCars()){
-      car.speed=0;
-      car.vy=0;
-      car.throttleEase=0;
-      car.turnInputEase=0;
-      car.turnVelocity=0;
-    }
-    if(document.pointerLockElement && document.exitPointerLock){
-      document.exitPointerLock();
-    }
-  }
+  if(tradingScreenOpen) stopActiveCarsForTerminal();
 }
 
 function closeTradingScreen(){
   setTradingScreenOpen(false);
 }
 
+function closeMissionScreen(){
+  setMissionScreenOpen(false);
+}
+
 window.addEventListener("keydown",event=>{
   if(event.key!=="Escape") return;
   event.preventDefault();
+  if(missionScreenOpen){
+    closeMissionScreen();
+    return;
+  }
   if(tradingScreenOpen){
     closeTradingScreen();
     return;
@@ -2284,7 +2447,7 @@ function controlsFor(car){
   let lift=0;
   let keyboardForward=0;
 
-  if(!gameOver && !tradingScreenOpen){
+  if(!gameOver && !terminalOverlayOpen()){
     if(input.keys[car.controls.up]) keyboardForward=1;
     if(input.keys[car.controls.down]) keyboardForward=-1;
     forward=keyboardForward;
@@ -2586,7 +2749,7 @@ function clickViewportForTradingTerminal(event){
 }
 
 function handleTradingTerminalClick(event){
-  if(!gameStarted || gamePaused || gameOver || tradingScreenOpen) return false;
+  if(!gameStarted || gamePaused || gameOver || terminalOverlayOpen()) return false;
 
   let view=clickViewportForTradingTerminal(event);
   if(!view.car) return false;
@@ -2603,7 +2766,7 @@ function handleTradingTerminalClick(event){
 
     event.preventDefault();
     event.stopPropagation();
-    setTradingScreenOpen(true);
+    openTerminalScreen(collision);
     return true;
   }
 
@@ -2611,7 +2774,7 @@ function handleTradingTerminalClick(event){
 }
 
 function openFocusedTradingTerminalForCar(car){
-  if(!gameStarted || gamePaused || gameOver || tradingScreenOpen) return false;
+  if(!gameStarted || gamePaused || gameOver || terminalOverlayOpen()) return false;
   if(!car || !car.group || !car.group.visible || car.health<=0) return false;
 
   for(let collision of activeTradingOutpostCollisions()){
@@ -2619,11 +2782,16 @@ function openFocusedTradingTerminalForCar(car){
     if(!carNearTradingTerminal(car,collision)) continue;
     if(!carAimFocusesTradingTerminal(car,collision)) continue;
 
-    setTradingScreenOpen(true);
+    openTerminalScreen(collision);
     return true;
   }
 
   return false;
+}
+
+function openTerminalScreen(collision){
+  if(collision && collision.terminalMode==="mission") setMissionScreenOpen(true);
+  else setTradingScreenOpen(true);
 }
 
 function distanceSqToLocalSegment(px,pz,ax,az,bx,bz){
@@ -9094,7 +9262,7 @@ function updateScannerMode(){
 
   let now=performance.now();
   let scannerReady=now>=scannerReadyAt;
-  if(scannerPressed && !scannerKeyDown && scannerReady && gameStarted && !gamePaused && !tradingScreenOpen && !gameOver){
+  if(scannerPressed && !scannerKeyDown && scannerReady && gameStarted && !gamePaused && !terminalOverlayOpen() && !gameOver){
     scannerReadyAt=now+scannerCooldownMs;
     if(motorAudio.playScannerPulse) motorAudio.playScannerPulse();
     for(let car of activeCars()) spawnSurfaceScanPulse(car);
@@ -9219,10 +9387,11 @@ function loop(timestamp=performance.now()){
     return;
   }
 
-  if(tradingScreenOpen){
+  if(terminalOverlayOpen()){
     fixedAccumulator=0;
     updateCameras();
     tradingScreen.update();
+    missionScreen.update();
     renderGame();
     return;
   }
@@ -9264,7 +9433,7 @@ function loop(timestamp=performance.now()){
 
 renderer.domElement.addEventListener("click",event=>{
   if(handleTradingTerminalClick(event)) return;
-  if(gameStarted && !gamePaused && !tradingScreenOpen && !gameOver) input.requestPointerLock(renderer.domElement);
+  if(gameStarted && !gamePaused && !terminalOverlayOpen() && !gameOver) input.requestPointerLock(renderer.domElement);
 });
 
 window.addEventListener("resize",()=>{
@@ -9537,9 +9706,11 @@ function startGame(mode,difficulty="medium",savedStatus=null){
   gameWon=false;
   gamePaused=false;
   tradingScreenOpen=false;
+  missionScreenOpen=false;
   jetFogAmount=0;
   motorAudio.setPaused(false);
   pauseMenu.setVisible(false);
+  missionScreen.setVisible(false);
   tradingScreen.setVisible(false);
   fixedAccumulator=0;
   lastLoopTime=null;
@@ -9798,7 +9969,7 @@ function clearTradingOutpost(){
   tradingTerminalObject=null;
 }
 
-function makeTradingOutpostCollision(x,z,angle,y,model=tradingOutpostModel,object=null,terminalObject=null){
+function makeTradingOutpostCollision(x,z,angle,y,model=tradingOutpostModel,object=null,terminalObject=null,terminalMode="trading"){
   let modelData=model ? model.userData || {} : {};
   let bounds=modelData.tradingOutpostBounds || {};
   let halfX=Math.max(31,(Number.isFinite(modelData.footprintHalfX) ? modelData.footprintHalfX : 31)-3.2);
@@ -9819,6 +9990,50 @@ function makeTradingOutpostCollision(x,z,angle,y,model=tradingOutpostModel,objec
   let floorMaxX=Number.isFinite(bounds.floorMaxX) ? bounds.floorMaxX-floorInset : maxX-wallRadius;
   let floorMinZ=Number.isFinite(bounds.floorMinZ) ? bounds.floorMinZ+floorInset : minZ+wallRadius;
   let floorMaxZ=Number.isFinite(bounds.floorMaxZ) ? bounds.floorMaxZ-floorInset : maxZ-wallRadius;
+  let entranceMinX=-entranceHalfWidth;
+  let entranceMaxX=entranceHalfWidth;
+  let entranceBand=8;
+
+  function addEntranceClippedWall(items,wall){
+    let nearEntrance=wall.maxZ>=wallMaxZ-entranceBand
+      && wall.minZ<=wallMaxZ+entranceBand
+      && wall.minX<entranceMaxX
+      && wall.maxX>entranceMinX;
+    if(!nearEntrance){
+      items.push(wall);
+      return;
+    }
+
+    if(wall.kind==="segment"){
+      let horizontal=Math.abs(wall.bz-wall.az)<=Math.max(0.2,(wall.r || wallRadius)*0.55)
+        && Math.abs(wall.bx-wall.ax)>Math.abs(wall.bz-wall.az)*2.5;
+      if(!horizontal){
+        items.push(wall);
+        return;
+      }
+
+      let leftEnd=Math.min(wall.ax,wall.bx);
+      let rightEnd=Math.max(wall.ax,wall.bx);
+      let z=(wall.az+wall.bz)*0.5;
+      if(leftEnd<entranceMinX-0.5){
+        items.push({...wall,ax:leftEnd,az:z,bx:Math.min(entranceMinX,rightEnd),bz:z});
+      }
+      if(rightEnd>entranceMaxX+0.5){
+        items.push({...wall,ax:Math.max(entranceMaxX,leftEnd),az:z,bx:rightEnd,bz:z});
+      }
+      return;
+    }
+
+    if(wall.kind==="rect"){
+      if(wall.minX<entranceMinX-0.5){
+        items.push({...wall,maxX:Math.min(wall.maxX,entranceMinX)});
+      }
+      if(wall.maxX>entranceMaxX+0.5){
+        items.push({...wall,minX:Math.max(wall.minX,entranceMaxX)});
+      }
+    }
+  }
+
   let preciseWalls=Array.isArray(bounds.wallSegments)
     ? bounds.wallSegments.reduce((items,wall)=>{
       if(!wall) return items;
@@ -9827,7 +10042,7 @@ function makeTradingOutpostCollision(x,z,angle,y,model=tradingOutpostModel,objec
         && Number.isFinite(wall.maxX)
         && Number.isFinite(wall.minZ)
         && Number.isFinite(wall.maxZ)){
-        items.push({
+        addEntranceClippedWall(items,{
           kind:"rect",
           minX:Math.min(wall.minX,wall.maxX),
           maxX:Math.max(wall.minX,wall.maxX),
@@ -9838,14 +10053,19 @@ function makeTradingOutpostCollision(x,z,angle,y,model=tradingOutpostModel,objec
         && Number.isFinite(wall.az)
         && Number.isFinite(wall.bx)
         && Number.isFinite(wall.bz)){
-        items.push({
+        let normalizedWall={
           kind:"segment",
           ax:wall.ax,
           az:wall.az,
           bx:wall.bx,
           bz:wall.bz,
-          r:Number.isFinite(wall.r) ? Math.max(0.45,Math.min(3.0,wall.r)) : wallRadius
-        });
+          r:Number.isFinite(wall.r) ? Math.max(0.45,Math.min(3.0,wall.r)) : wallRadius,
+          minX:Math.min(wall.ax,wall.bx),
+          maxX:Math.max(wall.ax,wall.bx),
+          minZ:Math.min(wall.az,wall.bz),
+          maxZ:Math.max(wall.az,wall.bz)
+        };
+        addEntranceClippedWall(items,normalizedWall);
       }
       return items;
     },[])
@@ -9860,6 +10080,7 @@ function makeTradingOutpostCollision(x,z,angle,y,model=tradingOutpostModel,objec
   return {
     object,
     terminalObject,
+    terminalMode,
     x,
     z,
     angle,
@@ -9877,11 +10098,11 @@ function makeTradingOutpostCollision(x,z,angle,y,model=tradingOutpostModel,objec
   };
 }
 
-function setTradingOutpostCollision(x,z,angle,y,model=tradingOutpostModel){
-  tradingOutpostCollision=makeTradingOutpostCollision(x,z,angle,y,model,tradingOutpost,tradingTerminalObject);
+function setTradingOutpostCollision(x,z,angle,y,model=tradingOutpostModel,terminalMode="trading"){
+  tradingOutpostCollision=makeTradingOutpostCollision(x,z,angle,y,model,tradingOutpost,tradingTerminalObject,terminalMode);
 }
 
-function registerTradingPlaceCollision(outpost,model=tradingOutpostModel){
+function registerTradingPlaceCollision(outpost,model=tradingOutpostModel,terminalMode="trading"){
   if(!outpost || !outpost.object) return null;
 
   let object=outpost.object;
@@ -9893,7 +10114,8 @@ function registerTradingPlaceCollision(outpost,model=tradingOutpostModel){
     object.position.y,
     model,
     object,
-    terminalObject
+    terminalObject,
+    terminalMode
   );
   tradingPlaceCollisions.push(collision);
   outpost.collision=collision;
@@ -10134,7 +10356,7 @@ function placeTradingOutpostNearStart(startInfo){
   tradingOutpost.position.set(chosen.x,chosen.y,chosen.z);
   tradingOutpost.rotation.y=angle+Math.PI*0.5;
   tintTradingOutpostForEnvironment(tradingOutpost);
-  setTradingOutpostCollision(chosen.x,chosen.z,tradingOutpost.rotation.y,tradingOutpost.position.y,baseStationModel);
+  setTradingOutpostCollision(chosen.x,chosen.z,tradingOutpost.rotation.y,tradingOutpost.position.y,baseStationModel,"mission");
   scene.add(tradingOutpost);
 }
 

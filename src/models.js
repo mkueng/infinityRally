@@ -766,6 +766,7 @@ export function normalizeTradingOutpostModel(outpost,options={}){
   let minZWallInnerZ=-Infinity;
   let maxZWallInnerZ=Infinity;
   let wallSegments=[];
+  let includeStructuralSolids=options.structuralCollision!==false && !options.standingLights;
 
   function addCollisionPrimitive(childBox,childSize){
     let centerX=(childBox.min.x+childBox.max.x)*0.5;
@@ -830,7 +831,7 @@ export function normalizeTradingOutpostModel(outpost,options={}){
         if(childBox.min.z>0) maxZWallInnerZ=Math.min(maxZWallInnerZ,childBox.min.z);
       }
     }
-    if(!wallMaterial && !floorLike && playerHeightSolid) addCollisionPrimitive(childBox,childSize);
+    if(includeStructuralSolids && !wallMaterial && !floorLike && playerHeightSolid) addCollisionPrimitive(childBox,childSize);
     if(floorLike){
       floorBounds.union(childBox);
       hasFloorBounds=true;
