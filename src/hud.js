@@ -392,8 +392,8 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       bossStroke:rgba(colors.podEmissive || colors.pod,0.92,0xff6a42),
       scannedBossFill:rgba(colors.pod || colors.trim,0.34,0xff5c36),
       scannedBossStroke:rgba(colors.podEmissive || colors.pod,0.98,0xff6a42),
-      scannedOutpostFill:rgba(colors.water || colors.trim,0.32,0x8dfff2),
-      scannedOutpostStroke:rgba(colors.waterEmissive || colors.water || colors.trim,0.98,0xb9f4ff),
+      scannedOutpostFill:rgba(colors.shore || colors.wall,0.38,0xffb84d),
+      scannedOutpostStroke:rgba(colors.shore || colors.trim,0.98,0xfff17a),
       scannedLandingFill:rgba(colors.grass || colors.low,0.34,0x7cff78),
       scannedLandingStroke:rgba(colors.trim || colors.grass,0.96,0xd9ff7a),
       scannedPortalFill:rgba(colors.trim || colors.water,0.26,0xd6a8ff),
@@ -439,8 +439,10 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     drawVillages(mapCtx,centerX,centerZ,radius,size,palette);
     drawScannedLandingSpaces(mapCtx,getScannedLandingSpaces(),centerX,centerZ,radius,size,palette);
     drawScannedBossBases(mapCtx,getScannedBossBases(),centerX,centerZ,radius,size,palette);
+    drawScannedPortals(mapCtx,getScannedPortals(),centerX,centerZ,radius,size,palette);
     drawEnemyDots(mapCtx,enemies,centerX,centerZ,radius,size);
     drawOtherCars(mapCtx,state,states,centerX,centerZ,radius,size,palette);
+    drawStationMarker(mapCtx,getStationState(),centerX,centerZ,radius,size,palette);
 
     mapCtx.save();
     mapCtx.translate(size*0.5,size*0.5);
@@ -577,35 +579,56 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
         p.y=Math.max(margin,Math.min(size-margin,p.y));
       }
 
-      let outer=6.2+pulse*1.6;
+      let markerHeight=16+pulse*1.8;
+      let topWidth=14+pulse*1.4;
+      let topHeight=4.4;
+      let stemWidth=5;
+      let halfTop=topWidth*0.5;
+      let halfStem=stemWidth*0.5;
+      let topY=-markerHeight*0.5;
+      let barBottom=topY+topHeight;
+      let bottomY=markerHeight*0.5;
       mapCtx.save();
       mapCtx.translate(p.x,p.y);
       mapCtx.globalAlpha=offMap ? 0.7 : 1;
+      mapCtx.shadowColor=palette.scannedOutpostStroke;
+      mapCtx.shadowBlur=5+pulse*5;
       mapCtx.strokeStyle=palette.scannedOutpostStroke;
       mapCtx.fillStyle=palette.scannedOutpostFill;
       mapCtx.lineWidth=1.8;
       mapCtx.beginPath();
-      mapCtx.arc(0,0,outer,0,Math.PI*2);
+      mapCtx.moveTo(-halfTop,topY);
+      mapCtx.lineTo(halfTop,topY);
+      mapCtx.lineTo(halfTop,barBottom);
+      mapCtx.lineTo(halfStem,barBottom);
+      mapCtx.lineTo(halfStem,bottomY);
+      mapCtx.lineTo(-halfStem,bottomY);
+      mapCtx.lineTo(-halfStem,barBottom);
+      mapCtx.lineTo(-halfTop,barBottom);
+      mapCtx.closePath();
       mapCtx.fill();
       mapCtx.stroke();
+      mapCtx.shadowBlur=0;
 
       mapCtx.strokeStyle=`rgba(245,255,249,${0.38+pulse*0.32})`;
       mapCtx.lineWidth=1.15;
       mapCtx.beginPath();
-      mapCtx.moveTo(-outer-2,0);
-      mapCtx.lineTo(outer+2,0);
-      mapCtx.moveTo(0,-outer-2);
-      mapCtx.lineTo(0,outer+2);
+      mapCtx.moveTo(-halfTop-2,topY-2);
+      mapCtx.lineTo(halfTop+2,topY-2);
+      mapCtx.moveTo(-halfStem-2,bottomY+2);
+      mapCtx.lineTo(halfStem+2,bottomY+2);
       mapCtx.stroke();
 
       mapCtx.fillStyle=palette.scannedOutpostStroke;
-      mapCtx.fillRect(-2,-2,4,4);
+      mapCtx.fillRect(-1.8,barBottom+1,3.6,3.6);
 
       mapCtx.strokeStyle=`rgba(255,255,255,${0.48+pulse*0.28})`;
       mapCtx.lineWidth=1.2;
       mapCtx.beginPath();
-      mapCtx.arc(0,0,outer+4.2,Math.PI*0.18,Math.PI*0.82);
-      mapCtx.arc(0,0,outer+4.2,Math.PI*1.18,Math.PI*1.82);
+      mapCtx.moveTo(-halfTop-3,barBottom+1);
+      mapCtx.lineTo(-halfTop-3,topY+1);
+      mapCtx.moveTo(halfTop+3,barBottom+1);
+      mapCtx.lineTo(halfTop+3,topY+1);
       mapCtx.stroke();
       mapCtx.restore();
     }
@@ -669,30 +692,53 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
         p.y=Math.max(margin,Math.min(size-margin,p.y));
       }
 
-      let outer=7.5+pulse*2.2;
-      let inner=outer*0.54;
+      let outer=8.5+pulse*2.4;
+      let inner=outer*0.42;
+      let glow=outer+4.5+pulse*3.2;
       mapCtx.save();
       mapCtx.translate(p.x,p.y);
       mapCtx.globalAlpha=offMap ? 0.7 : 1;
+
+      function starPath(outerRadius,innerRadius,points=8,rotation=-Math.PI*0.5){
+        mapCtx.beginPath();
+        for(let i=0;i<points*2;i++){
+          let angle=rotation+i*Math.PI/points;
+          let r=i%2===0 ? outerRadius : innerRadius;
+          let x=Math.cos(angle)*r;
+          let y=Math.sin(angle)*r;
+          if(i===0) mapCtx.moveTo(x,y);
+          else mapCtx.lineTo(x,y);
+        }
+        mapCtx.closePath();
+      }
+
+      mapCtx.shadowColor=palette.scannedPortalStroke;
+      mapCtx.shadowBlur=10+pulse*8;
       mapCtx.strokeStyle=palette.scannedPortalStroke;
       mapCtx.fillStyle=palette.scannedPortalFill;
-      mapCtx.lineWidth=1.9;
-      mapCtx.beginPath();
-      mapCtx.arc(0,0,outer,0,Math.PI*2);
-      mapCtx.arc(0,0,inner,0,Math.PI*2,true);
+      mapCtx.lineWidth=1.8;
+      starPath(outer,inner,8,Math.PI*0.125-Math.PI*0.5);
       mapCtx.fill();
       mapCtx.stroke();
 
-      mapCtx.strokeStyle=`rgba(245,255,249,${0.34+pulse*0.34})`;
-      mapCtx.lineWidth=1.15;
+      mapCtx.shadowBlur=5+pulse*5;
+      mapCtx.strokeStyle=`rgba(245,255,249,${0.34+pulse*0.36})`;
+      mapCtx.lineWidth=1.05;
       mapCtx.beginPath();
-      mapCtx.arc(0,0,outer+3.4,0,Math.PI*2);
+      mapCtx.arc(0,0,glow,0,Math.PI*2);
       mapCtx.stroke();
 
+      mapCtx.strokeStyle=`rgba(232,221,255,${0.28+pulse*0.3})`;
+      mapCtx.lineWidth=0.9;
+      starPath(outer+4.2,inner+2.1,8,Math.PI*0.125-Math.PI*0.5);
+      mapCtx.stroke();
+
+      mapCtx.shadowBlur=6;
       mapCtx.fillStyle=palette.scannedPortalStroke;
       mapCtx.beginPath();
-      mapCtx.arc(0,0,2.1,0,Math.PI*2);
+      mapCtx.arc(0,0,2.2+pulse*0.6,0,Math.PI*2);
       mapCtx.fill();
+      mapCtx.shadowBlur=0;
       mapCtx.restore();
     }
   }

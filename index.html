@@ -952,13 +952,16 @@
     function menuVisible() {
       return startScreen.style.display !== "none"
         || visibleMenuElement("pauseMenuOverlay")
-        || visibleMenuElement("missionTerminalOverlay");
+        || visibleMenuElement("missionTerminalOverlay")
+        || visibleMenuElement("tradingTerminalOverlay");
     }
 
     function activeMenuRoot() {
-      const tradingTerminal = visibleMenuElement("missionTerminalOverlay");
+      const tradingTerminal = visibleMenuElement("tradingTerminalOverlay");
+      const missionTerminal = visibleMenuElement("missionTerminalOverlay");
       const pauseMenu = visibleMenuElement("pauseMenuOverlay");
       if (tradingTerminal) return tradingTerminal;
+      if (missionTerminal) return missionTerminal;
       if (pauseMenu) return pauseMenu;
       return startScreen.style.display !== "none" ? startScreen : null;
     }
