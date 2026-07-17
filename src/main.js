@@ -5,7 +5,7 @@ import { createInput } from "./input.js?v=scanner-bumper";
 import { createHud } from "./hud.js?v=compass-player-marker";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=night-stars";
 import { createWorld } from "./world.js?v=tech-cities";
-import { createMotorAudio } from "./audio.js?v=split-player-spatial-audio";
+import { createMotorAudio } from "./audio.js?v=player-laser-mp3";
 import { worldEnvironments } from "./environments.js";
 import { difficultySettings } from "./gameConfig.js?v=ammo-caps";
 import { loadBackPackModel, loadBaseStationModel, loadCarModel, loadEnemyBattleShipModel, loadJetModel, loadLandingSpaceModel, loadTradingOutpostModel, loadTreasureChestModels, makeMechModel } from "./models.js?v=base-station";
@@ -341,7 +341,10 @@ let jetUnlocked=false;
 let initialUnits=500;
 let testingScannerAvailableFromStart=false;
 let testingJetAvailableFromStart=false;
+let testingLaserAvailableFromStart=true;
 let units=initialUnits;
+let lastBuildingExplosionSoundAt=0;
+let buildingExplosionSoundCooldownMs=80;
 let purchasedTradingItems=new Set();
 let normalEnemyUnitAmount=20;
 let giantEnemyUnitAmount=50;
@@ -488,9 +491,65 @@ let bossLaserGlowMat=new THREE.LineBasicMaterial({
   depthWrite:false,
   blending:THREE.AdditiveBlending
 });
+let playerLaserMat=new THREE.LineBasicMaterial({
+  color:0xff3f2f,
+  transparent:true,
+  opacity:1,
+  linewidth:3,
+  depthWrite:false,
+  blending:THREE.AdditiveBlending
+});
+let playerLaserGlowMat=new THREE.LineBasicMaterial({
+  color:0xff9b58,
+  transparent:true,
+  opacity:0.64,
+  linewidth:10,
+  depthWrite:false,
+  blending:THREE.AdditiveBlending
+});
+let playerLaserTubeGeo=new THREE.CylinderGeometry(1,1,1,18,1,true);
+let playerLaserTubeMat=new THREE.MeshBasicMaterial({
+  color:0xff3f2f,
+  transparent:true,
+  opacity:0.22,
+  depthWrite:false,
+  blending:THREE.AdditiveBlending,
+  side:THREE.DoubleSide
+});
+let playerLaserOuterTubeMat=new THREE.MeshBasicMaterial({
+  color:0xff6b2f,
+  transparent:true,
+  opacity:0.12,
+  depthWrite:false,
+  blending:THREE.AdditiveBlending,
+  side:THREE.DoubleSide
+});
+let playerLaserImpactCoreGeo=new THREE.SphereGeometry(1,20,12);
+let playerLaserImpactCoreMat=new THREE.MeshBasicMaterial({
+  color:0xfff0c8,
+  transparent:true,
+  opacity:0.92,
+  depthWrite:false,
+  blending:THREE.AdditiveBlending
+});
+let playerLaserImpactHaloMat=new THREE.MeshBasicMaterial({
+  color:0xff3f2f,
+  transparent:true,
+  opacity:0.38,
+  depthWrite:false,
+  blending:THREE.AdditiveBlending
+});
 let bossLaserBeams=[];
 let bossLaserPointA=new THREE.Vector3();
 let bossLaserPointB=new THREE.Vector3();
+let playerLaserFireFrames=300;
+let playerLaserCooldownFrames=300;
+let playerLaserDamageInterval=12;
+let playerLaserDamageAmount=28;
+let playerLaserMothershipDamage=1.2;
+let playerLaserPointA=new THREE.Vector3();
+let playerLaserPointB=new THREE.Vector3();
+let playerLaserYAxis=new THREE.Vector3(0,1,0);
 let droneBodyMat=new THREE.MeshStandardMaterial({color:0x202935,emissive:0x061728,emissiveIntensity:0.35,roughness:0.56,metalness:0.7});
 let droneWingMat=new THREE.MeshStandardMaterial({color:0x58657a,emissive:0x121827,emissiveIntensity:0.22,roughness:0.6,metalness:0.55});
 let droneCoreMat=new THREE.MeshBasicMaterial({color:0x9fd8ff,transparent:true,opacity:0.78,depthWrite:false,blending:THREE.AdditiveBlending});
@@ -866,6 +925,7 @@ function tradingItemOwned(id){
 
 function applyTestingStartItems(){
   if(testingScannerAvailableFromStart) purchasedTradingItems.add("scanner");
+  if(testingLaserAvailableFromStart) purchasedTradingItems.add("laser-gun");
   if(testingJetAvailableFromStart){
     purchasedTradingItems.add("jet");
     jetUnlocked=true;
@@ -878,6 +938,10 @@ function rocketLauncherUnlocked(){
 
 function scannerUnlocked(){
   return tradingItemOwned("scanner");
+}
+
+function laserUnlocked(){
+  return tradingItemOwned("laser-gun");
 }
 
 function shieldUnlocked(){
@@ -994,6 +1058,12 @@ function createCarState(id,lateralOffset,controls,camera,gamepadIndex){
     lastCannonButton:false,
     cannonCooldown:0,
     cannonAmmo:maxCannonAmmo(),
+    lastLaserButton:false,
+    laserFireFrames:0,
+    laserCooldown:0,
+    laserDamageTick:0,
+    laserBeam:null,
+    laserSoundStop:null,
     clusterBombCooldown:0,
     clusterBombAmmo:initialClusterBombAmmo,
     boostCharge:maxBoostCharge,
@@ -1558,6 +1628,7 @@ function createTradingScreen(){
   let boughtList=makeTradeColumn("Bought");
   let tradeItems=[
     {id:"rocket-launcher",name:"Rocket launcher",price:1000},
+    {id:"laser-gun",name:"Laser gun",price:2500},
     {id:"scanner",name:"Scanner",price:1000},
     {id:"portal-key",name:"Portal key",price:5000},
     {id:"jet",name:"Jet",price:5000},
@@ -1860,6 +1931,8 @@ let hud=createHud({
     carRocketAmmo:rocketLauncherUnlocked() ? car.carRocketAmmo : 0,
     cannonAmmo:car.cannonAmmo,
     clusterBombAmmo:car.clusterBombAmmo,
+    laserCooldown:car.laserCooldown,
+    laserFireFrames:car.laserFireFrames,
     boostCharge:car.boostCharge,
     fuel:car.fuel,
     units
@@ -1943,6 +2016,8 @@ function serializeCarStatus(car){
     carRocketAmmo:car.carRocketAmmo,
     cannonAmmo:car.cannonAmmo,
     clusterBombAmmo:car.clusterBombAmmo,
+    laserCooldown:car.laserCooldown,
+    laserFireFrames:car.laserFireFrames,
     boostCharge:car.boostCharge,
     fuel:car.fuel,
     damageZones:robotDamageSnapshot(car.damageZones),
@@ -2089,6 +2164,9 @@ function restoreCarStatus(car,saved){
   car.carRocketAmmo=Math.max(0,Math.min(maxCarRocketAmmo(),Math.floor(finiteOr(saved.carRocketAmmo,maxCarRocketAmmo()))));
   car.cannonAmmo=Math.max(0,Math.min(maxCannonAmmo(),Math.floor(finiteOr(saved.cannonAmmo,maxCannonAmmo()))));
   car.clusterBombAmmo=Math.max(0,Math.floor(finiteOr(saved.clusterBombAmmo,initialClusterBombAmmo)));
+  car.laserCooldown=Math.max(0,Math.floor(finiteOr(saved.laserCooldown,0)));
+  car.laserFireFrames=Math.max(0,Math.min(playerLaserFireFrames,Math.floor(finiteOr(saved.laserFireFrames,0))));
+  car.laserDamageTick=0;
   car.boostCharge=Math.max(0,Math.min(maxBoostCharge,finiteOr(saved.boostCharge,maxBoostCharge)));
   car.fuel=Math.max(0,Math.min(maxFuel,finiteOr(saved.fuel,maxFuel)));
   car.damageZones=restoreDamageState(saved.damageZones);
@@ -2415,12 +2493,30 @@ function updateTreasurePickups(){
   }
 }
 
+function playBuildingExplosionSound(obstacle){
+  if(!obstacle || obstacle.type!=="building" || !motorAudio || !motorAudio.playExplosion) return;
+
+  let now=performance.now();
+  if(now-lastBuildingExplosionSoundAt<buildingExplosionSoundCooldownMs) return;
+  lastBuildingExplosionSoundAt=now;
+
+  let height=obstacle.visualHeight || obstacle.height || Math.max(8,(obstacle.r || 5)*1.4);
+  let baseY=Number.isFinite(obstacle.baseY) ? obstacle.baseY : drivingSurfaceHeight(obstacle.x,obstacle.z);
+  motorAudio.playExplosion({
+    x:obstacle.x,
+    y:baseY+height*0.42,
+    z:obstacle.z
+  });
+}
+
 function destroyWorldObstacle(obstacle){
   if(!world.destroyObstacle(obstacle)) return false;
 
   if(obstacle.village && obstacle.type==="building"){
     addUnits(villageBuildingUnitAmount);
   }
+
+  playBuildingExplosionSound(obstacle);
 
   if(obstacle.village && world.isVillageCleared(obstacle.village) && !scoredVillages.has(obstacle.village)){
     scoredVillages.add(obstacle.village);
@@ -4663,6 +4759,314 @@ function cannonLaunchPointForCar(car){
   );
 }
 
+function playerLaserLaunchPointForCar(car){
+  let parts=car.mechModel && car.mechModel.userData ? car.mechModel.userData.walkParts : null;
+  let cannon=parts && parts.right ? parts.right.cannon : null;
+
+  if(cannon){
+    cannon.updateWorldMatrix(true,false);
+    return cannon.localToWorld(new THREE.Vector3(0,0.82,0));
+  }
+
+  return cannonLaunchPointForCar(car);
+}
+
+function stopPlayerLaserSound(car){
+  if(!car || !car.laserSoundStop) return;
+  car.laserSoundStop();
+  car.laserSoundStop=null;
+}
+
+function clearPlayerLaserBeam(car){
+  let beam=car && car.laserBeam;
+  stopPlayerLaserSound(car);
+  if(!beam) return;
+
+  for(let layer of beam.layers || []){
+    let object=layer.object || layer.line;
+    if(object) scene.remove(object);
+    if(layer.geometry && layer.disposeGeometry!==false) layer.geometry.dispose();
+    if(layer.material) layer.material.dispose();
+  }
+  for(let impact of beam.impacts || []){
+    scene.remove(impact.mesh);
+    if(impact.material) impact.material.dispose();
+  }
+  car.laserBeam=null;
+}
+
+function ensurePlayerLaserBeam(car){
+  if(car.laserBeam) return car.laserBeam;
+
+  let layers=[];
+  let configs=[
+    {kind:"tube",material:playerLaserOuterTubeMat.clone(),renderOrder:28,radius:0.42,opacity:0.12},
+    {kind:"tube",material:playerLaserTubeMat.clone(),renderOrder:29,radius:0.18,opacity:0.22},
+    {kind:"line",material:playerLaserMat.clone(),renderOrder:32},
+    {kind:"line",material:playerLaserGlowMat.clone(),renderOrder:31,opacity:0.72},
+    {kind:"line",material:playerLaserGlowMat.clone(),renderOrder:30,opacity:0.44}
+  ];
+
+  for(let config of configs){
+    let geometry;
+    let object;
+    if(config.kind==="tube"){
+      geometry=playerLaserTubeGeo;
+      object=new THREE.Mesh(geometry,config.material);
+    }else{
+      geometry=new THREE.BufferGeometry();
+      geometry.setAttribute("position",new THREE.BufferAttribute(new Float32Array(6),3));
+      object=new THREE.Line(geometry,config.material);
+    }
+    object.renderOrder=config.renderOrder;
+    object.frustumCulled=false;
+    if(Number.isFinite(config.opacity)) config.material.opacity=config.opacity;
+    scene.add(object);
+    layers.push({
+      kind:config.kind,
+      object,
+      line:config.kind==="line" ? object : null,
+      geometry,
+      material:config.material,
+      radius:config.radius || 1,
+      opacity:config.opacity,
+      disposeGeometry:config.kind!=="tube"
+    });
+  }
+
+  let impactCore=new THREE.Mesh(playerLaserImpactCoreGeo,playerLaserImpactCoreMat.clone());
+  let impactHalo=new THREE.Mesh(playerLaserImpactCoreGeo,playerLaserImpactHaloMat.clone());
+  impactCore.renderOrder=33;
+  impactHalo.renderOrder=32;
+  impactCore.frustumCulled=false;
+  impactHalo.frustumCulled=false;
+  impactCore.visible=false;
+  impactHalo.visible=false;
+  scene.add(impactHalo,impactCore);
+
+  car.laserBeam={
+    layers,
+    impacts:[
+      {mesh:impactHalo,material:impactHalo.material,baseScale:1.35,opacity:0.38},
+      {mesh:impactCore,material:impactCore.material,baseScale:0.34,opacity:0.92}
+    ]
+  };
+  return car.laserBeam;
+}
+
+function setPlayerLaserLayer(layer,from,to,offset){
+  if(layer.kind==="tube"){
+    let direction=to.clone().sub(from);
+    let length=Math.max(0.01,direction.length());
+    direction.normalize();
+    layer.object.position.set(
+      (from.x+to.x)*0.5+offset.x,
+      (from.y+to.y)*0.5+offset.y,
+      (from.z+to.z)*0.5+offset.z
+    );
+    layer.object.quaternion.setFromUnitVectors(playerLaserYAxis,direction);
+    layer.object.scale.set(layer.radius,length,layer.radius);
+    return;
+  }
+
+  let position=layer.geometry.attributes.position;
+  position.setXYZ(0,from.x+offset.x,from.y+offset.y,from.z+offset.z);
+  position.setXYZ(1,to.x+offset.x,to.y+offset.y,to.z+offset.z);
+  position.needsUpdate=true;
+  layer.geometry.computeBoundingSphere();
+}
+
+function updatePlayerLaserBeamVisual(car,from,to){
+  let beam=ensurePlayerLaserBeam(car);
+  let direction=to.clone().sub(from);
+  if(direction.lengthSq()<0.001) direction.set(0,0,1);
+  direction.normalize();
+  let side=new THREE.Vector3(-direction.z,0,direction.x);
+  if(side.lengthSq()<0.001) side.set(1,0,0);
+  side.normalize();
+  let up=new THREE.Vector3(0,1,0);
+  let pulse=0.5+0.5*Math.sin(performance.now()*0.04);
+  let offsets=[
+    new THREE.Vector3(0,0,0),
+    side.clone().multiplyScalar(0.16+pulse*0.06),
+    up.clone().multiplyScalar(-0.12-pulse*0.04)
+  ];
+
+  for(let i=0;i<beam.layers.length;i++){
+    let layer=beam.layers[i];
+    setPlayerLaserLayer(layer,from,to,offsets[i] || offsets[0]);
+    if(layer.kind==="tube"){
+      layer.material.opacity=(layer.opacity || 0.16)+pulse*(i===0 ? 0.08 : 0.12);
+      let radiusScale=1+pulse*(i===0 ? 0.24 : 0.18);
+      layer.object.scale.x*=radiusScale;
+      layer.object.scale.z*=radiusScale;
+    }else{
+      layer.material.opacity=(i===2 ? 0.9 : i===3 ? 0.56 : 0.34)+pulse*(i===2 ? 0.1 : 0.16);
+    }
+  }
+
+  if(beam.impacts){
+    for(let i=0;i<beam.impacts.length;i++){
+      let impact=beam.impacts[i];
+      let scale=impact.baseScale*(1+pulse*(i===0 ? 0.55 : 0.35));
+      impact.mesh.position.copy(to);
+      impact.mesh.scale.setScalar(scale);
+      impact.material.opacity=impact.opacity*(0.76+pulse*0.24);
+      impact.mesh.visible=true;
+    }
+  }
+}
+
+function playerLaserHitForCar(car,from,aimPoint){
+  let direction=aimPoint.clone().sub(from);
+  if(direction.lengthSq()<0.001) return {point:from.clone(),actor:null,obstacle:null,mothershipHit:null};
+  direction.normalize();
+
+  let maxDistance=560;
+  let best={t:maxDistance,actor:null,obstacle:null,mothershipHit:null};
+
+  for(let actor of combatActors()){
+    if(actor===car) continue;
+    if(!actor.isEnemy) continue;
+    if(!actor.active || actor.health<=0) continue;
+    if(playerInvisibleToEnemies(actor)) continue;
+    let radius=Math.max(actorAimRadius(actor),actor.collisionRadius || 0);
+    let t=raySphereDistance(from,direction,actor.x,actor.y+2.0,actor.z,radius,1);
+    if(t!==null && t<best.t) best={t,actor,obstacle:null,mothershipHit:null};
+  }
+
+  if(mothership && mothership.health>0 && !mothership.beamingOut){
+    let shipY=mothership.group ? mothership.group.position.y : mothership.y;
+    let t=raySphereDistance(from,direction,mothership.x,shipY,mothership.z,24,1);
+    if(t!==null && t<best.t){
+      playerLaserPointB.copy(direction).multiplyScalar(t).add(from);
+      best={t,actor:null,obstacle:null,mothershipHit:{x:playerLaserPointB.x,y:playerLaserPointB.y,z:playerLaserPointB.z}};
+    }
+  }
+
+  let end=playerLaserPointB.copy(direction).multiplyScalar(maxDistance).add(from).clone();
+  let obstacle=world.obstacleAlongSegment3D(from.x,from.y,from.z,end.x,end.y,end.z,0.8);
+  if(obstacle){
+    let obstacleY=Number.isFinite(obstacle.y)
+      ? obstacle.y
+      : groundHeight(obstacle.x,obstacle.z)+Math.max(0.6,obstacle.r*0.45);
+    let t=(obstacle.x-from.x)*direction.x+(obstacleY-from.y)*direction.y+(obstacle.z-from.z)*direction.z;
+    t=clamp(t,1,maxDistance);
+    if(t<best.t) best={t,actor:null,obstacle,mothershipHit:null};
+  }
+
+  let previousPoint=playerLaserPointA.copy(direction).multiplyScalar(1).add(from).clone();
+  for(let t=8;t<=best.t;t+=8){
+    let point=playerLaserPointB.copy(direction).multiplyScalar(t).add(from);
+    let surface=drivingSurfaceHeight(point.x,point.z)+0.2;
+    if(point.y<=surface && previousPoint.y>drivingSurfaceHeight(previousPoint.x,previousPoint.z)+0.2){
+      best={t,actor:null,obstacle:null,mothershipHit:null};
+      break;
+    }
+    previousPoint.copy(point);
+  }
+
+  let point=direction.clone().multiplyScalar(best.t).add(from);
+  return {...best,point};
+}
+
+function applyPlayerLaserDamage(car,hit){
+  if(!hit || playerCombatSuppressed(car)) return;
+
+  let point=hit.point || {x:car.x,y:car.y,z:car.z};
+  if(hit.actor){
+    damageActor(hit.actor,playerLaserDamageAmount,{x:point.x,y:point.y,z:point.z});
+    rattleActor(hit.actor,1.05);
+  }
+  if(hit.mothershipHit){
+    damageMothership(point.x,point.y,point.z,playerLaserMothershipDamage);
+  }
+  if(hit.obstacle){
+    if(hit.obstacle.type==="bossBase"){
+      damageBossBaseObstacle(hit.obstacle,point.x,point.y,point.z,playerLaserDamageAmount*2.4);
+    }else if(hit.obstacle.type==="building" || hit.obstacle.type==="wall"){
+      spawnBuildingAmmoImpact(hit.obstacle,point.x,point.y,point.z,playerLaserDamageAmount*2);
+      if(damageWorldObstacle(hit.obstacle,playerLaserDamageAmount*2.4)){
+        spawnRockDebris(hit.obstacle.x,point.y,hit.obstacle.z,hit.obstacle);
+      }
+    }else if(hit.obstacle.type==="rock" || hit.obstacle.type==="smallRock" || hit.obstacle.type==="turret"){
+      if(damageWorldObstacle(hit.obstacle,playerLaserDamageAmount*2)){
+        spawnRockDebris(hit.obstacle.x,point.y,hit.obstacle.z,hit.obstacle);
+      }
+    }
+  }
+
+  for(let i=0;i<3;i++){
+    dust.spawnThrusterParticle(
+      point.x,
+      point.y,
+      point.z,
+      (Math.random()-0.5)*1.4,
+      (Math.random()-0.5)*1.4,
+      (Math.random()-0.5)*1.1,
+      0.09+Math.random()*0.05,
+      0.035+Math.random()*0.03
+    );
+  }
+}
+
+function updatePlayerLaserInput(car){
+  if(car.laserCooldown>0) car.laserCooldown--;
+
+  let buttons=input.getGamepadFaceButtons(car.gamepadIndex);
+  let laserButton=buttons.y;
+  let pressedLaser=laserButton && !car.lastLaserButton;
+  let canUseLaser=!gameOver
+    && car.health>0
+    && !car.isEnemy
+    && laserUnlocked()
+    && !car.morphed
+    && car.morphProgress<0.35
+    && !car.jetMode
+    && car.jetProgress<0.35
+    && !playerCombatSuppressed(car)
+    && !actorInsideBuilding(car);
+
+  if(pressedLaser && canUseLaser && car.laserCooldown<=0 && car.laserFireFrames<=0){
+    car.laserFireFrames=playerLaserFireFrames;
+    car.laserDamageTick=0;
+    stopPlayerLaserSound(car);
+    if(motorAudio.playPlayerLaserFire){
+      car.laserSoundStop=motorAudio.playPlayerLaserFire(
+        playerLaserLaunchPointForCar(car),
+        playerLaserFireFrames/60
+      );
+    }
+  }
+
+  if(car.laserFireFrames>0 && canUseLaser){
+    car.laserFireFrames--;
+    car.laserDamageTick--;
+
+    let from=playerLaserLaunchPointForCar(car);
+    let aimPoint=aimTargetForCar(car);
+    let hit=playerLaserHitForCar(car,from,aimPoint);
+    updatePlayerLaserBeamVisual(car,from,hit.point);
+
+    if(car.laserDamageTick<=0){
+      applyPlayerLaserDamage(car,hit);
+      car.laserDamageTick=playerLaserDamageInterval;
+    }
+  }else{
+    let interrupted=car.laserFireFrames>0;
+    if(interrupted) car.laserFireFrames=0;
+    if(car.laserBeam) clearPlayerLaserBeam(car);
+    if(interrupted && car.laserCooldown<=0) car.laserCooldown=playerLaserCooldownFrames;
+  }
+
+  if(car.laserFireFrames<=0 && car.laserBeam){
+    clearPlayerLaserBeam(car);
+    car.laserCooldown=playerLaserCooldownFrames;
+  }
+
+  car.lastLaserButton=laserButton;
+}
+
 function fireCannon(car){
   if(gameOver || car.health<=0 || car.cannonCooldown>0) return false;
   if(car.morphed || car.morphProgress>0.35) return false;
@@ -4911,6 +5315,7 @@ function removeClusterBomb(index){
 }
 
 function clearRockets(){
+  for(let car of cars) clearPlayerLaserBeam(car);
   for(let rocket of rockets){
     scene.remove(rocket.mesh);
   }
@@ -9313,6 +9718,7 @@ function updateCar(car){
   car.group.rotation.z=car.trickRoll+(car.jetBank || 0);
   updateMechAnimation(car);
   updateMorphVisual(car);
+  updatePlayerLaserInput(car);
   updateCannonInput(car);
   if(car.hitRattle>0){
     let shake=car.hitRattle;
@@ -10527,6 +10933,11 @@ function placeCarOnOpenField(car,startInfo){
   car.lastCannonButton=false;
   car.cannonCooldown=0;
   car.cannonAmmo=maxCannonAmmo();
+  car.lastLaserButton=false;
+  car.laserFireFrames=0;
+  car.laserCooldown=0;
+  car.laserDamageTick=0;
+  clearPlayerLaserBeam(car);
   car.clusterBombCooldown=0;
   car.clusterBombAmmo=initialClusterBombAmmo;
   car.boostCharge=maxBoostCharge;

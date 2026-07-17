@@ -9,6 +9,8 @@ export function createMotorAudio(cars){
   let rocketImpactBufferPromise=null;
   let cannonImpactBuffer=null;
   let cannonImpactBufferPromise=null;
+  let playerLaserBuffer=null;
+  let playerLaserBufferPromise=null;
   let giantFootstepBuffer=null;
   let giantFootstepBufferPromise=null;
   let scannerBuffer=null;
@@ -55,6 +57,7 @@ export function createMotorAudio(cars){
     loadRocketLaunchBuffer();
     loadRocketImpactBuffer();
     loadCannonImpactBuffer();
+    loadPlayerLaserBuffer();
     loadGiantFootstepBuffer();
     loadScannerBuffer();
 
@@ -425,6 +428,30 @@ export function createMotorAudio(cars){
       });
 
     return cannonImpactBufferPromise;
+  }
+
+  function loadPlayerLaserBuffer(){
+    if(!context || !supported) return null;
+    if(playerLaserBuffer) return Promise.resolve(playerLaserBuffer);
+    if(playerLaserBufferPromise) return playerLaserBufferPromise;
+
+    playerLaserBufferPromise=fetch("./assets/sounds/laser.mp3")
+      .then(response=>{
+        if(!response.ok) throw new Error(`Failed to load laser.mp3: ${response.status}`);
+        return response.arrayBuffer();
+      })
+      .then(data=>context.decodeAudioData(data))
+      .then(buffer=>{
+        playerLaserBuffer=buffer;
+        return buffer;
+      })
+      .catch(error=>{
+        console.warn(error);
+        playerLaserBufferPromise=null;
+        return null;
+      });
+
+    return playerLaserBufferPromise;
   }
 
   function loadGiantFootstepBuffer(){
@@ -890,6 +917,45 @@ export function createMotorAudio(cars){
     noise.stop(time+0.2);
   }
 
+  function playPlayerLaserFire(position=null,duration=5){
+    ensureContext();
+    if(!context || !supported) return null;
+    if(context.state==="suspended") context.resume();
+    if(!playerLaserBuffer){
+      loadPlayerLaserBuffer();
+      return null;
+    }
+
+    let time=context.currentTime+0.004;
+    let source=context.createBufferSource();
+    let gain=context.createGain();
+    let destination=spatialDestination(position,{minDistance:24,maxDistance:760,rolloff:2.8,volume:1});
+    let stopAt=time+Math.min(playerLaserBuffer.duration,Math.max(0.1,duration));
+    let stopped=false;
+
+    source.buffer=playerLaserBuffer;
+    gain.gain.setValueAtTime(0.0001,time);
+    gain.gain.exponentialRampToValueAtTime(0.82,time+0.018);
+    gain.gain.setTargetAtTime(0.0001,Math.max(time+0.08,stopAt-0.18),0.08);
+
+    source.connect(gain);
+    gain.connect(destination);
+    source.start(time);
+    source.stop(stopAt+0.04);
+
+    return ()=>{
+      if(stopped) return;
+      stopped=true;
+      let now=context.currentTime;
+      try{
+        gain.gain.cancelScheduledValues(now);
+        gain.gain.setValueAtTime(Math.max(0.0001,gain.gain.value || 0.0001),now);
+        gain.gain.exponentialRampToValueAtTime(0.0001,now+0.08);
+        source.stop(now+0.1);
+      }catch(error){}
+    };
+  }
+
   function startMothershipHum(position=null){
     ensureContext();
     if(!context || !supported) return;
@@ -1015,6 +1081,7 @@ export function createMotorAudio(cars){
     playGiantFootstep,
     playScannerPulse,
     playLaserFire,
+    playPlayerLaserFire,
     startMothershipHum,
     updateMothershipHum,
     stopMothershipHum,
