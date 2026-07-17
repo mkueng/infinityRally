@@ -17,10 +17,20 @@ export function createMotorAudio(cars){
   let rainAudio=null;
   let supported=true;
   let sfxVolume=1;
-  let musicVolume=0.0;
+  let musicVolume=0.3;
   let paused=false;
-  let backgroundMusic=new Audio("./assets/music/ROSpace.mp3");
-  backgroundMusic.loop=true;
+  let sfxEnabled=false;
+  let musicPlaylist=[
+    "./assets/music/ROSpace.mp3",
+    "./assets/music/Planetatmospher.mp3"
+  ];
+  let musicTrackIndex=0;
+  let musicPlayCount=0;
+  let musicLoopsPerTrack=3;
+  let musicSwitchDelayMs=5000;
+  let musicSwitchTimer=null;
+  let backgroundMusic=new Audio(musicPlaylist[musicTrackIndex]);
+  backgroundMusic.loop=false;
   backgroundMusic.volume=musicVolume;
   backgroundMusic.preload="auto";
 
@@ -39,7 +49,7 @@ export function createMotorAudio(cars){
 
     context=new AudioContextClass();
     master=context.createGain();
-    master.gain.value=paused ? 0 : 0.26*sfxVolume;
+    master.gain.value=paused || !sfxEnabled ? 0 : 0.26*sfxVolume;
     master.connect(context.destination);
     noiseBuffer=createNoiseBuffer();
     loadRocketLaunchBuffer();
@@ -87,7 +97,7 @@ export function createMotorAudio(cars){
       skidFilter.connect(skidGain);
 
       if(pan){
-        pan.pan.value=index===0 ? -0.42 : 0.42;
+        pan.pan.value=0;
         idleGain.connect(pan);
         roadGain.connect(pan);
         skidGain.connect(pan);
@@ -122,7 +132,33 @@ export function createMotorAudio(cars){
 
   function applyVolumes(){
     backgroundMusic.volume=musicVolume;
-    if(master) master.gain.value=paused ? 0 : 0.26*sfxVolume;
+    if(master) master.gain.value=paused || !sfxEnabled ? 0 : 0.26*sfxVolume;
+  }
+
+  function playBackgroundMusic(){
+    backgroundMusic.play().catch(()=>{});
+  }
+
+  function advanceBackgroundMusic(){
+    if(musicSwitchTimer){
+      window.clearTimeout(musicSwitchTimer);
+      musicSwitchTimer=null;
+    }
+
+    musicPlayCount++;
+    if(musicPlayCount>=musicLoopsPerTrack){
+      musicPlayCount=0;
+      musicTrackIndex=(musicTrackIndex+1)%musicPlaylist.length;
+      backgroundMusic.src=musicPlaylist[musicTrackIndex];
+      backgroundMusic.load();
+      musicSwitchTimer=window.setTimeout(()=>{
+        musicSwitchTimer=null;
+        playBackgroundMusic();
+      },musicSwitchDelayMs);
+    }else{
+      backgroundMusic.currentTime=0;
+      playBackgroundMusic();
+    }
   }
 
   function setMusicVolume(value){
@@ -137,6 +173,11 @@ export function createMotorAudio(cars){
 
   function setPaused(value){
     paused=!!value;
+    applyVolumes();
+  }
+
+  function setSfxEnabled(value){
+    sfxEnabled=!!value;
     applyVolumes();
   }
 
@@ -210,41 +251,66 @@ export function createMotorAudio(cars){
     audio.patterFilter.frequency.setTargetAtTime(3300+level*2200,now,0.55);
   }
 
-  function listenerState(){
-    let active=cars.filter(car=>car && (!car.group || car.group.visible) && car.health>0);
-    let car=active[0] || cars[0];
-    if(!car) return null;
+  function visibleCarCount(){
+    return cars.filter(car=>car && (!car.group || car.group.visible) && car.health>0).length;
+  }
 
-    return {
+  function screenPanForCar(car,count=visibleCarCount()){
+    if(count<2) return 0;
+    if(car && car.id==="car2") return -0.42;
+    if(car && car.id==="car1") return 0.42;
+    return 0;
+  }
+
+  function listenerStates(){
+    let active=cars.filter(car=>car && (!car.group || car.group.visible) && car.health>0);
+    let listeners=active.length ? active : (cars[0] ? [cars[0]] : []);
+
+    return listeners.map((car,index)=>({
       x:Number.isFinite(car.x) ? car.x : 0,
       z:Number.isFinite(car.z) ? car.z : 0,
-      yaw:Number.isFinite(car.cameraYaw) ? car.cameraYaw : Number.isFinite(car.angle) ? car.angle : 0
-    };
+      yaw:Number.isFinite(car.cameraYaw) ? car.cameraYaw : Number.isFinite(car.angle) ? car.angle : 0,
+      screenPan:screenPanForCar(car,listeners.length)
+    }));
   }
 
   function spatialMetrics(position,options={}){
     if(!position || !Number.isFinite(position.x) || !Number.isFinite(position.z)) return {gain:1,pan:0};
 
-    let listener=listenerState();
-    if(!listener) return {gain:1,pan:0};
-
-    let dx=position.x-listener.x;
-    let dz=position.z-listener.z;
-    let distance=Math.hypot(dx,dz);
     let minDistance=options.minDistance ?? 24;
     let maxDistance=options.maxDistance ?? 760;
     let rolloff=options.rolloff ?? 2.8;
     let volume=options.volume ?? 1;
-    let falloff=distance<=minDistance
-      ? 1
-      : 1/(1+((distance-minDistance)/Math.max(1,maxDistance-minDistance))*rolloff);
-    let gain=clamp(falloff*volume,options.floor ?? 0.025,1.25);
+    let listeners=listenerStates();
+    if(!listeners.length) return {gain:1,pan:0};
 
-    let rightX=Math.cos(listener.yaw);
-    let rightZ=-Math.sin(listener.yaw);
-    let pan=distance>0.001 ? clamp((dx*rightX+dz*rightZ)/distance,-1,1) : 0;
     let panStrength=options.panStrength ?? 0.82;
-    return {gain,pan:-pan*panStrength};
+    let strongestGain=0;
+    let weightedPan=0;
+    let totalWeight=0;
+
+    for(let listener of listeners){
+      let dx=position.x-listener.x;
+      let dz=position.z-listener.z;
+      let distance=Math.hypot(dx,dz);
+      let falloff=distance<=minDistance
+        ? 1
+        : 1/(1+((distance-minDistance)/Math.max(1,maxDistance-minDistance))*rolloff);
+      let listenerGain=clamp(falloff*volume,options.floor ?? 0.025,1.25);
+      let rightX=Math.cos(listener.yaw);
+      let rightZ=-Math.sin(listener.yaw);
+      let localPan=distance>0.001 ? clamp((dx*rightX+dz*rightZ)/distance,-1,1) : 0;
+      let pan=clamp(listener.screenPan-localPan*panStrength*0.58,-1,1);
+      let weight=listenerGain*listenerGain;
+
+      strongestGain=Math.max(strongestGain,listenerGain);
+      weightedPan+=pan*weight;
+      totalWeight+=weight;
+    }
+
+    let gain=clamp(strongestGain,options.floor ?? 0.025,1.25);
+    let pan=totalWeight>0 ? clamp(weightedPan/totalWeight,-1,1) : 0;
+    return {gain,pan};
   }
 
   function spatialDestination(position,options={}){
@@ -413,9 +479,11 @@ export function createMotorAudio(cars){
     ensureContext();
     if(context && context.state==="suspended") context.resume();
     if(backgroundMusic.paused){
-      backgroundMusic.play().catch(()=>{});
+      playBackgroundMusic();
     }
   }
+
+  backgroundMusic.addEventListener("ended",advanceBackgroundMusic);
 
   window.addEventListener("pointerdown",resume);
   window.addEventListener("keydown",resume);
@@ -426,11 +494,12 @@ export function createMotorAudio(cars){
     if(!context || context.state!=="running") return;
 
     let now=context.currentTime;
+    let activeMotorCount=visibleCarCount();
     for(let motor of motors){
       let car=motor.car;
       let speedRatio=clamp(Math.abs(car.speed || 0)/0.38,0,1);
       let throttle=clamp(Math.max(0,car.throttleInput || 0),0,1);
-      let disabled=car.health<=0;
+      let disabled=car.health<=0 || (car.group && !car.group.visible);
       let onGround=car.onGround!==false;
       let airborne=car.airborne===true;
       let mechMode=(car.morphProgress || 0)<0.35 && (car.jetProgress || 0)<0.35;
@@ -450,6 +519,7 @@ export function createMotorAudio(cars){
       motor.roadGain.gain.setTargetAtTime(!mechMode && onGround && !disabled ? speedRatio*(0.018+offroad*0.045) : 0,now,0.12);
       motor.skidFilter.frequency.setTargetAtTime(620+speedRatio*620+offroad*240,now,0.08);
       motor.skidGain.gain.setTargetAtTime(!mechMode && onGround && !disabled ? Math.pow(slip,1.35)*speedRatio*(0.018+offroad*0.018) : 0,now,0.07);
+      if(motor.pan) motor.pan.pan.setTargetAtTime(screenPanForCar(car,activeMotorCount),now,0.18);
 
       if(disabled) continue;
       if(motor.nextPulseTime<now) motor.nextPulseTime=now;
@@ -934,6 +1004,7 @@ export function createMotorAudio(cars){
     setMusicVolume,
     setSfxVolume,
     setPaused,
+    setSfxEnabled,
     getVolumeSettings,
     playRocketLaunch,
     playCannonFire,

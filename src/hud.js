@@ -867,7 +867,63 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     ctx.restore();
   }
 
-  function drawCompassHud(panel,state){
+  function drawCompassPlayerMarker(ctx,state,allStates,cx,cy,radius,arcHalf,viewHalf){
+    if(!state || !Array.isArray(allStates) || allStates.length<2) return;
+
+    let heading=state.carVelAngle || 0;
+    for(let other of allStates){
+      if(!other || other.id===state.id || other.carHealth<=0) continue;
+
+      let dx=other.carX-state.carX;
+      let dz=other.carZ-state.carZ;
+      let distSq=dx*dx+dz*dz;
+      if(distSq<4) continue;
+
+      let playerAngle=Math.atan2(dx,dz);
+      let delta=normalizeAngle(playerAngle-heading);
+      let inView=Math.abs(delta)<=viewHalf;
+      let t=Math.max(-1,Math.min(1,delta/viewHalf));
+      let theta=-Math.PI/2+t*arcHalf;
+      let markerRadius=radius-24;
+      let x=cx+Math.cos(theta)*markerRadius;
+      let y=cy+Math.sin(theta)*markerRadius;
+      let pulse=0.5+0.5*Math.sin(performance.now()*0.0085);
+      let color=other.color || "#ffffff";
+      let alpha=inView ? 0.86+pulse*0.12 : 0.52+pulse*0.12;
+
+      ctx.save();
+      ctx.translate(x,y);
+      ctx.rotate(theta+Math.PI/2);
+      ctx.globalAlpha=alpha;
+      ctx.fillStyle=color;
+      ctx.strokeStyle="rgba(18,7,43,0.9)";
+      ctx.lineWidth=3;
+      ctx.beginPath();
+      ctx.moveTo(0,-10-pulse*1.1);
+      ctx.lineTo(7,7);
+      ctx.lineTo(0,3.5);
+      ctx.lineTo(-7,7);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.fill();
+      ctx.restore();
+
+      ctx.save();
+      ctx.translate(x,y+14);
+      ctx.font=`900 ${inView ? 11 : 10}px "Astor", Arial`;
+      ctx.textAlign="center";
+      ctx.textBaseline="middle";
+      ctx.strokeStyle="rgba(18,7,43,0.92)";
+      ctx.lineWidth=3;
+      ctx.strokeText(other.label || "P",0,0);
+      ctx.fillStyle=color;
+      ctx.globalAlpha=alpha;
+      ctx.fillText(other.label || "P",0,0);
+      ctx.restore();
+    }
+  }
+
+  function drawCompassHud(panel,state,allStates=[]){
     if(!panel.compassCtx || !state) return;
 
     let ctx=panel.compassCtx;
@@ -942,6 +998,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     drawCompassStationMarker(ctx,state,cx,cy,radius,arcHalf,viewHalf,palette);
     drawCompassBossBaseMarker(ctx,state,cx,cy,radius,arcHalf,viewHalf,palette);
     drawCompassTradingOutpostMarker(ctx,state,cx,cy,radius,arcHalf,viewHalf,palette);
+    drawCompassPlayerMarker(ctx,state,allStates,cx,cy,radius,arcHalf,viewHalf);
 
     ctx.strokeStyle="rgba(255,255,255,0.92)";
     ctx.fillStyle="rgba(255,255,255,0.92)";
@@ -1019,7 +1076,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     if(getPerformanceMode()==="split" && compassUpdateFrame++%2!==0) return;
     let states=getCarStates();
     for(let i=0;i<panels.length;i++){
-      drawCompassHud(panels[i],states[i]);
+      drawCompassHud(panels[i],states[i],states);
     }
   }
 
