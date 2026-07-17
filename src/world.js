@@ -152,6 +152,8 @@ let chimneyMat=new THREE.MeshStandardMaterial({color:0x494058,roughness:1,metaln
 let houseTrimMat=new THREE.MeshStandardMaterial({color:0xa78fbd,roughness:0.78,metalness:0.08});
 let brickWallMat=new THREE.MeshStandardMaterial({color:0x714060,roughness:0.95,metalness:0.05});
 let cityStreetMat=new THREE.MeshStandardMaterial({color:0x1d1f25,roughness:0.86,metalness:0.08});
+let cityDetailMat=new THREE.MeshStandardMaterial({color:0xa78fbd,emissive:0x241438,emissiveIntensity:0.18,roughness:0.72,metalness:0.1});
+let cityGlowMat=new THREE.MeshBasicMaterial({color:0x8dfff2,transparent:true,opacity:0.82,depthWrite:false,depthTest:true});
 let bossBaseMat=new THREE.MeshStandardMaterial({color:0x191a24,emissive:0x19091f,emissiveIntensity:0.28,roughness:0.78,metalness:0.58});
 let bossBaseTrimMat=new THREE.MeshStandardMaterial({color:0x7a2f68,emissive:0x4c123d,emissiveIntensity:0.52,roughness:0.5,metalness:0.4});
 let bossBaseGlowMat=new THREE.MeshBasicMaterial({color:0xff4fc8,transparent:true,opacity:0.72});
@@ -239,6 +241,8 @@ function applyEnvironment(environment={}){
   setMaterialColor(houseTrimMat,colors.trim);
   setMaterialColor(brickWallMat,colors.brick);
   setMaterialColor(cityStreetMat,colors.street || mixHexColor(colors.roof,colors.rock,0.5));
+  setMaterialColor(cityDetailMat,mixHexColor(colors.trim,colors.wall,0.22),mixHexColor(colors.trim,colors.podEmissive || colors.pod || colors.water,0.38));
+  if(cityGlowMat.color) cityGlowMat.color.set(colors.waterEmissive || colors.water || colors.podEmissive || colors.trim);
 
   let bossHull=mixHexColor(colors.rock,colors.roof,0.56);
   let bossHullEmissive=mixHexColor(colors.barkEmissive || colors.bark,colors.rock,0.32);
@@ -1536,19 +1540,22 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
     ? 1
     : Math.max(1,Math.min(3,Math.floor(villageAttemptRoll)+(r01(cx*919+17,cz*613-23)<villageAttemptRoll%1 ? 1 : 0)));
   let villageSpawnChance=cityMode ? 1 : Math.max(0,Math.min(1,settlements.villageSpawnChance ?? 0.45));
-  let maxBuildings=cityMode ? 70 : 120*villagesPerChunk;
-  let maxWindowInstances=maxBuildings*(cityMode ? 48 : 8);
+  let maxBuildings=cityMode ? 92 : 120*villagesPerChunk;
+  let maxWindowInstances=maxBuildings*(cityMode ? 84 : 8);
   let buildingBodies=new THREE.InstancedMesh(buildingGeo,buildingWallMat,maxBuildings);
   let maxRoofInstances=cityMode ? maxBuildings*2 : maxBuildings;
-  let maxTrimInstances=maxBuildings*(cityMode ? 5 : 2);
+  let maxTrimInstances=maxBuildings*(cityMode ? 9 : 2);
+  let maxChimneyInstances=maxBuildings*(cityMode ? 3 : 1);
   let buildingRoofs=new THREE.InstancedMesh(buildingRoofGeo,buildingRoofMat,maxRoofInstances);
   let buildingWindows=new THREE.InstancedMesh(windowGeo,windowMat,maxWindowInstances);
   let buildingDoors=new THREE.InstancedMesh(doorGeo,doorMat,maxBuildings);
-  let buildingChimneys=new THREE.InstancedMesh(chimneyGeo,chimneyMat,maxBuildings);
+  let buildingChimneys=new THREE.InstancedMesh(chimneyGeo,chimneyMat,maxChimneyInstances);
   let buildingTrims=new THREE.InstancedMesh(trimGeo,houseTrimMat,maxTrimInstances);
   let buildingPorches=new THREE.InstancedMesh(porchGeo,houseTrimMat,maxBuildings);
   let villageWalls=new THREE.InstancedMesh(brickWallGeo,brickWallMat,villagesPerChunk*18);
   let cityStreets=new THREE.InstancedMesh(cityStreetGeo,cityStreetMat,cityMode ? villagesPerChunk*8 : 1);
+  let cityStreetDetails=new THREE.InstancedMesh(cityStreetGeo,cityDetailMat,cityMode ? villagesPerChunk*96 : 1);
+  let cityTechDetails=new THREE.InstancedMesh(cityStreetGeo,cityGlowMat,cityMode ? maxBuildings*12+villagesPerChunk*32 : 1);
   let buildingUsed=0;
   let windowUsed=0;
   let doorUsed=0;
@@ -1557,6 +1564,8 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   let porchUsed=0;
   let wallUsed=0;
   let streetUsed=0;
+  let streetDetailUsed=0;
+  let techDetailUsed=0;
   let villageCenters=[];
 
   for(let v=0;v<villagesPerChunk;v++){
@@ -1585,7 +1594,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
     let village={x:centerX,z:centerZ,y:centerY,r:villageRadius,buildings:[],turrets:[],enemyBudget,enemyRemaining:enemyBudget,bossVillage,bossSpawned:false,city:cityMode};
     villageCenters.push(village);
     let housesInVillage=cityMode
-      ? 70
+      ? 88
       : largeTown
       ? 26+Math.floor(r01(cx+v*7,cz-v*5)*12)
       : 12+Math.floor(r01(cx+v*7,cz-v*5)*10);
@@ -1610,6 +1619,80 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
           dummy.updateMatrix();
           cityStreets.setMatrixAt(streetUsed,dummy.matrix);
           streetUsed++;
+        }
+      }
+
+      for(let axis=0;axis<2;axis++){
+        let yaw=cityYaw+axis*Math.PI*0.5;
+        let rightYaw=yaw+Math.PI*0.5;
+        let dirX=Math.sin(yaw);
+        let dirZ=Math.cos(yaw);
+        for(let offset of [-streetSpacing,0,streetSpacing]){
+          let baseX=centerX+Math.sin(rightYaw)*offset;
+          let baseZ=centerZ+Math.cos(rightYaw)*offset;
+          for(let stripe=-2;stripe<=2 && streetDetailUsed<cityStreetDetails.count;stripe++){
+            let along=stripe*streetLength*0.18;
+            let wx=baseX+dirX*along;
+            let wz=baseZ+dirZ*along;
+            let wy=groundHeight(wx,wz);
+            dummy.position.set(wx,wy+0.12,wz);
+            dummy.rotation.set(0,yaw,0);
+            dummy.scale.set(streetLength*0.055,0.1,0.42);
+            dummy.updateMatrix();
+            cityStreetDetails.setMatrixAt(streetDetailUsed,dummy.matrix);
+            streetDetailUsed++;
+          }
+
+          for(let crossing of [-streetSpacing,0,streetSpacing]){
+            if(streetDetailUsed>=cityStreetDetails.count) break;
+            let wx=baseX+dirX*crossing;
+            let wz=baseZ+dirZ*crossing;
+            let wy=groundHeight(wx,wz);
+            dummy.position.set(wx,wy+0.13,wz);
+            dummy.rotation.set(0,yaw,0);
+            dummy.scale.set(1.25,0.1,streetWidth*1.42);
+            dummy.updateMatrix();
+            cityStreetDetails.setMatrixAt(streetDetailUsed,dummy.matrix);
+            streetDetailUsed++;
+
+            if(techDetailUsed<cityTechDetails.count){
+              dummy.position.set(wx,wy+0.18,wz);
+              dummy.rotation.set(0,yaw+Math.PI*0.5,0);
+              dummy.scale.set(0.55,0.12,streetWidth*0.72);
+              dummy.updateMatrix();
+              cityTechDetails.setMatrixAt(techDetailUsed,dummy.matrix);
+              techDetailUsed++;
+            }
+          }
+        }
+      }
+
+      for(let ix of [-streetSpacing,0,streetSpacing]){
+        for(let iz of [-streetSpacing,0,streetSpacing]){
+          if(streetDetailUsed>=cityStreetDetails.count) break;
+          let rightX=Math.cos(cityYaw);
+          let rightZ=-Math.sin(cityYaw);
+          let forwardX=Math.sin(cityYaw);
+          let forwardZ=Math.cos(cityYaw);
+          let wx=centerX+rightX*ix+forwardX*iz;
+          let wz=centerZ+rightZ*ix+forwardZ*iz;
+          let wy=groundHeight(wx,wz);
+          dummy.position.set(wx,wy+0.115,wz);
+          dummy.rotation.set(0,cityYaw+Math.PI*0.25,0);
+          dummy.scale.set(8.5,0.08,8.5);
+          dummy.updateMatrix();
+          cityStreetDetails.setMatrixAt(streetDetailUsed,dummy.matrix);
+          streetDetailUsed++;
+
+          for(let beacon=0;beacon<2 && techDetailUsed<cityTechDetails.count;beacon++){
+            let side=beacon===0 ? -1 : 1;
+            dummy.position.set(wx+rightX*side*5.2,wy+1.1,wz+rightZ*side*5.2);
+            dummy.rotation.set(0,cityYaw,0);
+            dummy.scale.set(0.42,2.1,0.42);
+            dummy.updateMatrix();
+            cityTechDetails.setMatrixAt(techDetailUsed,dummy.matrix);
+            techDetailUsed++;
+          }
         }
       }
     }else{
@@ -1727,6 +1810,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
       let chimneyStart=chimneyUsed;
       let trimStart=trimUsed;
       let porchStart=porchUsed;
+      let techStart=techDetailUsed;
 
       let yaw=cityMode
         ? roadYawAt(centerZ)+(r01(i+v*13,cx-cz)>0.5 ? Math.PI*0.5 : 0)
@@ -1817,11 +1901,50 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
           buildingTrims.setMatrixAt(trimUsed,dummy.matrix);
           trimUsed++;
         }
+        for(let ledge=0;ledge<2 && trimUsed<maxTrimInstances;ledge++){
+          let side=ledge===0 ? -1 : 1;
+          dummy.position.set(
+            wx+fwdX*side*(depth*0.51),
+            wy+height*(0.34+r01(i+ledge*41,cz+v)*0.36),
+            wz+fwdZ*side*(depth*0.51)
+          );
+          dummy.rotation.set(0,yaw+Math.PI*0.5,0);
+          dummy.scale.set(depth*0.18,0.32,width*0.92);
+          dummy.updateMatrix();
+          buildingTrims.setMatrixAt(trimUsed,dummy.matrix);
+          trimUsed++;
+        }
+
+        for(let corner=0;corner<4 && techDetailUsed<cityTechDetails.count;corner++){
+          let sideX=corner<2 ? -1 : 1;
+          let sideZ=corner%2===0 ? -1 : 1;
+          dummy.position.set(
+            wx+rightX*sideX*(width*0.48)+fwdX*sideZ*(depth*0.5+0.08),
+            wy+height*0.52,
+            wz+rightZ*sideX*(width*0.48)+fwdZ*sideZ*(depth*0.5+0.08)
+          );
+          dummy.rotation.set(0,yaw,0);
+          dummy.scale.set(0.22,height*0.7,0.2);
+          dummy.updateMatrix();
+          cityTechDetails.setMatrixAt(techDetailUsed,dummy.matrix);
+          techDetailUsed++;
+        }
+
+        let techBandCount=Math.min(3,Math.max(1,Math.floor(height/28)));
+        for(let band=0;band<techBandCount && techDetailUsed<cityTechDetails.count;band++){
+          let lift=wy+height*(0.28+(band+0.5)*(0.54/techBandCount));
+          dummy.position.set(frontX+fwdX*0.08,lift,frontZ+fwdZ*0.08);
+          dummy.rotation.set(0,yaw,0);
+          dummy.scale.set(width*0.72,0.16,0.18);
+          dummy.updateMatrix();
+          cityTechDetails.setMatrixAt(techDetailUsed,dummy.matrix);
+          techDetailUsed++;
+        }
       }
 
       if(cityMode){
         let rows=Math.min(11,Math.max(4,Math.floor(height/6)));
-        let columns=Math.min(4,Math.max(2,Math.floor(width/5)));
+        let columns=Math.min(5,Math.max(2,Math.floor(width/4.4)));
         for(let row=0;row<rows && windowUsed<maxWindowInstances;row++){
           let lift=wy+height*(0.16+(row+0.5)*(0.74/rows));
           for(let col=0;col<columns && windowUsed<maxWindowInstances;col++){
@@ -1838,11 +1961,12 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
         for(let sideSign of [-1,1]){
           let sideX=wx+rightX*(width*0.5+0.05)*sideSign;
           let sideZ=wz+rightZ*(width*0.5+0.05)*sideSign;
-          for(let row=0;row<Math.min(rows,8) && windowUsed<maxWindowInstances;row++){
-            let along=((row%3)-1)*depth*0.18;
+          let sideRows=Math.min(rows,10);
+          for(let row=0;row<sideRows && windowUsed<maxWindowInstances;row++){
+            let along=((row%4)-1.5)*depth*0.14;
             dummy.position.set(
               sideX+fwdX*along,
-              wy+height*(0.2+(row+0.5)*(0.68/Math.min(rows,8))),
+              wy+height*(0.18+(row+0.5)*(0.7/sideRows)),
               sideZ+fwdZ*along
             );
             dummy.rotation.set(0,yaw+Math.PI*0.5,0);
@@ -1890,7 +2014,40 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
         }
       }
 
-      if(!cityMode && chimneyUsed<maxBuildings){
+      if(cityMode){
+        let rooftopCount=1+Math.floor(r01(cx+i*79,cz-v*37)*3);
+        for(let roofItem=0;roofItem<rooftopCount && chimneyUsed<maxChimneyInstances;roofItem++){
+          let localX=(r01(i*101+roofItem*17,cx-v)-0.5)*width*0.44;
+          let localZ=(r01(i*131-roofItem*13,cz+v)-0.5)*depth*0.44;
+          dummy.position.set(
+            wx+rightX*localX+fwdX*localZ,
+            wy+height+roofHeight+0.42+roofItem*0.05,
+            wz+rightZ*localX+fwdZ*localZ
+          );
+          dummy.rotation.set(0,yaw+r01(i+roofItem*23,cx+cz)*Math.PI,0);
+          dummy.scale.set(
+            0.75+r01(i+roofItem*31,cz)*1.35,
+            0.65+r01(i-roofItem*19,cx)*2.4,
+            0.75+r01(i+roofItem*47,cx-cz)*1.35
+          );
+          dummy.updateMatrix();
+          buildingChimneys.setMatrixAt(chimneyUsed,dummy.matrix);
+          chimneyUsed++;
+        }
+
+        if(techDetailUsed<cityTechDetails.count){
+          dummy.position.set(
+            wx+rightX*crownOffset,
+            wy+height+roofHeight+Math.min(16,height*0.22)+1.8,
+            wz+rightZ*crownOffset
+          );
+          dummy.rotation.set(0,yaw,0);
+          dummy.scale.set(0.28,Math.min(18,height*0.18),0.28);
+          dummy.updateMatrix();
+          cityTechDetails.setMatrixAt(techDetailUsed,dummy.matrix);
+          techDetailUsed++;
+        }
+      }else if(chimneyUsed<maxChimneyInstances){
         dummy.position.set(
           wx+rightX*(width*0.22)-fwdX*(depth*0.15),
           wy+height+roofHeight*0.7,
@@ -1908,6 +2065,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
       for(let k=chimneyStart;k<chimneyUsed;k++) buildingCollider.instances.push({mesh:buildingChimneys,index:k});
       for(let k=trimStart;k<trimUsed;k++) buildingCollider.instances.push({mesh:buildingTrims,index:k});
       for(let k=porchStart;k<porchUsed;k++) buildingCollider.instances.push({mesh:buildingPorches,index:k});
+      for(let k=techStart;k<techDetailUsed;k++) buildingCollider.instances.push({mesh:cityTechDetails,index:k});
       colliders.push(buildingCollider);
       village.buildings.push(buildingCollider);
 
@@ -1926,6 +2084,8 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   buildingPorches.count=porchUsed;
   villageWalls.count=wallUsed;
   cityStreets.count=streetUsed;
+  cityStreetDetails.count=streetDetailUsed;
+  cityTechDetails.count=techDetailUsed;
   buildingBodies.instanceMatrix.needsUpdate=true;
   buildingRoofs.instanceMatrix.needsUpdate=true;
   buildingWindows.instanceMatrix.needsUpdate=true;
@@ -1935,6 +2095,8 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   buildingPorches.instanceMatrix.needsUpdate=true;
   villageWalls.instanceMatrix.needsUpdate=true;
   cityStreets.instanceMatrix.needsUpdate=true;
+  cityStreetDetails.instanceMatrix.needsUpdate=true;
+  cityTechDetails.instanceMatrix.needsUpdate=true;
   freezeStaticObject(buildingBodies);
   freezeStaticObject(buildingRoofs);
   freezeStaticObject(buildingWindows);
@@ -1944,7 +2106,9 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   freezeStaticObject(buildingPorches);
   freezeStaticObject(villageWalls);
   freezeStaticObject(cityStreets);
-  chunkRoot.add(buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,cityStreets);
+  freezeStaticObject(cityStreetDetails);
+  freezeStaticObject(cityTechDetails);
+  chunkRoot.add(buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,cityStreets,cityStreetDetails,cityTechDetails);
   yield;
 
   let landingSpacePoint=landingSpacePointForChunk(cx,cz,colliders,holes);
@@ -1957,7 +2121,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
 
   scene.add(chunkRoot);
 
-  return {cx,cz,root:chunkRoot,land,road,water,trunks,crowns,pods,grasses,rocks,gravel,holeMeshes,treasureChests,buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,cityStreets,landingSpaces,landingSurfaces,landingRings,villageCenters,colliders,holes:localHoles};
+  return {cx,cz,root:chunkRoot,land,road,water,trunks,crowns,pods,grasses,rocks,gravel,holeMeshes,treasureChests,buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,cityStreets,cityStreetDetails,cityTechDetails,landingSpaces,landingSurfaces,landingRings,villageCenters,colliders,holes:localHoles};
 }
 
 function updateChunksForCenters(centers){
@@ -2070,6 +2234,8 @@ function disposeChunk(chunk){
     chunk.buildingPorches,
     chunk.villageWalls,
     chunk.cityStreets,
+    chunk.cityStreetDetails,
+    chunk.cityTechDetails,
     ...(chunk.landingSpaces || []),
     ...(chunk.landingRings || []),
     ...turretObjects
@@ -2093,6 +2259,8 @@ function disposeChunk(chunk){
   chunk.buildingPorches.dispose();
   chunk.villageWalls.dispose();
   if(chunk.cityStreets) chunk.cityStreets.dispose();
+  if(chunk.cityStreetDetails) chunk.cityStreetDetails.dispose();
+  if(chunk.cityTechDetails) chunk.cityTechDetails.dispose();
   if(chunk.landingRings){
     for(let ring of chunk.landingRings){
       let ringIndex=animatedLandingRings.indexOf(ring);

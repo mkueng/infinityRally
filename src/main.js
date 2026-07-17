@@ -4,7 +4,7 @@ import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed
 import { createInput } from "./input.js?v=scanner-bumper";
 import { createHud } from "./hud.js?v=no-speedometer";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=night-stars";
-import { createWorld } from "./world.js?v=landing-touchdown-back";
+import { createWorld } from "./world.js?v=tech-cities";
 import { createMotorAudio } from "./audio.js?v=rain-audio";
 import { worldEnvironments } from "./environments.js";
 import { difficultySettings } from "./gameConfig.js?v=ammo-caps";
@@ -340,6 +340,7 @@ let currentGameFromSave=false;
 let jetUnlocked=false;
 let initialUnits=500;
 let testingScannerAvailableFromStart=false;
+let testingJetAvailableFromStart=true;
 let units=initialUnits;
 let purchasedTradingItems=new Set();
 let normalEnemyUnitAmount=20;
@@ -865,6 +866,10 @@ function tradingItemOwned(id){
 
 function applyTestingStartItems(){
   if(testingScannerAvailableFromStart) purchasedTradingItems.add("scanner");
+  if(testingJetAvailableFromStart){
+    purchasedTradingItems.add("jet");
+    jetUnlocked=true;
+  }
 }
 
 function rocketLauncherUnlocked(){
