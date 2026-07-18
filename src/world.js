@@ -2,6 +2,7 @@ import { THREE } from "./three.js";
 import { carRadius, chunkSize, segments, viewDistance } from "./constants.js";
 import { groundHeight, rand, roadCenterX, roadDistance } from "./terrain.js?v=broad-mountains";
 import { makeGroundTexture } from "./textures.js?v=alien-planet";
+import { makeMissionOutpostTerminal } from "./models.js?v=radar-performance-fix";
 
 export function createWorld(scene,options={}){
   let chunkQueue=[];
@@ -11,10 +12,13 @@ export function createWorld(scene,options={}){
   let chunks=new Map();
   let bossBases=[];
   let bossBaseColliders=[];
+  let testingRadarOutpost=null;
   let landingSpaceModel=null;
   let treasureChestModels=[];
   let treasureHoleChance=0.24;
   let animatedLandingRings=[];
+  let animatedRadarDishes=[];
+  let lastRadarDishAnimationTime=0;
   let activeVillages=[];
   let activeTurrets=[];
   let activeChunkBuild=null;
@@ -154,6 +158,9 @@ let brickWallMat=new THREE.MeshStandardMaterial({color:0x714060,roughness:0.95,m
 let cityStreetMat=new THREE.MeshStandardMaterial({color:0x1d1f25,roughness:0.86,metalness:0.08});
 let cityDetailMat=new THREE.MeshStandardMaterial({color:0xa78fbd,emissive:0x241438,emissiveIntensity:0.18,roughness:0.72,metalness:0.1});
 let cityGlowMat=new THREE.MeshBasicMaterial({color:0x8dfff2,transparent:true,opacity:0.82,depthWrite:false,depthTest:true});
+let radarOutpostBaseMat=new THREE.MeshStandardMaterial({color:0x363f4a,roughness:0.74,metalness:0.48});
+let radarOutpostDishMat=new THREE.MeshStandardMaterial({color:0x9fb1bd,roughness:0.48,metalness:0.62,side:THREE.DoubleSide});
+let radarOutpostGlowMat=new THREE.MeshBasicMaterial({color:0x8dfff2,transparent:true,opacity:0.9,depthWrite:false,depthTest:true});
 let bossBaseMat=new THREE.MeshStandardMaterial({color:0x191a24,emissive:0x19091f,emissiveIntensity:0.28,roughness:0.78,metalness:0.58});
 let bossBaseTrimMat=new THREE.MeshStandardMaterial({color:0x7a2f68,emissive:0x4c123d,emissiveIntensity:0.52,roughness:0.5,metalness:0.4});
 let bossBaseGlowMat=new THREE.MeshBasicMaterial({color:0xff4fc8,transparent:true,opacity:0.72});
@@ -173,6 +180,10 @@ let trimGeo=new THREE.BoxGeometry(1,1,1);
 let porchGeo=new THREE.BoxGeometry(1,1,1);
 let brickWallGeo=new THREE.BoxGeometry(1,1,1);
 let cityStreetGeo=new THREE.BoxGeometry(1,1,1);
+let radarOutpostBaseGeo=new THREE.CylinderGeometry(1,1.18,1,10);
+let radarOutpostMastGeo=new THREE.CylinderGeometry(0.18,0.28,1,10);
+let radarOutpostDishGeo=new THREE.SphereGeometry(1,24,12,0,Math.PI*2,0,Math.PI*0.55);
+let radarOutpostPanelGeo=new THREE.BoxGeometry(1,1,1);
 let turretBaseGeo=new THREE.CylinderGeometry(1,1.25,1,8);
 let turretHeadGeo=new THREE.BoxGeometry(1,1,1);
 let turretBarrelGeo=new THREE.CylinderGeometry(0.16,0.2,2.4,10);
@@ -332,6 +343,9 @@ function applyEnvironment(environment={}){
   setMaterialColor(cityStreetMat,colors.street || mixHexColor(colors.roof,colors.rock,0.5));
   setMaterialColor(cityDetailMat,mixHexColor(colors.trim,colors.wall,0.22),mixHexColor(colors.trim,colors.podEmissive || colors.pod || colors.water,0.38));
   if(cityGlowMat.color) cityGlowMat.color.set(colors.waterEmissive || colors.water || colors.podEmissive || colors.trim);
+  setMaterialColor(radarOutpostBaseMat,0x24282e,0x020304);
+  setMaterialColor(radarOutpostDishMat,0x8d969d,0x0a0c0e);
+  if(radarOutpostGlowMat.color) radarOutpostGlowMat.color.set(0x8dfff2);
 
   let bossHull=mixHexColor(colors.rock,colors.roof,0.56);
   let bossHullEmissive=mixHexColor(colors.barkEmissive || colors.bark,colors.rock,0.32);
@@ -519,6 +533,135 @@ function makeTurret(x,y,z,angle){
 
   group.position.set(x,y,z);
   group.rotation.y=angle;
+  return group;
+}
+
+function makeRadarOutpost(x,y,z,angle=0){
+  let group=new THREE.Group();
+  group.position.set(x,y,z);
+  group.rotation.y=angle;
+  let radarScale=2.13;
+  group.scale.setScalar(radarScale);
+
+  function add(mesh,px=0,py=0,pz=0,sx=1,sy=1,sz=1,rx=0,ry=0,rz=0){
+    mesh.position.set(px,py,pz);
+    mesh.rotation.set(rx,ry,rz);
+    mesh.scale.set(sx,sy,sz);
+    mesh.castShadow=true;
+    mesh.receiveShadow=true;
+    group.add(mesh);
+    return mesh;
+  }
+
+  let dishPivot=new THREE.Group();
+  dishPivot.name="radar-dish-pivot";
+  dishPivot.position.set(0,6.1,0.25);
+  dishPivot.userData.phase=rand(x*0.031,z*0.037)*Math.PI*2;
+  dishPivot.userData.speed=0.00042+rand(x*0.047,z*0.053)*0.00018;
+  group.add(dishPivot);
+
+  function addToDish(mesh,px=0,py=0,pz=0,sx=1,sy=1,sz=1,rx=0,ry=0,rz=0){
+    mesh.position.set(px,py,pz);
+    mesh.rotation.set(rx,ry,rz);
+    mesh.scale.set(sx,sy,sz);
+    mesh.castShadow=true;
+    mesh.receiveShadow=true;
+    dishPivot.add(mesh);
+    return mesh;
+  }
+
+  add(new THREE.Mesh(radarOutpostBaseGeo,radarOutpostBaseMat),0,0.32,0,4.4,0.64,4.4);
+  add(new THREE.Mesh(radarOutpostPanelGeo,radarOutpostBaseMat),0,0.82,0,5.8,0.34,5.15,0,Math.PI*0.25,0);
+  add(new THREE.Mesh(radarOutpostBaseGeo,radarOutpostDishMat),0,1.22,0,2.5,0.34,2.5);
+
+  for(let side of [-1,1]){
+    add(new THREE.Mesh(radarOutpostPanelGeo,radarOutpostBaseMat),side*2.65,0.48,2.25,0.72,0.38,1.25,0,Math.PI*0.18,0);
+    add(new THREE.Mesh(radarOutpostPanelGeo,radarOutpostBaseMat),side*2.65,0.48,-2.25,0.72,0.38,1.25,0,-Math.PI*0.18,0);
+    add(new THREE.Mesh(radarOutpostPanelGeo,radarOutpostDishMat),side*1.9,1.25,-2.2,1.05,0.9,0.58,0,side*0.28,0);
+    add(new THREE.Mesh(radarOutpostMastGeo,radarOutpostDishMat),side*1.9,0.9,-2.2,0.22,1.45,0.22,0,0,0);
+    add(new THREE.Mesh(radarOutpostMastGeo,radarOutpostDishMat),side*2.05,2.6,0.28,0.46,3.95,0.46,0,0,side*0.32);
+    add(new THREE.Mesh(radarOutpostMastGeo,radarOutpostGlowMat.clone()),side*3.35,1.45,0,0.26,1.65,0.26,0,0,0);
+    add(new THREE.Mesh(radarOutpostPanelGeo,radarOutpostBaseMat),side*3.35,0.72,0,0.52,0.34,0.52,0,0,0);
+  }
+
+  add(new THREE.Mesh(radarOutpostMastGeo,radarOutpostDishMat),0,4.0,0,1.05,5.8,1.05);
+  add(new THREE.Mesh(radarOutpostMastGeo,radarOutpostDishMat),-1.35,2.85,0.22,0.52,4.25,0.52,0,0,0.34);
+  add(new THREE.Mesh(radarOutpostMastGeo,radarOutpostDishMat),1.35,2.85,-0.22,0.52,4.25,0.52,0,0,-0.34);
+  add(new THREE.Mesh(radarOutpostMastGeo,radarOutpostDishMat),0,3.45,-1.4,0.38,4.3,0.38,0.34,0,0);
+  add(new THREE.Mesh(radarOutpostMastGeo,radarOutpostDishMat),0,3.45,1.4,0.38,4.3,0.38,-0.34,0,0);
+  add(new THREE.Mesh(radarOutpostPanelGeo,radarOutpostBaseMat),0,5.95,0.42,1.35,0.72,1.05,0,0,0);
+  add(new THREE.Mesh(radarOutpostMastGeo,radarOutpostDishMat),0,6.95,1.18,0.34,2.45,0.34,Math.PI*0.5,0,0);
+  add(new THREE.Mesh(radarOutpostMastGeo,radarOutpostDishMat),0,5.05,-2.2,0.28,3.25,0.28,0,0,0);
+  add(new THREE.Mesh(radarOutpostMastGeo,radarOutpostDishMat),0,5.08,-2.2,0.2,1.65,0.2,0,0,Math.PI*0.5);
+
+  let dish=addToDish(
+    new THREE.Mesh(radarOutpostDishGeo,radarOutpostDishMat),
+    0,
+    1.25,
+    0.8,
+    2.45,
+    0.72,
+    2.45,
+    -Math.PI*0.56,
+    0,
+    0
+  );
+  dish.name="radar-dish";
+
+  addToDish(new THREE.Mesh(radarOutpostDishGeo,radarOutpostDishMat),0,0.25,-1.2,1.0,0.34,1.0,-Math.PI*0.58,Math.PI,0);
+  addToDish(new THREE.Mesh(radarOutpostMastGeo,radarOutpostDishMat),0,0.95,0.27,0.22,1.95,0.22,Math.PI*0.5,0,0);
+  addToDish(new THREE.Mesh(radarOutpostMastGeo,radarOutpostDishMat),0,0.22,-0.83,0.22,1.35,0.22,Math.PI*0.5,0,0);
+
+  let receiver=addToDish(new THREE.Mesh(radarOutpostMastGeo,radarOutpostGlowMat.clone()),0,1.62,2.23,0.32,1.35,0.32,Math.PI*0.5,0,0);
+  receiver.renderOrder=14;
+
+  for(let i=0;i<3;i++){
+    let height=5.05+i*0.48;
+    let antenna=add(new THREE.Mesh(radarOutpostMastGeo,radarOutpostGlowMat.clone()),-0.62+i*0.62,height,-2.2,0.13,1.15+i*0.18,0.13,0,0,0);
+    antenna.renderOrder=14;
+  }
+
+  for(let side of [-1,1]){
+    let panel=add(new THREE.Mesh(radarOutpostPanelGeo,radarOutpostGlowMat.clone()),side*2.82,1.42,0,0.18,1.45,2.35);
+    panel.renderOrder=14;
+
+    add(new THREE.Mesh(radarOutpostMastGeo,radarOutpostDishMat),side*2.82,0.96,0,0.16,1.05,0.16,0,0,0);
+    addToDish(new THREE.Mesh(radarOutpostMastGeo,radarOutpostDishMat),side*0.5,0.24,1.37,0.16,1.42,0.16,0,0,Math.PI*0.5);
+    let vane=addToDish(new THREE.Mesh(radarOutpostPanelGeo,radarOutpostDishMat),side*0.86,0.25,1.37,0.12,0.58,1.25,0.16,side*0.42,0);
+    vane.renderOrder=12;
+  }
+
+  let terminal=makeMissionOutpostTerminal({
+    floorY:0,
+    floorMinX:-20,
+    floorMaxX:20,
+    floorMinZ:-20,
+    floorMaxZ:20,
+    terminalInset:16
+  },{
+    lights:false
+  });
+  terminal.name="radarOutpostTerminal";
+  terminal.position.set(0,0,10.4);
+  terminal.rotation.y=0;
+  terminal.scale.setScalar(0.5/radarScale);
+  terminal.traverse(child=>{
+    if(!child.isMesh) return;
+    child.castShadow=false;
+    child.receiveShadow=false;
+  });
+  group.add(terminal);
+  add(new THREE.Mesh(radarOutpostMastGeo,radarOutpostBaseMat),0,0.13,7.55,0.18,5.4,0.18,Math.PI*0.5,0,0);
+  add(new THREE.Mesh(radarOutpostPanelGeo,radarOutpostDishMat),0,0.18,4.92,0.64,0.22,0.5,0,0,0);
+  add(new THREE.Mesh(radarOutpostPanelGeo,radarOutpostDishMat),0,0.18,10.12,0.48,0.18,0.42,0,0,0);
+
+  group.traverse(child=>{
+    if(child.isMesh && child.geometry) child.geometry.computeVertexNormals();
+  });
+
+  group.userData.radarDishPivot=dishPivot;
+  animatedRadarDishes.push(dishPivot);
+
   return group;
 }
 
@@ -856,13 +999,13 @@ function obstacleAlongSegment3D(fromX,fromY,fromZ,toX,toY,toZ,padding=0){
         if(obstacle.destroyed || obstacle.type==="treeCluster") continue;
 
         let isRock=obstacle.type==="rock" || obstacle.type==="smallRock";
-        let isBuilding=obstacle.type==="building" || obstacle.type==="wall" || obstacle.type==="turret";
+        let isStructure=obstacle.type==="building" || obstacle.type==="wall" || obstacle.type==="turret" || obstacle.type==="radarOutpost";
         let isBossBase=obstacle.type==="bossBase";
         let obstacleY=isRock && Number.isFinite(obstacle.y)
           ? obstacle.y
           : isBossBase && Number.isFinite(obstacle.y)
           ? obstacle.y
-          : isBuilding && Number.isFinite(obstacle.y)
+          : isStructure && Number.isFinite(obstacle.y)
           ? obstacle.y
           : groundHeight(obstacle.x,obstacle.z)+Math.max(0.6,obstacle.r*0.45);
         let t=((obstacle.x-fromX)*sx+(obstacleY-fromY)*sy+(obstacle.z-fromZ)*sz)/segLenSq;
@@ -875,14 +1018,14 @@ function obstacleAlongSegment3D(fromX,fromY,fromZ,toX,toY,toZ,padding=0){
           ? Math.max(4,obstacle.r)
           : isRock
           ? Math.max(2.6,(obstacle.visualRadius || obstacle.r)*1.55)
-          : isBuilding
+          : isStructure
           ? Math.max(2.0,(obstacle.visualRadius || obstacle.r)*0.9)
           : Math.max(1.2,obstacle.r*0.72))+padding;
         let verticalRadius=(isBossBase
           ? Math.max(4,(obstacle.visualHeight || obstacle.height || obstacle.r)*0.52)
           : isRock
           ? Math.max(1.8,(obstacle.visualHeight || obstacle.height || obstacle.r)*0.96)
-          : isBuilding
+          : isStructure
           ? Math.max(2.0,(obstacle.visualHeight || obstacle.height || obstacle.r)*0.52)
           : Math.max(1.0,obstacle.r*0.65))+padding;
         let verticalScale=Math.max(0.001,verticalRadius/radius);
@@ -890,7 +1033,7 @@ function obstacleAlongSegment3D(fromX,fromY,fromZ,toX,toY,toZ,padding=0){
           + ((closestY-obstacleY)/verticalScale)*((closestY-obstacleY)/verticalScale)
           + (closestZ-obstacle.z)*(closestZ-obstacle.z);
 
-        if((isRock || isBuilding) && distSq>=radius*radius){
+        if((isRock || isStructure) && distSq>=radius*radius){
           let horizontalSegLenSq=Math.max(0.0001,sx*sx+sz*sz);
           let obstacleT=((obstacle.x-fromX)*sx+(obstacle.z-fromZ)*sz)/horizontalSegLenSq;
           obstacleT=Math.max(0,Math.min(1,obstacleT));
@@ -956,6 +1099,71 @@ function destroyObstacle(obstacle){
   if(obstacle.object) obstacle.object.visible=false;
 
   return true;
+}
+
+function clearTestingRadarOutpost(){
+  if(!testingRadarOutpost) return;
+
+  let {object,collider,chunk}=testingRadarOutpost;
+  if(chunk && chunk.colliders){
+    let colliderIndex=chunk.colliders.indexOf(collider);
+    if(colliderIndex>=0) chunk.colliders.splice(colliderIndex,1);
+  }
+  if(chunk && chunk.radarOutposts){
+    let objectIndex=chunk.radarOutposts.indexOf(object);
+    if(objectIndex>=0) chunk.radarOutposts.splice(objectIndex,1);
+  }
+  let dishPivot=object && object.userData ? object.userData.radarDishPivot : null;
+  if(dishPivot){
+    let dishIndex=animatedRadarDishes.indexOf(dishPivot);
+    if(dishIndex>=0) animatedRadarDishes.splice(dishIndex,1);
+  }
+  if(object && object.parent) object.parent.remove(object);
+  else if(object) scene.remove(object);
+
+  testingRadarOutpost=null;
+}
+
+function placeTestRadarOutpost(x,z,angle=0){
+  clearTestingRadarOutpost();
+
+  if(!Number.isFinite(x) || !Number.isFinite(z)) return null;
+
+  let cx=Math.floor(x/chunkSize);
+  let cz=Math.floor(z/chunkSize);
+  let chunk=chunks.get(chunkKey(cx,cz));
+  if(!chunk){
+    updateChunksForCenters([{x,z,viewDistance:1}]);
+    processChunkQueue(80,true);
+    chunk=chunks.get(chunkKey(cx,cz));
+  }
+  if(!chunk) return null;
+
+  let y=groundHeight(x,z);
+  let outpost=makeRadarOutpost(x,y,z,angle);
+  let collider={
+    x,
+    baseY:y,
+    y:y+7.8,
+    z,
+    r:18.0,
+    height:23.4,
+    visualRadius:17.1,
+    visualHeight:23.7,
+    type:"radarOutpost",
+    object:outpost,
+    health:92,
+    maxHealth:92
+  };
+
+  outpost.userData.collider=collider;
+  chunk.colliders=chunk.colliders || [];
+  chunk.radarOutposts=chunk.radarOutposts || [];
+  chunk.colliders.push(collider);
+  chunk.radarOutposts.push(outpost);
+  chunk.root.add(outpost);
+  testingRadarOutpost={object:outpost,collider,chunk};
+  return collider;
 }
 
 function isVillageCleared(village){
@@ -1265,6 +1473,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
     : terrainHolesForChunk(cx,cz);
   let holeMeshes=[];
   let treasureChests=[];
+  let radarOutposts=[];
   let chunkHasWater=!!(precomputedTerrain && precomputedTerrain.chunkHasWater);
   let geo=new THREE.PlaneGeometry(chunkSize,chunkSize,segments,segments);
   geo.rotateX(-Math.PI/2);
@@ -2200,6 +2409,59 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   chunkRoot.add(buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,cityStreets,cityStreetDetails,cityTechDetails);
   yield;
 
+  function colliderNear(x,z,radius){
+    for(let collider of colliders){
+      if(!collider || collider.destroyed) continue;
+      let reach=radius+(collider.r || 0);
+      let dx=x-collider.x;
+      let dz=z-collider.z;
+      if(dx*dx+dz*dz<reach*reach) return true;
+    }
+    return false;
+  }
+
+  let radarRoll=r01(cx*3181+29,cz*2417-53);
+  let radarOutpostTarget=radarRoll<(cityMode ? 0.03 : 0.07) ? 1 : 0;
+  for(let i=0;i<radarOutpostTarget;i++){
+    for(let attempt=0;attempt<16;attempt++){
+      let rx=r01(cx*1973+i*131+attempt*17,cz*2657-i*61-attempt*23);
+      let rz=r01(cx*2909-i*89-attempt*19,cz*1741+i*109+attempt*31);
+      let wx=cx*chunkSize+(rx-0.5)*chunkSize;
+      let wz=cz*chunkSize+(rz-0.5)*chunkSize;
+      let wy=groundHeight(wx,wz);
+      let radius=18;
+
+      if(Math.hypot(wx,wz)<260) continue;
+      if(wy<waterLevel+2.2 || wy>40) continue;
+      if(roadDistance(wx,wz)<76) continue;
+      if(pointInHole(holes,wx,wz,radius+12)) continue;
+      if(!terrainPatchOk(wx,wz,13,42,5.4)) continue;
+      if(colliderNear(wx,wz,28)) continue;
+
+      let angle=rand(cx*73+i,cz*97-attempt)*Math.PI*2;
+      let outpost=makeRadarOutpost(wx,wy,wz,angle);
+      let collider={
+        x:wx,
+        baseY:wy,
+        y:wy+7.8,
+        z:wz,
+        r:18.0,
+        height:23.4,
+        visualRadius:17.1,
+        visualHeight:23.7,
+        type:"radarOutpost",
+        object:outpost,
+        health:92,
+        maxHealth:92
+      };
+      outpost.userData.collider=collider;
+      colliders.push(collider);
+      radarOutposts.push(outpost);
+      chunkRoot.add(outpost);
+      break;
+    }
+  }
+
   let landingSpacePoint=landingSpacePointForChunk(cx,cz,colliders,holes);
   if(landingSpacePoint){
     landingSpaces.push(makeLandingSpace(landingSpacePoint,chunkRoot));
@@ -2210,7 +2472,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
 
   scene.add(chunkRoot);
 
-  return {cx,cz,root:chunkRoot,land,road,water,trunks,crowns,pods,grasses,rocks,gravel,holeMeshes,treasureChests,buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,cityStreets,cityStreetDetails,cityTechDetails,landingSpaces,landingSurfaces,landingRings,villageCenters,colliders,holes:localHoles};
+  return {cx,cz,root:chunkRoot,land,road,water,trunks,crowns,pods,grasses,rocks,gravel,holeMeshes,treasureChests,radarOutposts,buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,cityStreets,cityStreetDetails,cityTechDetails,landingSpaces,landingSurfaces,landingRings,villageCenters,colliders,holes:localHoles};
 }
 
 function updateChunksForCenters(centers){
@@ -2314,6 +2576,7 @@ function disposeChunk(chunk){
     chunk.gravel,
     ...(chunk.holeMeshes || []),
     ...(chunk.treasureChests || []),
+    ...(chunk.radarOutposts || []),
     chunk.buildingBodies,
     chunk.buildingRoofs,
     chunk.buildingWindows,
@@ -2355,6 +2618,14 @@ function disposeChunk(chunk){
       let ringIndex=animatedLandingRings.indexOf(ring);
       if(ringIndex>=0) animatedLandingRings.splice(ringIndex,1);
       if(ring.material) ring.material.dispose();
+    }
+  }
+  if(chunk.radarOutposts){
+    for(let outpost of chunk.radarOutposts){
+      let dishPivot=outpost && outpost.userData ? outpost.userData.radarDishPivot : null;
+      if(!dishPivot) continue;
+      let dishIndex=animatedRadarDishes.indexOf(dishPivot);
+      if(dishIndex>=0) animatedRadarDishes.splice(dishIndex,1);
     }
   }
 }
@@ -2531,6 +2802,14 @@ function updateWind(time,rainIntensity=0){
     if(ring.material) ring.material.opacity=0.38+pulse*0.42;
   }
 
+  if(time-lastRadarDishAnimationTime>33){
+    lastRadarDishAnimationTime=time;
+    for(let dish of animatedRadarDishes){
+      if(!dish || !dish.parent || !dish.visible) continue;
+      dish.rotation.y=(dish.userData.phase || 0)+time*(dish.userData.speed || 0.0005);
+    }
+  }
+
   if(!grassWindShader) return;
   let rain=Math.max(0,Math.min(1,rainIntensity));
   if(grassWindShader.uniforms.windTime) grassWindShader.uniforms.windTime.value=time*0.001*(1+rain*0.55);
@@ -2540,6 +2819,7 @@ function updateWind(time,rainIntensity=0){
 function resetChunks(){
   chunkWorkerGeneration++;
   chunkWorkerResults.clear();
+  clearTestingRadarOutpost();
   if(activeChunkBuild){
     let job=activeChunkBuild;
     activeChunkBuild=null;
@@ -2566,6 +2846,8 @@ function resetChunks(){
   activeVillages.length=0;
   activeTurrets.length=0;
   animatedLandingRings.length=0;
+  animatedRadarDishes.length=0;
+  lastRadarDishAnimationTime=0;
   activeChunkBuild=null;
   lastChunkBuildTime=0;
   clearBossBases();
@@ -2733,6 +3015,8 @@ function holeSurfaceHeightAt(x,z){
     destroyObstacle,
     damageBossBase,
     isVillageCleared,
+    placeTestRadarOutpost,
+    clearTestingRadarOutpost,
     placeTestBossBaseNearStart,
     clearBossBases,
     findCityDistrictNearRoad,

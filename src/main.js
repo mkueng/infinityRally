@@ -2,13 +2,13 @@ import { THREE } from "./three.js";
 import { carRadius, gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize, viewDistance, mothershipDropCount, mothershipDropInterval, mothershipDropLineSpacing, mothershipHoverDistance, mothershipHoverFrames, mothershipMinDelay, mothershipRandomDelay, mothershipRocketHits } from "./constants.js";
 import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=broad-mountains";
 import { createInput } from "./input.js?v=scanner-bumper";
-import { createHud } from "./hud.js?v=laser-energy-bar";
+import { createHud } from "./hud.js?v=radar-outposts";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=night-stars";
-import { createWorld } from "./world.js?v=tech-cities";
+import { createWorld } from "./world.js?v=radar-performance-fix";
 import { createMotorAudio } from "./audio.js?v=terminal-bleep";
 import { worldEnvironments } from "./environments.js?v=broad-mountains";
 import { difficultySettings } from "./gameConfig.js?v=ammo-caps";
-import { loadBackPackModel, loadBaseStationModel, loadCarModel, loadEnemyBattleShipModel, loadJetModel, loadLandingSpaceModel, loadTradingOutpostModel, loadTreasureChestModels, makeMechModel } from "./models.js?v=base-station";
+import { loadBackPackModel, loadBaseStationModel, loadCarModel, loadEnemyBattleShipModel, loadJetModel, loadLandingSpaceModel, loadTradingOutpostModel, loadTreasureChestModels, makeMechModel } from "./models.js?v=radar-performance-fix";
 import { makeSkyTexture } from "./textures.js?v=night-stars";
 import { createPortalSystem } from "./portals.js";
 import { approach, clamp, clamp01, hash01, randomRange, smoothStep } from "./utils.js";
@@ -332,6 +332,7 @@ let tradingOutpostModel=null;
 let tradingOutpost=null;
 let testingTradingOutpost=null;
 let testingTradingOutpostEnabled=false;
+let testingRadarOutpostEnabled=false;
 let tradingOutpostCollision=null;
 let tradingTerminalObject=null;
 let tradingPlaceCollisions=[];
@@ -341,7 +342,7 @@ let jetUnlocked=false;
 let initialUnits=500;
 let testingScannerAvailableFromStart=false;
 let testingJetAvailableFromStart=false;
-let testingLaserAvailableFromStart=true;
+let testingLaserAvailableFromStart=false;
 let units=initialUnits;
 let lastBuildingExplosionSoundAt=0;
 let buildingExplosionSoundCooldownMs=80;
@@ -365,6 +366,7 @@ let scannedBossBases=new Set();
 let rareTradingOutposts=new Map();
 let rareTradingOutpostRejectedKeys=new Set();
 let scannedTradingOutposts=new Map();
+let scannedRadarOutposts=new Map();
 let scannedLandingSpaces=new Map();
 let scannedPortals=new Map();
 let scannerKeyDown=false;
@@ -752,16 +754,16 @@ function terrainSlopeAt(x,z){
   return Math.max(xSlope,zSlope,diagonalSlope,Math.abs(center-drivingSurfaceHeight(x+sampleDistance,z-sampleDistance))/(sampleDistance*1.414));
 }
 
-function mountainClimbBlocked(car,fromX,fromZ,toX,toZ){
+function mountainClimbProfile(car,fromX,fromZ,toX,toZ){
   let fromY=drivingSurfaceHeight(fromX,fromZ);
   let actuallyFlying=car.y>fromY+1.4 || car.jetMode || car.jetProgress>0.2;
-  if(actuallyFlying) return false;
-  if(roadDistance(toX,toZ)<58) return false;
+  if(actuallyFlying) return {blocked:false,slowdown:0};
+  if(roadDistance(toX,toZ)<58) return {blocked:false,slowdown:0};
 
   let dx=toX-fromX;
   let dz=toZ-fromZ;
   let distance=Math.hypot(dx,dz);
-  if(distance<0.01) return false;
+  if(distance<0.01) return {blocked:false,slowdown:0};
 
   let maxGrade=0;
   let totalUphill=0;
@@ -790,7 +792,24 @@ function mountainClimbBlocked(car,fromX,fromZ,toX,toZ){
 
   let localSlope=terrainSlopeAt(toX,toZ);
   let heightAboveRoad=drivingSurfaceHeight(toX,toZ)-drivingSurfaceHeight(roadCenterX(toZ),toZ);
-  return heightAboveRoad>18 && totalUphill>0.42 && maxGrade>0.95 && localSlope>0.85;
+  let averageUphill=totalUphill/Math.max(0.001,distance);
+  let carMode=car.morphProgress>0.68 && car.jetProgress<0.35;
+
+  if(carMode){
+    if(totalUphill<=0.08) return {blocked:false,slowdown:0};
+
+    let gradeSeverity=clamp((maxGrade-0.26)/0.42,0,1);
+    let averageSeverity=clamp((averageUphill-0.1)/0.24,0,1);
+    let slopeSeverity=clamp((localSlope-0.18)/0.32,0,1);
+    let heightSeverity=clamp((heightAboveRoad-5)/14,0,1);
+    let slowdown=Math.max(gradeSeverity,averageSeverity,slopeSeverity)*heightSeverity;
+    let blocked=(heightAboveRoad>14 && totalUphill>0.34 && maxGrade>0.62 && localSlope>0.42)
+      || (heightAboveRoad>20 && averageUphill>0.24 && localSlope>0.36);
+    return {blocked,slowdown:blocked ? 1 : clamp(slowdown,0,0.82)};
+  }
+
+  let blocked=heightAboveRoad>18 && totalUphill>0.42 && maxGrade>0.95 && localSlope>0.85;
+  return {blocked,slowdown:0};
 }
 
 function uphillGradeAlongSegment(fromX,fromZ,toX,toZ){
@@ -1945,6 +1964,7 @@ let hud=createHud({
   })),
   getScannedBossBases:()=>Array.from(scannedBossBases).filter(base=>base && base.active!==false && base.health>0),
   getScannedTradingOutposts:visibleTradingOutpostsForMap,
+  getScannedRadarOutposts:()=>Array.from(scannedRadarOutposts.values()),
   getScannedLandingSpaces:()=>Array.from(scannedLandingSpaces.values()),
   getScannedPortals:()=>Array.from(scannedPortals.values()),
   getNearestTradingOutpost:nearestTradingOutpostForCompass,
@@ -2082,6 +2102,7 @@ function saveGameStatus(){
       active:base && base.active!==false
     })).filter(item=>Number.isFinite(item.x) && Number.isFinite(item.z)),
     scannedTradingOutposts:mapSnapshot(scannedTradingOutposts),
+    scannedRadarOutposts:mapSnapshot(scannedRadarOutposts),
     scannedLandingSpaces:mapSnapshot(scannedLandingSpaces),
     scannedPortals:mapSnapshot(scannedPortals)
   };
@@ -2236,6 +2257,7 @@ function restoreSavedRuntimeStatus(status){
   nextWeatherChange=performance.now()+Math.max(1000,finiteOr(status.weatherChangeRemaining,weatherChangeMinMs));
   scannedBossBases=new Set(Array.isArray(status.scannedBossBases) ? status.scannedBossBases.filter(item=>item && Number.isFinite(item.x) && Number.isFinite(item.z)) : []);
   restoreScannedMap(scannedTradingOutposts,status.scannedTradingOutposts);
+  restoreScannedMap(scannedRadarOutposts,status.scannedRadarOutposts);
   restoreScannedMap(scannedLandingSpaces,status.scannedLandingSpaces);
   restoreScannedMap(scannedPortals,status.scannedPortals);
   updateUnlockedRandomPortals();
@@ -2494,7 +2516,7 @@ function updateTreasurePickups(){
 }
 
 function playBuildingExplosionSound(obstacle){
-  if(!obstacle || obstacle.type!=="building" || !motorAudio || !motorAudio.playExplosion) return;
+  if(!obstacle || (obstacle.type!=="building" && obstacle.type!=="radarOutpost") || !motorAudio || !motorAudio.playExplosion) return;
 
   let now=performance.now();
   if(now-lastBuildingExplosionSoundAt<buildingExplosionSoundCooldownMs) return;
@@ -2509,6 +2531,19 @@ function playBuildingExplosionSound(obstacle){
   },{volume:2.2});
 }
 
+function forgetScannedRadarOutpost(obstacle){
+  if(!obstacle || obstacle.type!=="radarOutpost" || !scannedRadarOutposts) return;
+
+  for(let [key,outpost] of scannedRadarOutposts){
+    if(!outpost) continue;
+    let dx=(outpost.x || 0)-obstacle.x;
+    let dz=(outpost.z || 0)-obstacle.z;
+    if(dx*dx+dz*dz<4){
+      scannedRadarOutposts.delete(key);
+    }
+  }
+}
+
 function destroyWorldObstacle(obstacle){
   if(!world.destroyObstacle(obstacle)) return false;
 
@@ -2517,6 +2552,10 @@ function destroyWorldObstacle(obstacle){
   }
 
   playBuildingExplosionSound(obstacle);
+  if(obstacle.type==="radarOutpost"){
+    forgetScannedRadarOutpost(obstacle);
+    if(hud) hud.updateMapHud(true);
+  }
 
   if(obstacle.village && world.isVillageCleared(obstacle.village) && !scoredVillages.has(obstacle.village)){
     scoredVillages.add(obstacle.village);
@@ -2527,6 +2566,7 @@ function destroyWorldObstacle(obstacle){
 }
 
 function obstacleMaxHealth(obstacle){
+  if(obstacle && obstacle.type==="radarOutpost") return 92;
   if(!obstacle || obstacle.type!=="building") return 1;
 
   let height=obstacle.visualHeight || obstacle.height || 8;
@@ -2538,7 +2578,7 @@ function obstacleMaxHealth(obstacle){
 
 function damageWorldObstacle(obstacle,amount=1){
   if(!obstacle || obstacle.destroyed) return false;
-  if(obstacle.type!=="building") return destroyWorldObstacle(obstacle);
+  if(obstacle.type!=="building" && obstacle.type!=="radarOutpost") return destroyWorldObstacle(obstacle);
 
   if(!Number.isFinite(obstacle.maxHealth)) obstacle.maxHealth=obstacleMaxHealth(obstacle);
   if(!Number.isFinite(obstacle.health)) obstacle.health=obstacle.maxHealth;
@@ -4995,7 +5035,7 @@ function applyPlayerLaserDamage(car,hit){
       if(damageWorldObstacle(hit.obstacle,playerLaserDamageAmount*2.4)){
         spawnRockDebris(hit.obstacle.x,point.y,hit.obstacle.z,hit.obstacle);
       }
-    }else if(hit.obstacle.type==="rock" || hit.obstacle.type==="smallRock" || hit.obstacle.type==="turret"){
+    }else if(hit.obstacle.type==="rock" || hit.obstacle.type==="smallRock" || hit.obstacle.type==="turret" || hit.obstacle.type==="radarOutpost"){
       if(damageWorldObstacle(hit.obstacle,playerLaserDamageAmount*2)){
         spawnRockDebris(hit.obstacle.x,point.y,hit.obstacle.z,hit.obstacle);
       }
@@ -5197,7 +5237,9 @@ function destroyObstaclesInRadius(x,z,radius){
     let dz=obstacle.z-z;
     let reach=radius+(obstacle.r || 0);
     if(dx*dx+dz*dz>reach*reach) continue;
-    if(destroyWorldObstacle(obstacle)) destroyed.push(obstacle);
+    if(obstacle.type==="radarOutpost"){
+      if(damageWorldObstacle(obstacle,160)) destroyed.push(obstacle);
+    }else if(destroyWorldObstacle(obstacle)) destroyed.push(obstacle);
   }
 
   return destroyed;
@@ -5241,7 +5283,7 @@ function detonateClusterBomb(owner,x,y,z){
     let debrisCount=0;
     for(let obstacle of destroyed){
       if(debrisCount>=42) break;
-      if(obstacle.type==="rock" || obstacle.type==="smallRock" || obstacle.type==="building" || obstacle.type==="wall" || obstacle.type==="turret"){
+      if(obstacle.type==="rock" || obstacle.type==="smallRock" || obstacle.type==="building" || obstacle.type==="wall" || obstacle.type==="turret" || obstacle.type==="radarOutpost"){
         spawnRockDebris(
           obstacle.x,
           drivingSurfaceHeight(obstacle.x,obstacle.z)+Math.max(0.8,(obstacle.r || 2)*0.35),
@@ -5503,7 +5545,7 @@ function updateRockets(){
           if(hitObstacle){
             if(hitObstacle.type==="bossBase"){
               damageBossBaseObstacle(hitObstacle,rocket.x,rocket.y,rocket.z,34);
-            }else if(hitObstacle.type==="rock" || hitObstacle.type==="smallRock" || hitObstacle.type==="building" || hitObstacle.type==="wall" || hitObstacle.type==="turret"){
+            }else if(hitObstacle.type==="rock" || hitObstacle.type==="smallRock" || hitObstacle.type==="building" || hitObstacle.type==="wall" || hitObstacle.type==="turret" || hitObstacle.type==="radarOutpost"){
               if(hitObstacle.type==="building" || hitObstacle.type==="wall") spawnBuildingAmmoImpact(hitObstacle,rocket.x,rocket.y,rocket.z,34);
               if(damageWorldObstacle(hitObstacle,34)){
                 spawnRockDebris(hitObstacle.x,explosionY,hitObstacle.z,hitObstacle);
@@ -5614,7 +5656,7 @@ function updateCannonBolts(){
           if(hitObstacle){
             if(hitObstacle.type==="bossBase"){
               damageBossBaseObstacle(hitObstacle,bolt.x,bolt.y,bolt.z,13);
-            }else if(hitObstacle.type==="rock" || hitObstacle.type==="smallRock" || hitObstacle.type==="building" || hitObstacle.type==="wall" || hitObstacle.type==="turret"){
+            }else if(hitObstacle.type==="rock" || hitObstacle.type==="smallRock" || hitObstacle.type==="building" || hitObstacle.type==="wall" || hitObstacle.type==="turret" || hitObstacle.type==="radarOutpost"){
               if(hitObstacle.type==="building" || hitObstacle.type==="wall") spawnBuildingAmmoImpact(hitObstacle,bolt.x,bolt.y,bolt.z,13);
               if(damageWorldObstacle(hitObstacle,13)){
                 spawnRockDebris(hitObstacle.x,explosionY,hitObstacle.z,hitObstacle);
@@ -9463,12 +9505,24 @@ function updateCar(car){
         }
       }
     }
-    if(mountainClimbBlocked(car,prevX,prevZ,car.x,car.z)){
+    let climbProfile=mountainClimbProfile(car,prevX,prevZ,car.x,car.z);
+    if(carGroundMovement && climbProfile.slowdown>0 && car.speed>0){
+      let climbEase=climbProfile.slowdown*climbProfile.slowdown;
+      let climbDrag=0.018+climbEase*0.052;
+      let climbMaxSpeed=localMaxSpeed*morphSpeedMultiplier*(1-climbEase*0.58);
+      car.speed*=1-climbDrag;
+      if(car.speed>climbMaxSpeed){
+        car.speed=approach(car.speed,climbMaxSpeed,0.004+climbEase*0.02);
+      }
+      car.throttleEase*=1-climbEase*0.08;
+    }
+    if(climbProfile.blocked){
       car.x=prevX;
       car.z=prevZ;
-      car.speed=Math.min(0,car.speed*0.18);
+      car.speed*=0.52;
+      if(Math.abs(car.speed)<0.025) car.speed=0;
       car.vy=Math.min(car.vy,0);
-      car.throttleEase=Math.min(0,car.throttleEase || 0);
+      car.throttleEase=Math.min(0.18,car.throttleEase || 0);
     }
   }
 
@@ -9962,6 +10016,33 @@ function scanVisibleChunksForTradingOutposts(){
   return found;
 }
 
+function scanVisibleChunksForRadarOutposts(){
+  if(!world || !world.chunks) return false;
+
+  let found=false;
+  for(let [chunkKey,chunk] of world.chunks){
+    if(!chunk || !chunk.colliders) continue;
+
+    for(let obstacle of chunk.colliders){
+      if(!obstacle || obstacle.type!=="radarOutpost" || obstacle.destroyed) continue;
+      if(!objectInVisibleChunk(obstacle)) continue;
+
+      let key=`${chunkKey}:radar:${Math.round(obstacle.x)}:${Math.round(obstacle.z)}`;
+      if(!scannedRadarOutposts.has(key)){
+        scannedRadarOutposts.set(key,{
+          x:obstacle.x,
+          z:obstacle.z,
+          r:obstacle.r || 8
+        });
+        found=true;
+      }
+    }
+  }
+
+  if(found && hud) hud.updateMapHud(true);
+  return found;
+}
+
 function scanVisibleChunksForLandingSpaces(){
   if(!world || !world.chunks) return false;
 
@@ -10014,9 +10095,10 @@ function scanVisibleChunksForPortals(){
 function scanVisibleChunksForMapFeatures(){
   let foundBossBases=scanVisibleChunksForBossBases();
   let foundTradingOutposts=scanVisibleChunksForTradingOutposts();
+  let foundRadarOutposts=scanVisibleChunksForRadarOutposts();
   let foundLandingSpaces=scanVisibleChunksForLandingSpaces();
   let foundPortals=scanVisibleChunksForPortals();
-  return foundBossBases || foundTradingOutposts || foundLandingSpaces || foundPortals;
+  return foundBossBases || foundTradingOutposts || foundRadarOutposts || foundLandingSpaces || foundPortals;
 }
 
 function clearRareTradingOutposts(clearScanned=false){
@@ -10703,6 +10785,7 @@ function startGame(mode,difficulty="medium",savedStatus=null){
   clearGiantTestRobot();
   clearTradingOutpost();
   clearTestingTradingOutpost();
+  clearTestingRadarOutpost();
   if(world.clearBossBases) world.clearBossBases();
   if(savedStatus) applySavedWorldSettings(savedStatus);
   jetUnlocked=false;
@@ -10724,6 +10807,7 @@ function startGame(mode,difficulty="medium",savedStatus=null){
   applyTestingStartItems();
   scoredVillages=new WeakSet();
   scannedBossBases=new Set();
+  scannedRadarOutposts=new Map();
   scannedLandingSpaces=new Map();
   scannedPortals=new Map();
   clearRareTradingOutposts(true);
@@ -11055,6 +11139,12 @@ function clearTestingTradingOutpost(){
   unregisterTradingPlaceCollision(testingTradingOutpost);
   if(testingTradingOutpost.object) scene.remove(testingTradingOutpost.object);
   testingTradingOutpost=null;
+}
+
+function clearTestingRadarOutpost(){
+  if(world && world.clearTestingRadarOutpost) world.clearTestingRadarOutpost();
+  scannedRadarOutposts.delete("testing-home-radar-outpost");
+  if(hud) hud.updateMapHud(true);
 }
 
 function makeTradingOutpostCollision(x,z,angle,y,model=tradingOutpostModel,object=null,terminalObject=null,terminalMode="trading"){
@@ -11396,6 +11486,75 @@ function placeTestingTradingOutpostNearHomeBase(){
   if(hud) hud.updateMapHud(true);
 }
 
+function placeTestingRadarOutpostNearHomeBase(){
+  if(!testingRadarOutpostEnabled || !tradingOutpost || !world || !world.placeTestRadarOutpost) return;
+
+  clearTestingRadarOutpost();
+
+  let homeX=tradingOutpost.position.x;
+  let homeZ=tradingOutpost.position.z;
+  let homeY=drivingSurfaceHeight(homeX,homeZ);
+  let angle=tradingOutpost.rotation.y || 0;
+  let forwardX=Math.sin(angle);
+  let forwardZ=Math.cos(angle);
+  let rightX=Math.cos(angle);
+  let rightZ=-Math.sin(angle);
+  let offsets=[
+    {forward:18,right:112},
+    {forward:-22,right:112},
+    {forward:54,right:124},
+    {forward:-58,right:124},
+    {forward:18,right:-112},
+    {forward:-22,right:-112},
+    {forward:72,right:146},
+    {forward:-86,right:146},
+    {forward:72,right:-146},
+    {forward:-86,right:-146}
+  ];
+
+  world.updateChunksForCenters(offsets.map(offset=>({
+    x:homeX+forwardX*offset.forward+rightX*offset.right,
+    z:homeZ+forwardZ*offset.forward+rightZ*offset.right,
+    viewDistance:1
+  })));
+  world.processChunkQueue(160,true);
+
+  let chosen=null;
+  let fallback=null;
+  for(let offset of offsets){
+    let x=homeX+forwardX*offset.forward+rightX*offset.right;
+    let z=homeZ+forwardZ*offset.forward+rightZ*offset.right;
+    let distance=Math.hypot(x-homeX,z-homeZ);
+    if(distance<86) continue;
+
+    let water=waterDepthAt(x,z);
+    let slope=terrainSlopeAt(x,z);
+    let heightDelta=Math.abs(drivingSurfaceHeight(x,z)-homeY);
+    let obstacle=world.obstacleAt ? world.obstacleAt(x,z,18) : null;
+    if(obstacle) continue;
+
+    let score=distance*0.18+water*900+slope*640+heightDelta*18;
+    if(water<=0.1 && slope<0.16 && heightDelta<4.5){
+      if(!chosen || score<chosen.score) chosen={x,z,score};
+    }else if(water<=0.45 && slope<0.28){
+      if(!fallback || score<fallback.score) fallback={x,z,score};
+    }
+  }
+
+  let spot=chosen || fallback;
+  if(!spot) return;
+
+  let collider=world.placeTestRadarOutpost(spot.x,spot.z,angle+Math.PI*0.34);
+  if(!collider) return;
+
+  scannedRadarOutposts.set("testing-home-radar-outpost",{
+    x:collider.x,
+    z:collider.z,
+    r:collider.r || 8
+  });
+  if(hud) hud.updateMapHud(true);
+}
+
 function tradingOutpostFootprintSize(model=tradingOutpostModel){
   let modelData=model ? model.userData || {} : {};
   let bounds=modelData.tradingOutpostBounds || {};
@@ -11732,6 +11891,7 @@ function placeTradingOutpostNearStart(startInfo){
   tintTradingOutpostForEnvironment(tradingOutpost);
   setTradingOutpostCollision(chosen.x,chosen.z,tradingOutpost.rotation.y,tradingOutpost.position.y,baseStationModel,"mission");
   scene.add(tradingOutpost);
+  placeTestingRadarOutpostNearHomeBase();
 }
 
 let terrainSeed=Math.random()*100000;

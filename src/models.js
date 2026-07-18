@@ -522,7 +522,7 @@ export function loadLandingSpaceModel(){
   });
 }
 
-function makeMissionOutpostTerminal(bounds){
+export function makeMissionOutpostTerminal(bounds,options={}){
   let terminal=new THREE.Group();
   terminal.name="missionOutpostTerminal";
 
@@ -619,10 +619,12 @@ function makeMissionOutpostTerminal(bounds){
   cyl("terminal_status_light_b",0.2,0.16,screenMat,2.55,4.9,1.94,Math.PI/2,0,0,16);
   cyl("terminal_floor_cable",0.1,5.4,darkMat,2.8,0.15,-1.1,Math.PI/2,0,0,10);
 
-  let glow=new THREE.PointLight(0x35eaff,1.25,18,2.2);
-  glow.name="terminal_screen_glow";
-  glow.position.set(0,6.2,screenSide*1.0);
-  terminal.add(glow);
+  if(options.lights!==false){
+    let glow=new THREE.PointLight(0x35eaff,1.25,18,2.2);
+    glow.name="terminal_screen_glow";
+    glow.position.set(0,6.2,screenSide*1.0);
+    terminal.add(glow);
+  }
 
   return terminal;
 }

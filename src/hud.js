@@ -11,7 +11,7 @@ const speedHudScale=1.2;
 const speedHudWidth=mapHudSize/speedHudScale;
 const laserHudFrames=300;
 
-export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStationState=()=>null,getNearestTradingOutpost=()=>null,getNearestBossBase=()=>null,getScannedBossBases=()=>[],getScannedTradingOutposts=()=>[],getScannedLandingSpaces=()=>[],getScannedPortals=()=>[],getPerformanceMode=()=>"full",getEnvironment=()=>({})}){
+export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStationState=()=>null,getNearestTradingOutpost=()=>null,getNearestBossBase=()=>null,getScannedBossBases=()=>[],getScannedTradingOutposts=()=>[],getScannedRadarOutposts=()=>[],getScannedLandingSpaces=()=>[],getScannedPortals=()=>[],getPerformanceMode=()=>"full",getEnvironment=()=>({})}){
   let panels=[];
   let gameOverOverlay;
   let mapUpdateFrame=0;
@@ -373,6 +373,8 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       scannedBossStroke:rgba(colors.podEmissive || colors.pod,0.98,0xff6a42),
       scannedOutpostFill:rgba(colors.shore || colors.wall,0.38,0xffb84d),
       scannedOutpostStroke:rgba(colors.shore || colors.trim,0.98,0xfff17a),
+      scannedRadarFill:rgba(colors.water || colors.trim,0.36,0x7ff8ff),
+      scannedRadarStroke:rgba(colors.waterEmissive || colors.water || colors.trim,0.98,0x8dfff2),
       scannedLandingFill:rgba(colors.grass || colors.low,0.34,0x7cff78),
       scannedLandingStroke:rgba(colors.trim || colors.grass,0.96,0xd9ff7a),
       scannedPortalFill:rgba(colors.trim || colors.water,0.26,0xd6a8ff),
@@ -418,6 +420,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     drawVillages(mapCtx,centerX,centerZ,radius,size,palette);
     drawScannedLandingSpaces(mapCtx,getScannedLandingSpaces(),centerX,centerZ,radius,size,palette);
     drawScannedBossBases(mapCtx,getScannedBossBases(),centerX,centerZ,radius,size,palette);
+    drawScannedRadarOutposts(mapCtx,getScannedRadarOutposts(),centerX,centerZ,radius,size,palette);
     drawScannedPortals(mapCtx,getScannedPortals(),centerX,centerZ,radius,size,palette);
     drawEnemyDots(mapCtx,enemies,centerX,centerZ,radius,size);
     drawOtherCars(mapCtx,state,states,centerX,centerZ,radius,size,palette);
@@ -609,6 +612,57 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       mapCtx.moveTo(halfTop+3,barBottom+1);
       mapCtx.lineTo(halfTop+3,topY+1);
       mapCtx.stroke();
+      mapCtx.restore();
+    }
+  }
+
+  function drawScannedRadarOutposts(mapCtx,outposts,centerX,centerZ,radius,size,palette){
+    if(!outposts || !outposts.length) return;
+
+    let pulse=0.5+0.5*Math.sin(performance.now()*0.0065);
+    for(let outpost of outposts){
+      if(!outpost) continue;
+
+      let p=mapToCanvas(outpost.x,outpost.z,centerX,centerZ,radius,size);
+      let margin=12;
+      let offMap=p.x<margin || p.x>size-margin || p.y<margin || p.y>size-margin;
+      if(offMap){
+        p.x=Math.max(margin,Math.min(size-margin,p.x));
+        p.y=Math.max(margin,Math.min(size-margin,p.y));
+      }
+
+      let dishRadius=7.2+pulse*1.2;
+      mapCtx.save();
+      mapCtx.translate(p.x,p.y);
+      mapCtx.globalAlpha=offMap ? 0.7 : 1;
+      mapCtx.shadowColor=palette.scannedRadarStroke;
+      mapCtx.shadowBlur=5+pulse*5;
+      mapCtx.strokeStyle=palette.scannedRadarStroke;
+      mapCtx.fillStyle=palette.scannedRadarFill;
+      mapCtx.lineWidth=1.7;
+      mapCtx.beginPath();
+      mapCtx.arc(0,-1,dishRadius,Math.PI*1.05,Math.PI*1.95);
+      mapCtx.lineTo(0,-1);
+      mapCtx.closePath();
+      mapCtx.fill();
+      mapCtx.stroke();
+
+      mapCtx.shadowBlur=0;
+      mapCtx.beginPath();
+      mapCtx.moveTo(0,-1);
+      mapCtx.lineTo(0,8);
+      mapCtx.moveTo(-5,8);
+      mapCtx.lineTo(5,8);
+      mapCtx.stroke();
+
+      mapCtx.strokeStyle=`rgba(245,255,249,${0.34+pulse*0.3})`;
+      mapCtx.lineWidth=1.05;
+      for(let i=0;i<3;i++){
+        let wave=dishRadius+3+i*3+pulse*2;
+        mapCtx.beginPath();
+        mapCtx.arc(0,-1,wave,Math.PI*1.16,Math.PI*1.84);
+        mapCtx.stroke();
+      }
       mapCtx.restore();
     }
   }
