@@ -1,7 +1,7 @@
 export const worldEnvironments=[
   {
     name:"alien dusk",
-    terrain:{heightScale:1,hillScale:1,mountainScale:1,baseHeight:0,roadWave1:220,roadWave2:80,roadWave3:25,roadFrequencyScale:1},
+    terrain:{heightScale:1,hillScale:1,mountainScale:1,broadMountainScale:1,broadMountainChance:0.26,baseHeight:0,roadWave1:220,roadWave2:80,roadWave3:25,roadFrequencyScale:1},
     sky:["#12072b","#33145f","#9c416f","#f08c71","#ffd3a5"],
     fog:0x7b4771,
     colors:{
@@ -17,7 +17,7 @@ export const worldEnvironments=[
   },
   {
     name:"crystal frost",
-    terrain:{heightScale:0.9,hillScale:1.15,mountainScale:1.35,baseHeight:-1,roadWave1:170,roadWave2:115,roadWave3:34,roadFrequencyScale:0.88},
+    terrain:{heightScale:0.9,hillScale:1.15,mountainScale:1.35,broadMountainScale:1.2,broadMountainChance:0.3,baseHeight:-1,roadWave1:170,roadWave2:115,roadWave3:34,roadFrequencyScale:0.88},
     sky:["#06182b","#123b5a","#5a8db2","#d2b4c8","#fff1dd"],
     fog:0x7fa3b9,
     colors:{
@@ -33,7 +33,7 @@ export const worldEnvironments=[
   },
   {
     name:"ember badlands",
-    terrain:{heightScale:1.08,hillScale:0.95,mountainScale:1.5,baseHeight:1.5,roadWave1:260,roadWave2:70,roadWave3:42,roadFrequencyScale:1.12},
+    terrain:{heightScale:1.08,hillScale:0.95,mountainScale:1.5,broadMountainScale:1.3,broadMountainChance:0.32,baseHeight:1.5,roadWave1:260,roadWave2:70,roadWave3:42,roadFrequencyScale:1.12},
     sky:["#1d0612","#55151b","#9c3824","#f08b3e","#ffe0a8"],
     fog:0x9b5140,
     colors:{
@@ -49,7 +49,7 @@ export const worldEnvironments=[
   },
   {
     name:"dschungel canopy",
-    terrain:{heightScale:0.78,hillScale:1.55,mountainScale:0.62,baseHeight:-2.5,roadWave1:130,roadWave2:145,roadWave3:48,roadFrequencyScale:1.28},
+    terrain:{heightScale:0.78,hillScale:1.55,mountainScale:0.62,broadMountainScale:0.62,broadMountainChance:0.2,baseHeight:-2.5,roadWave1:130,roadWave2:145,roadWave3:48,roadFrequencyScale:1.28},
     sky:["#05190f","#0d3b22","#1f7144","#79a867","#ffe4a3"],
     fog:0x2f744d,
     colors:{
@@ -66,7 +66,7 @@ export const worldEnvironments=[
   },
   {
     name:"dschungel wetlands",
-    terrain:{heightScale:0.62,hillScale:1.25,mountainScale:0.35,baseHeight:-4.2,roadWave1:155,roadWave2:128,roadWave3:36,roadFrequencyScale:1.05},
+    terrain:{heightScale:0.62,hillScale:1.25,mountainScale:0.35,broadMountainScale:0.35,broadMountainChance:0.16,baseHeight:-4.2,roadWave1:155,roadWave2:128,roadWave3:36,roadFrequencyScale:1.05},
     sky:["#071712","#123d36","#2c6f5f","#82a95e","#f3d98e"],
     fog:0x315f50,
     colors:{
@@ -83,7 +83,7 @@ export const worldEnvironments=[
   },
   {
     name:"storm archipelago",
-    terrain:{heightScale:0.52,hillScale:1.05,mountainScale:0.48,baseHeight:-5.6,roadWave1:190,roadWave2:132,roadWave3:52,roadFrequencyScale:0.92},
+    terrain:{heightScale:0.52,hillScale:1.05,mountainScale:0.48,broadMountainScale:0.42,broadMountainChance:0.18,baseHeight:-5.6,roadWave1:190,roadWave2:132,roadWave3:52,roadFrequencyScale:0.92},
     sky:["#03111f","#063756","#18707b","#69a7a8","#f0dca9"],
     fog:0x2d7180,
     colors:{
@@ -99,7 +99,7 @@ export const worldEnvironments=[
   },
   {
     name:"violet mesas",
-    terrain:{heightScale:1.16,hillScale:0.72,mountainScale:1.82,baseHeight:3.2,roadWave1:285,roadWave2:62,roadWave3:58,roadFrequencyScale:1.18},
+    terrain:{heightScale:1.16,hillScale:0.72,mountainScale:1.82,broadMountainScale:1.45,broadMountainChance:0.34,baseHeight:3.2,roadWave1:285,roadWave2:62,roadWave3:58,roadFrequencyScale:1.18},
     sky:["#100b24","#2f2462","#724b98","#c9798f","#ffe1ba"],
     fog:0x76548a,
     colors:{
@@ -115,7 +115,7 @@ export const worldEnvironments=[
   },
   {
     name:"ash bloom",
-    terrain:{heightScale:0.96,hillScale:1.34,mountainScale:1.08,baseHeight:0.4,roadWave1:210,roadWave2:105,roadWave3:44,roadFrequencyScale:0.98},
+    terrain:{heightScale:0.96,hillScale:1.34,mountainScale:1.08,broadMountainScale:0.9,broadMountainChance:0.24,baseHeight:0.4,roadWave1:210,roadWave2:105,roadWave3:44,roadFrequencyScale:0.98},
     sky:["#07090c","#20242a","#5d6861","#b17d67","#f2c99a"],
     fog:0x697067,
     colors:{
@@ -132,7 +132,7 @@ export const worldEnvironments=[
   {
     name:"neon city",
     city:true,
-    terrain:{heightScale:0.42,hillScale:0.55,mountainScale:0.18,baseHeight:-1.4,roadWave1:95,roadWave2:48,roadWave3:18,roadFrequencyScale:0.72},
+    terrain:{heightScale:0.42,hillScale:0.55,mountainScale:0.18,broadMountainScale:0.12,broadMountainChance:0.08,baseHeight:-1.4,roadWave1:95,roadWave2:48,roadWave3:18,roadFrequencyScale:0.72},
     sky:["#050812","#101a2c","#203858","#57728a","#d6c2a2"],
     fog:0x26384c,
     colors:{

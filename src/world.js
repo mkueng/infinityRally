@@ -1,6 +1,6 @@
 import { THREE } from "./three.js";
 import { carRadius, chunkSize, segments, viewDistance } from "./constants.js";
-import { groundHeight, rand, roadCenterX, roadDistance } from "./terrain.js?v=no-ramps";
+import { groundHeight, rand, roadCenterX, roadDistance } from "./terrain.js?v=broad-mountains";
 import { makeGroundTexture } from "./textures.js?v=alien-planet";
 
 export function createWorld(scene,options={}){
@@ -206,6 +206,95 @@ function environmentSettlements(){
   };
 }
 
+function environmentSettlementStyle(){
+  let name=(currentEnvironment && currentEnvironment.name || "").toLowerCase();
+  let city=!!(currentEnvironment && currentEnvironment.city);
+  let base={
+    widthScale:1,
+    depthScale:1,
+    heightScale:1,
+    roofHeightScale:1,
+    roofScale:1,
+    roofYawOffset:0.25,
+    densityScale:1,
+    minGapScale:1,
+    windowRows:3,
+    windowColumns:2,
+    sideWindowRows:2,
+    trimBands:0,
+    trimCapacity:6,
+    chimneyChance:1,
+    chimneyCount:1,
+    chimneyHeightScale:1,
+    chimneyWidthScale:1,
+    porchChance:1,
+    porchScale:1,
+    supportPosts:false,
+    supportHeightScale:0.42,
+    wallSegments:14,
+    wallRingScale:1.22,
+    wallHeight:2.2,
+    wallThickness:0.55,
+    wallSkipAngle:0.32,
+    cityWindowRowsScale:1,
+    cityWindowColumnsScale:1,
+    cityTrimBands:2,
+    cityGlowDensity:1,
+    bodyRandomScale:1
+  };
+
+  let styles={
+    "alien dusk":{
+      widthScale:0.92,depthScale:1.08,heightScale:1.18,roofHeightScale:1.35,roofScale:0.92,roofYawOffset:0.52,
+      windowRows:3,windowColumns:2,sideWindowRows:2,trimBands:2,chimneyChance:0.8,chimneyHeightScale:1.55,porchChance:0.65,
+      wallSegments:16,wallHeight:2.35,wallRingScale:1.26
+    },
+    "crystal frost":{
+      widthScale:0.78,depthScale:0.82,heightScale:1.62,roofHeightScale:1.8,roofScale:0.64,roofYawOffset:0.78,
+      windowRows:4,windowColumns:2,sideWindowRows:3,trimBands:3,chimneyChance:0.9,chimneyHeightScale:2.2,chimneyWidthScale:0.62,
+      porchChance:0.35,wallSegments:18,wallHeight:2.7,wallThickness:0.42,minGapScale:1.12
+    },
+    "ember badlands":{
+      widthScale:1.18,depthScale:1.06,heightScale:0.76,roofHeightScale:0.42,roofScale:1.05,
+      windowRows:2,windowColumns:2,sideWindowRows:1,trimBands:1,chimneyChance:1,chimneyCount:2,chimneyHeightScale:1.8,chimneyWidthScale:1.45,
+      porchChance:0.25,wallSegments:12,wallHeight:3.1,wallThickness:0.86,wallRingScale:1.17,minGapScale:1.08
+    },
+    "dschungel canopy":{
+      widthScale:1.2,depthScale:1.16,heightScale:0.9,roofHeightScale:1.55,roofScale:1.25,
+      windowRows:2,windowColumns:3,sideWindowRows:2,trimBands:1,chimneyChance:0.3,porchChance:1,porchScale:1.45,
+      supportPosts:true,supportHeightScale:0.48,wallSegments:10,wallHeight:1.55,wallThickness:0.48,wallRingScale:1.3,minGapScale:1.18
+    },
+    "dschungel wetlands":{
+      widthScale:1.12,depthScale:1.24,heightScale:0.82,roofHeightScale:1.35,roofScale:1.32,
+      windowRows:2,windowColumns:2,sideWindowRows:2,trimBands:1,chimneyChance:0.45,porchChance:1,porchScale:1.7,
+      supportPosts:true,supportHeightScale:0.62,wallSegments:10,wallHeight:1.35,wallThickness:0.42,wallRingScale:1.35,minGapScale:1.22
+    },
+    "storm archipelago":{
+      widthScale:0.82,depthScale:0.9,heightScale:1.38,roofHeightScale:1.22,roofScale:0.9,
+      windowRows:4,windowColumns:1,sideWindowRows:3,trimBands:2,chimneyChance:0.75,chimneyHeightScale:2.6,chimneyWidthScale:0.58,
+      porchChance:0.8,porchScale:1.2,supportPosts:true,supportHeightScale:0.42,wallSegments:16,wallHeight:2.0,wallThickness:0.5
+    },
+    "violet mesas":{
+      widthScale:1.34,depthScale:1.18,heightScale:0.72,roofHeightScale:0.32,roofScale:1.1,
+      windowRows:2,windowColumns:1,sideWindowRows:1,trimBands:3,chimneyChance:0.55,chimneyHeightScale:0.9,chimneyWidthScale:1.35,
+      porchChance:0.55,wallSegments:13,wallHeight:2.55,wallThickness:0.78,wallRingScale:1.16,minGapScale:1.16
+    },
+    "ash bloom":{
+      widthScale:1.02,depthScale:1.04,heightScale:1.08,roofHeightScale:0.78,roofScale:0.96,
+      windowRows:3,windowColumns:2,sideWindowRows:2,trimBands:2,chimneyChance:1,chimneyCount:3,chimneyHeightScale:2.15,chimneyWidthScale:0.82,
+      porchChance:0.45,wallSegments:15,wallHeight:2.45,wallThickness:0.62
+    },
+    "neon city":{
+      widthScale:0.92,depthScale:0.92,heightScale:1.12,roofHeightScale:0.65,roofScale:0.76,
+      cityWindowRowsScale:1.15,cityWindowColumnsScale:1.2,cityTrimBands:4,cityGlowDensity:1.45,chimneyCount:3,chimneyHeightScale:1.35,
+      minGapScale:0.95,bodyRandomScale:1.22
+    }
+  };
+
+  let selected=styles[name] || {};
+  return {...base,...selected,city};
+}
+
 function setMaterialColor(material,color,emissive=null){
   if(material.color && color!=null) material.color.set(color);
   if(material.emissive && emissive!=null) material.emissive.set(emissive);
@@ -263,7 +352,7 @@ function createChunkWorker(){
   if(options.disableChunkWorker || typeof Worker==="undefined") return null;
 
   try{
-    let worker=new Worker(new URL("./chunkWorker.js",import.meta.url),{type:"module"});
+    let worker=new Worker(new URL("./chunkWorker.js?v=broad-mountains",import.meta.url),{type:"module"});
     let template=makeTerrainVertexTemplate();
     worker.postMessage({
       type:"setTerrainTemplate",

@@ -5,6 +5,8 @@ const defaultTerrainProfile={
   heightScale:1,
   hillScale:1,
   mountainScale:1,
+  broadMountainScale:1,
+  broadMountainChance:0.26,
   baseHeight:0,
   roadWave1:220,
   roadWave2:80,
@@ -52,6 +54,57 @@ export function fbm(x,z){
   return h;
 }
 
+function rand01(x,z){
+  let value=rand(x,z);
+  return value-Math.floor(value);
+}
+
+function smoothstep01(value){
+  value=Math.max(0,Math.min(1,value));
+  return value*value*(3-2*value);
+}
+
+function broadMountainHeight(x,z){
+  let scale=(terrainProfile.broadMountainScale ?? 1)*terrainProfile.mountainScale;
+  if(scale<=0) return 0;
+
+  let spacing=1650;
+  let gx=Math.floor(x/spacing);
+  let gz=Math.floor(z/spacing);
+  let total=0;
+
+  for(let ix=-1;ix<=1;ix++){
+    for(let iz=-1;iz<=1;iz++){
+      let cellX=gx+ix;
+      let cellZ=gz+iz;
+      if(rand01(cellX*31.7+19.3,cellZ*47.1-8.6)>terrainProfile.broadMountainChance) continue;
+
+      let centerX=(cellX+0.18+rand01(cellX*91.3+2.1,cellZ*77.9-4.2)*0.64)*spacing;
+      let centerZ=(cellZ+0.18+rand01(cellX*57.6-3.7,cellZ*112.4+5.5)*0.64)*spacing;
+      let angle=rand01(cellX*131.9+11.4,cellZ*97.2-6.8)*Math.PI*2;
+      let radiusX=300+rand01(cellX*181.1-9.1,cellZ*61.3+7.4)*280;
+      let radiusZ=220+rand01(cellX*43.5+13.8,cellZ*149.6-2.7)*260;
+      let peak=18+rand01(cellX*211.4-17.2,cellZ*35.8+9.1)*38;
+
+      let dx=x-centerX;
+      let dz=z-centerZ;
+      let ca=Math.cos(angle);
+      let sa=Math.sin(angle);
+      let lx=(dx*ca-dz*sa)/radiusX;
+      let lz=(dx*sa+dz*ca)/radiusZ;
+      let d=Math.hypot(lx,lz);
+      if(d>=1) continue;
+
+      let dome=1-smoothstep01(d);
+      let ridge=0.72+0.28*fbm((x+centerX)*0.004,(z-centerZ)*0.004);
+      total+=peak*dome*dome*ridge*scale;
+    }
+  }
+
+  let roadFade=smoothstep01((roadDistance(x,z)-115)/155);
+  return total*roadFade;
+}
+
 export function height(x,z){
   let continent=fbm(x*.0012,z*.0012);
   let hills=fbm(x*.004,z*.004);
@@ -66,6 +119,7 @@ export function height(x,z){
   return continent*14*terrainProfile.heightScale
     + hills*5*terrainProfile.hillScale
     + mountains*40*mountainMask*terrainProfile.mountainScale
+    + broadMountainHeight(x,z)
     - 14
     + terrainProfile.baseHeight;
 }
