@@ -2,13 +2,14 @@ import { chunkSize } from "./constants.js";
 import { carSurfaceHeight } from "./terrain.js?v=no-ramps";
 
 const gameFontFamily="\"Astor\", Arial, sans-serif";
-const mapHudSize=216;
+const mapHudSize=259;
 const healthHudFullWidth="min(430px,58vw)";
 const healthHudSplitWidth="min(300px,40vw)";
 const compassFullCanvasWidth=430;
 const compassSplitCanvasWidth=300;
 const speedHudScale=1.2;
 const speedHudWidth=mapHudSize/speedHudScale;
+const laserHudFrames=300;
 
 export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStationState=()=>null,getNearestTradingOutpost=()=>null,getNearestBossBase=()=>null,getScannedBossBases=()=>[],getScannedTradingOutposts=()=>[],getScannedLandingSpaces=()=>[],getScannedPortals=()=>[],getPerformanceMode=()=>"full",getEnvironment=()=>({})}){
   let panels=[];
@@ -121,6 +122,30 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     ].join(";");
     boostTrack.appendChild(boostFill);
 
+    let laserTrack=document.createElement("div");
+    laserTrack.style.cssText=[
+      "position:absolute",
+      "left:10px",
+      "right:10px",
+      "top:112px",
+      "height:12px",
+      "background:rgba(255,63,47,0.14)",
+      "border:1px solid rgba(255,155,88,0.26)",
+      "box-shadow:0 0 10px rgba(255,63,47,0.18)",
+      "box-sizing:border-box",
+      "overflow:hidden"
+    ].join(";");
+
+    let laserFill=document.createElement("div");
+    laserFill.style.cssText=[
+      "height:100%",
+      "width:100%",
+      "background:linear-gradient(90deg,#7a120b,#ff3f2f,#fff0c8)",
+      "box-shadow:0 0 12px rgba(255,63,47,0.72)",
+      "transition:width 80ms linear,opacity 120ms linear"
+    ].join(";");
+    laserTrack.appendChild(laserFill);
+
     let fuelTrack=document.createElement("div");
     fuelTrack.style.cssText=[
       "position:absolute",
@@ -141,10 +166,13 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     ].join(";");
     fuelTrack.appendChild(fuelFill);
     speedHud.appendChild(ammoLabel);
+    speedHud.appendChild(laserTrack);
     speedHud.appendChild(boostTrack);
     speedHud.appendChild(fuelTrack);
     document.body.appendChild(speedHud);
     panel.ammoLabel=ammoLabel;
+    panel.laserFill=laserFill;
+    panel.laserTrack=laserTrack;
     panel.boostFill=boostFill;
     panel.fuelFill=fuelFill;
   }
@@ -169,6 +197,16 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     if(panel.boostFill){
       let boostPct=Math.max(0,Math.min(100,state.boostCharge ?? 0));
       panel.boostFill.style.width=boostPct+"%";
+    }
+    if(panel.laserFill){
+      let laserFire=Math.max(0,Math.min(laserHudFrames,state.laserFireFrames ?? 0));
+      let laserCooldown=Math.max(0,Math.min(laserHudFrames,state.laserCooldown ?? 0));
+      let laserPct=100;
+      if(laserFire>0) laserPct=(laserFire/laserHudFrames)*100;
+      else if(laserCooldown>0) laserPct=(1-laserCooldown/laserHudFrames)*100;
+      panel.laserFill.style.width=Math.max(0,Math.min(100,laserPct))+"%";
+      panel.laserFill.style.opacity=laserFire>0 ? "1" : laserCooldown>0 ? "0.78" : "0.94";
+      if(panel.laserTrack) panel.laserTrack.style.opacity=laserPct<=0.5 ? "0.62" : "1";
     }
     if(panel.fuelFill){
       let fuelPct=Math.max(0,Math.min(100,state.fuel ?? 100));
@@ -392,10 +430,10 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     mapCtx.strokeStyle=palette.outline;
     mapCtx.lineWidth=1.6;
     mapCtx.beginPath();
-    mapCtx.moveTo(0,-7);
-    mapCtx.lineTo(5,6);
-    mapCtx.lineTo(0,3.5);
-    mapCtx.lineTo(-5,6);
+    mapCtx.moveTo(0,-11);
+    mapCtx.lineTo(8,9);
+    mapCtx.lineTo(0,5.5);
+    mapCtx.lineTo(-8,9);
     mapCtx.closePath();
     mapCtx.fill();
     mapCtx.stroke();

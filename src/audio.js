@@ -651,18 +651,19 @@ export function createMotorAudio(cars){
     snap.stop(time+0.04);
   }
 
-  function playExplosion(position=null){
+  function playExplosion(position=null,options={}){
     ensureContext();
     if(!context || !supported) return;
     if(context.state==="suspended") context.resume();
 
+    let volume=clamp(Number(options.volume) || 1,0,2.5);
     let time=context.currentTime+0.005;
     let boom=context.createOscillator();
     let boomGain=context.createGain();
     let noise=context.createBufferSource();
     let noiseFilter=context.createBiquadFilter();
     let noiseGain=context.createGain();
-    let destination=spatialDestination(position,{minDistance:34,maxDistance:980,rolloff:2.2,volume:1});
+    let destination=spatialDestination(position,{minDistance:34,maxDistance:980,rolloff:2.2,volume});
 
     noise.buffer=noiseBuffer || createNoiseBuffer();
     boom.type="sine";
@@ -956,6 +957,41 @@ export function createMotorAudio(cars){
     };
   }
 
+  function playTerminalBleep(){
+    ensureContext();
+    if(!context || !supported || !sfxEnabled) return;
+    if(context.state==="suspended") context.resume();
+
+    let time=context.currentTime+0.004;
+    let ping=context.createOscillator();
+    let overtone=context.createOscillator();
+    let gain=context.createGain();
+    let filter=context.createBiquadFilter();
+    let volume=0.18*sfxVolume;
+
+    ping.type="triangle";
+    overtone.type="sine";
+    ping.frequency.setValueAtTime(880,time);
+    ping.frequency.exponentialRampToValueAtTime(1320,time+0.055);
+    overtone.frequency.setValueAtTime(1760,time);
+    overtone.frequency.exponentialRampToValueAtTime(2140,time+0.045);
+    filter.type="bandpass";
+    filter.frequency.setValueAtTime(1450,time);
+    filter.Q.setValueAtTime(5.5,time);
+    gain.gain.setValueAtTime(0.0001,time);
+    gain.gain.exponentialRampToValueAtTime(Math.max(0.0001,volume),time+0.006);
+    gain.gain.exponentialRampToValueAtTime(0.0001,time+0.16);
+
+    ping.connect(filter);
+    overtone.connect(filter);
+    filter.connect(gain);
+    gain.connect(context.destination);
+    ping.start(time);
+    overtone.start(time);
+    ping.stop(time+0.18);
+    overtone.stop(time+0.14);
+  }
+
   function startMothershipHum(position=null){
     ensureContext();
     if(!context || !supported) return;
@@ -1082,6 +1118,7 @@ export function createMotorAudio(cars){
     playScannerPulse,
     playLaserFire,
     playPlayerLaserFire,
+    playTerminalBleep,
     startMothershipHum,
     updateMothershipHum,
     stopMothershipHum,

@@ -2,10 +2,10 @@ import { THREE } from "./three.js";
 import { carRadius, gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize, viewDistance, mothershipDropCount, mothershipDropInterval, mothershipDropLineSpacing, mothershipHoverDistance, mothershipHoverFrames, mothershipMinDelay, mothershipRandomDelay, mothershipRocketHits } from "./constants.js";
 import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=no-ramps";
 import { createInput } from "./input.js?v=scanner-bumper";
-import { createHud } from "./hud.js?v=compass-player-marker";
+import { createHud } from "./hud.js?v=laser-energy-bar";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=night-stars";
 import { createWorld } from "./world.js?v=tech-cities";
-import { createMotorAudio } from "./audio.js?v=player-laser-mp3";
+import { createMotorAudio } from "./audio.js?v=terminal-bleep";
 import { worldEnvironments } from "./environments.js";
 import { difficultySettings } from "./gameConfig.js?v=ammo-caps";
 import { loadBackPackModel, loadBaseStationModel, loadCarModel, loadEnemyBattleShipModel, loadJetModel, loadLandingSpaceModel, loadTradingOutpostModel, loadTreasureChestModels, makeMechModel } from "./models.js?v=base-station";
@@ -2506,7 +2506,7 @@ function playBuildingExplosionSound(obstacle){
     x:obstacle.x,
     y:baseY+height*0.42,
     z:obstacle.z
-  });
+  },{volume:2.2});
 }
 
 function destroyWorldObstacle(obstacle){
@@ -3120,6 +3120,7 @@ function openFocusedTradingTerminalForCar(car){
 }
 
 function openTerminalScreen(collision){
+  if(motorAudio.playTerminalBleep) motorAudio.playTerminalBleep();
   if(collision && collision.terminalMode==="mission") setMissionScreenOpen(true);
   else setTradingScreenOpen(true);
 }
@@ -4777,6 +4778,11 @@ function stopPlayerLaserSound(car){
   car.laserSoundStop=null;
 }
 
+function playerLaserReloadFramesFromRemaining(car){
+  let remaining=Math.max(0,Math.min(playerLaserFireFrames,car && car.laserFireFrames || 0));
+  return Math.max(0,playerLaserFireFrames-remaining);
+}
+
 function clearPlayerLaserBeam(car){
   let beam=car && car.laserBeam;
   stopPlayerLaserSound(car);
@@ -5014,7 +5020,8 @@ function updatePlayerLaserInput(car){
   if(car.laserCooldown>0) car.laserCooldown--;
 
   let buttons=input.getGamepadFaceButtons(car.gamepadIndex);
-  let laserButton=buttons.y;
+  let keyboardLaser=car===playerCar && input.keys.r;
+  let laserButton=buttons.y || keyboardLaser;
   let pressedLaser=laserButton && !car.lastLaserButton;
   let canUseLaser=!gameOver
     && car.health>0
@@ -5026,6 +5033,17 @@ function updatePlayerLaserInput(car){
     && car.jetProgress<0.35
     && !playerCombatSuppressed(car)
     && !actorInsideBuilding(car);
+
+  if(pressedLaser && car.laserFireFrames>0){
+    let reloadFrames=playerLaserReloadFramesFromRemaining(car);
+    car.laserFireFrames=0;
+    car.laserDamageTick=0;
+    if(car.laserBeam) clearPlayerLaserBeam(car);
+    else stopPlayerLaserSound(car);
+    car.laserCooldown=reloadFrames;
+    car.lastLaserButton=laserButton;
+    return;
+  }
 
   if(pressedLaser && canUseLaser && car.laserCooldown<=0 && car.laserFireFrames<=0){
     car.laserFireFrames=playerLaserFireFrames;
@@ -5054,9 +5072,10 @@ function updatePlayerLaserInput(car){
     }
   }else{
     let interrupted=car.laserFireFrames>0;
+    let reloadFrames=interrupted ? playerLaserReloadFramesFromRemaining(car) : playerLaserCooldownFrames;
     if(interrupted) car.laserFireFrames=0;
     if(car.laserBeam) clearPlayerLaserBeam(car);
-    if(interrupted && car.laserCooldown<=0) car.laserCooldown=playerLaserCooldownFrames;
+    if(interrupted && car.laserCooldown<=0) car.laserCooldown=reloadFrames;
   }
 
   if(car.laserFireFrames<=0 && car.laserBeam){
