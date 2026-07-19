@@ -231,6 +231,70 @@ waterMat.onBeforeCompile=shader=>{
     ].join("\n")
   );
 };
+
+function makeWaterGeometryFromTerrain(terrainPositions){
+  if(!terrainPositions) return null;
+
+  let gridSize=segments+1;
+  let positions=[];
+  let normals=[];
+  let uvs=[];
+  let indices=[];
+  let vertexMap=new Map();
+  let waterMargin=0.42;
+
+  function terrainIndex(ix,iz){
+    return iz*gridSize+ix;
+  }
+
+  function localX(ix){
+    return (ix/segments-0.5)*chunkSize;
+  }
+
+  function localZ(iz){
+    return (iz/segments-0.5)*chunkSize;
+  }
+
+  function vertexIndex(ix,iz){
+    let key=ix+","+iz;
+    let existing=vertexMap.get(key);
+    if(existing!==undefined) return existing;
+
+    let index=positions.length/3;
+    positions.push(localX(ix),waterLevel,localZ(iz));
+    normals.push(0,1,0);
+    uvs.push(ix/segments,iz/segments);
+    vertexMap.set(key,index);
+    return index;
+  }
+
+  for(let iz=0;iz<segments;iz++){
+    for(let ix=0;ix<segments;ix++){
+      let h00=terrainPositions.getY(terrainIndex(ix,iz));
+      let h10=terrainPositions.getY(terrainIndex(ix+1,iz));
+      let h01=terrainPositions.getY(terrainIndex(ix,iz+1));
+      let h11=terrainPositions.getY(terrainIndex(ix+1,iz+1));
+      if(Math.min(h00,h10,h01,h11)>waterLevel+waterMargin) continue;
+
+      let i00=vertexIndex(ix,iz);
+      let i10=vertexIndex(ix+1,iz);
+      let i01=vertexIndex(ix,iz+1);
+      let i11=vertexIndex(ix+1,iz+1);
+      indices.push(i00,i01,i10,i10,i01,i11);
+    }
+  }
+
+  if(indices.length===0) return null;
+
+  let geo=new THREE.BufferGeometry();
+  geo.setAttribute("position",new THREE.Float32BufferAttribute(positions,3));
+  geo.setAttribute("normal",new THREE.Float32BufferAttribute(normals,3));
+  geo.setAttribute("uv",new THREE.Float32BufferAttribute(uvs,2));
+  geo.setIndex(indices);
+  geo.computeBoundingSphere();
+  return geo;
+}
+
 grassMat.onBeforeCompile=shader=>{
   shader.uniforms.windTime={value:0};
   shader.uniforms.windStrength={value:1};
@@ -580,7 +644,8 @@ function cloneChunkDetail(detail){
     ? {
       treeDensity:detail.treeDensity,
       partDensity:detail.partDensity,
-      grassDensity:detail.grassDensity
+      grassDensity:detail.grassDensity,
+      featureDensity:detail.featureDensity
     }
     : null;
 }
@@ -589,7 +654,8 @@ function sameChunkDetail(a,b){
   return !!a && !!b
     && a.treeDensity===b.treeDensity
     && a.partDensity===b.partDensity
-    && a.grassDensity===b.grassDensity;
+    && a.grassDensity===b.grassDensity
+    && (a.featureDensity ?? 1)===(b.featureDensity ?? 1);
 }
 
 function roadYawAt(z){
@@ -1633,8 +1699,10 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   let chunkRoot=new THREE.Group();
   let envColors=environmentColors();
   let vegetation=environmentVegetation();
-  let cityMode=chunkHasCityDistrict(cx,cz);
-  let detail=chunkDetails.get(chunkKey(cx,cz)) || {treeDensity:1,partDensity:1,grassDensity:1};
+  let detail=chunkDetails.get(chunkKey(cx,cz)) || {treeDensity:1,partDensity:1,grassDensity:1,featureDensity:1};
+  let featureDensity=detail.featureDensity ?? 1;
+  let buildChunkFeatures=featureDensity>0.05;
+  let cityMode=buildChunkFeatures && chunkHasCityDistrict(cx,cz);
   let colors=[];
   let colliders=[];
   let landingSpaces=[];
@@ -1724,15 +1792,14 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   let road=new THREE.Object3D();
   let water=new THREE.Object3D();
   if(chunkHasWater){
-    water=new THREE.Mesh(
-      new THREE.PlaneGeometry(chunkSize,chunkSize),
-      waterMat
-    );
-    water.rotation.x=-Math.PI/2;
-    water.position.set(cx*chunkSize,waterLevel,cz*chunkSize);
-    water.renderOrder=2;
-    freezeStaticObject(water);
-    chunkRoot.add(water);
+    let waterGeo=makeWaterGeometryFromTerrain(pos);
+    if(waterGeo){
+      water=new THREE.Mesh(waterGeo,waterMat);
+      water.position.set(cx*chunkSize,0,cz*chunkSize);
+      water.renderOrder=2;
+      freezeStaticObject(water);
+      chunkRoot.add(water);
+    }
   }
   yield;
 
@@ -1918,7 +1985,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   chunkRoot.add(grasses);
   yield;
 
-  let rockCount=cityMode ? 6 : 30;
+  let rockCount=Math.max(1,Math.floor((cityMode ? 6 : 30)*Math.max(0.18,featureDensity)));
   let rocks=new THREE.InstancedMesh(rockGeo,rockMat,rockCount);
   let rockUsed=0;
 
@@ -2011,9 +2078,9 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   let villageAttemptRoll=settlements.villagesPerChunk || 1;
   let villagesPerChunk=cityMode
     ? 1
-    : Math.max(1,Math.min(3,Math.floor(villageAttemptRoll)+(r01(cx*919+17,cz*613-23)<villageAttemptRoll%1 ? 1 : 0)));
-  let villageSpawnChance=cityMode ? 1 : Math.max(0,Math.min(1,settlements.villageSpawnChance ?? 0.45));
-  let maxBuildings=cityMode ? 92 : 120*villagesPerChunk;
+    : buildChunkFeatures ? Math.max(1,Math.min(3,Math.floor(villageAttemptRoll)+(r01(cx*919+17,cz*613-23)<villageAttemptRoll%1 ? 1 : 0))) : 1;
+  let villageSpawnChance=!buildChunkFeatures ? 0 : cityMode ? 1 : Math.max(0,Math.min(1,(settlements.villageSpawnChance ?? 0.45)*featureDensity));
+  let maxBuildings=Math.max(1,Math.floor((cityMode ? 92 : 120*villagesPerChunk)*Math.max(0.08,featureDensity)));
   let maxWindowInstances=maxBuildings*(cityMode ? 84 : 8);
   let buildingBodies=new THREE.InstancedMesh(buildingGeo,buildingWallMat,maxBuildings);
   let maxRoofInstances=cityMode ? maxBuildings*2 : maxBuildings;
@@ -2596,7 +2663,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   }
 
   let radarRoll=r01(cx*3181+29,cz*2417-53);
-  let radarOutpostTarget=radarRoll<(cityMode ? 0.03 : 0.07) ? 1 : 0;
+  let radarOutpostTarget=buildChunkFeatures && radarRoll<(cityMode ? 0.03 : 0.07) ? 1 : 0;
   for(let i=0;i<radarOutpostTarget;i++){
     for(let attempt=0;attempt<16;attempt++){
       let rx=r01(cx*1973+i*131+attempt*17,cz*2657-i*61-attempt*23);
@@ -2637,7 +2704,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
     }
   }
 
-  let landingSpacePoint=landingSpacePointForChunk(cx,cz,colliders,holes);
+  let landingSpacePoint=buildChunkFeatures ? landingSpacePointForChunk(cx,cz,colliders,holes) : null;
   if(landingSpacePoint){
     landingSpaces.push(makeLandingSpace(landingSpacePoint,chunkRoot));
     let landingSurface=makeLandingSurface(landingSpacePoint);
@@ -2663,16 +2730,17 @@ function updateChunksForCenters(centers){
 
   function detailForDistanceSq(distanceSq){
     let detail;
-    if(distanceSq<=8) detail={treeDensity:1,partDensity:1,grassDensity:1};
-    else if(distanceSq<=24) detail={treeDensity:0.58,partDensity:0.62,grassDensity:0.62};
-    else if(distanceSq>viewDistance*viewDistance) detail={treeDensity:0.12,partDensity:0.28,grassDensity:0.18};
-    else detail={treeDensity:0.24,partDensity:0.42,grassDensity:0.34};
+    if(distanceSq<=8) detail={treeDensity:1,partDensity:1,grassDensity:1,featureDensity:1};
+    else if(distanceSq<=24) detail={treeDensity:0.58,partDensity:0.62,grassDensity:0.62,featureDensity:1};
+    else if(distanceSq>viewDistance*viewDistance) detail={treeDensity:0.08,partDensity:0.18,grassDensity:0.08,featureDensity:0};
+    else detail={treeDensity:0.24,partDensity:0.42,grassDensity:0.34,featureDensity:1};
 
     if(getPerformanceMode()!=="split") return detail;
     return {
       treeDensity:detail.treeDensity*0.72,
       partDensity:detail.partDensity*0.82,
-      grassDensity:detail.grassDensity*0.54
+      grassDensity:detail.grassDensity*0.54,
+      featureDensity:detail.featureDensity
     };
   }
 
@@ -2688,7 +2756,8 @@ function updateChunksForCenters(centers){
         let detailIncreased=!currentDetail
           || nextDetail.treeDensity>currentDetail.treeDensity
           || nextDetail.partDensity>currentDetail.partDensity
-          || nextDetail.grassDensity>currentDetail.grassDensity;
+          || nextDetail.grassDensity>currentDetail.grassDensity
+          || (nextDetail.featureDensity ?? 1)>(currentDetail.featureDensity ?? 1);
 
         if(detailIncreased){
           chunkDetails.set(key,nextDetail);

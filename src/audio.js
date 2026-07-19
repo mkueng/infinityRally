@@ -18,7 +18,7 @@ export function createMotorAudio(cars){
   let mothershipHum=null;
   let rainAudio=null;
   let supported=true;
-  let sfxVolume=1;
+  let sfxVolume=0.0;
   let musicVolume=0.0;
   let paused=false;
   let sfxEnabled=false;
@@ -28,7 +28,7 @@ export function createMotorAudio(cars){
   ];
   let musicTrackIndex=0;
   let musicPlayCount=0;
-  let musicLoopsPerTrack=3;
+  let musicLoopsPerTrack=2;
   let musicSwitchDelayMs=5000;
   let musicSwitchTimer=null;
   let backgroundMusic=new Audio(musicPlaylist[musicTrackIndex]);

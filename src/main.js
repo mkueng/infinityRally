@@ -4,7 +4,7 @@ import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed
 import { createInput } from "./input.js?v=scanner-bumper";
 import { createHud } from "./hud.js?v=radar-outposts";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=night-stars";
-import { createWorld } from "./world.js?v=mountain-detail";
+import { createWorld } from "./world.js?v=clipped-water";
 import { createMotorAudio } from "./audio.js?v=sfx-resume";
 import { worldEnvironments } from "./environments.js?v=broad-mountains";
 import { difficultySettings } from "./gameConfig.js?v=ammo-caps";
@@ -421,6 +421,7 @@ fpsDisplay.textContent="-- FPS";
 document.body.appendChild(fpsDisplay);
 let fpsSampleStart=0;
 let fpsSampleFrames=0;
+let lastMeasuredFps=60;
 
 function updateFpsDisplay(timestamp){
   if(!Number.isFinite(timestamp)) return;
@@ -431,6 +432,7 @@ function updateFpsDisplay(timestamp){
   if(elapsed<250) return;
 
   let fps=Math.round((fpsSampleFrames*1000)/Math.max(1,elapsed));
+  lastMeasuredFps=fps;
   fpsDisplay.textContent=fps+" FPS";
   fpsSampleStart=timestamp;
   fpsSampleFrames=0;
@@ -505,7 +507,7 @@ let currentGameFromSave=false;
 let jetUnlocked=false;
 let initialUnits=500;
 let testingScannerAvailableFromStart=false;
-let testingJetAvailableFromStart=false;
+let jetAvailableFromStart=true;
 let testingLaserAvailableFromStart=false;
 let units=initialUnits;
 let lastBuildingExplosionSoundAt=0;
@@ -1128,7 +1130,7 @@ function tradingItemOwned(id){
 function applyTestingStartItems(){
   if(testingScannerAvailableFromStart) purchasedTradingItems.add("scanner");
   if(testingLaserAvailableFromStart) purchasedTradingItems.add("laser-gun");
-  if(testingJetAvailableFromStart){
+  if(jetAvailableFromStart){
     purchasedTradingItems.add("jet");
     jetUnlocked=true;
   }
@@ -10549,7 +10551,11 @@ let lastLoopTime=null;
 
 function chunkViewDistanceForCar(car){
   let altitude=car.y-surfaceHeightForActor(car,car.x,car.z);
-  return (car.jetMode || car.jetProgress>0.35 || altitude>32) ? viewDistance+2 : viewDistance;
+  let jetView=car.jetMode || car.jetProgress>0.35 || altitude>32;
+  if(!jetView) return viewDistance;
+
+  let stressed=gameMode==="double" || lastMeasuredFps<46;
+  return viewDistance+(stressed ? 1 : 2);
 }
 
 function chunkCenterForCar(car){
@@ -10968,9 +10974,10 @@ function updateScannerMode(){
 
 function chunkBuildBudget(){
   let expandedView=activeCars().some(car=>chunkViewDistanceForCar(car)>viewDistance);
-  return expandedView
-    ? {items:7,frameMs:7}
-    : {items:1,frameMs:2};
+  if(!expandedView) return {items:1,frameMs:2};
+  if(gameMode==="double") return {items:2,frameMs:2.5};
+  if(lastMeasuredFps<46) return {items:3,frameMs:3};
+  return {items:5,frameMs:4.5};
 }
 
 function rainQualityScale(){
