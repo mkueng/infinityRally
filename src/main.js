@@ -5,11 +5,11 @@ import { createInput } from "./input.js?v=scanner-bumper";
 import { createHud } from "./hud.js?v=radar-outposts";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=night-stars";
 import { createWorld } from "./world.js?v=radar-performance-fix";
-import { createMotorAudio } from "./audio.js?v=terminal-bleep";
+import { createMotorAudio } from "./audio.js?v=noisy-slow-flyovers";
 import { worldEnvironments } from "./environments.js?v=broad-mountains";
 import { difficultySettings } from "./gameConfig.js?v=ammo-caps";
 import { loadBackPackModel, loadBaseStationModel, loadCarModel, loadEnemyBattleShipModel, loadJetModel, loadLandingSpaceModel, loadTradingOutpostModel, loadTreasureChestModels, makeMechModel } from "./models.js?v=radar-performance-fix";
-import { makeSkyTexture } from "./textures.js?v=night-stars";
+import { makeDistantPlanetHazeTexture, makeDistantPlanetLightTexture, makeDistantPlanetVeilTexture, makeSkyTexture } from "./textures.js?v=planet-darker-gradient";
 import { createPortalSystem } from "./portals.js";
 import { approach, clamp, clamp01, hash01, randomRange, smoothStep } from "./utils.js";
 
@@ -162,6 +162,28 @@ function blendHexColor(from,to,amount){
   return `#${a.getHexString()}`;
 }
 
+function updateDistantPlanetPalette(environment=currentEnvironment){
+  if(!distantMoon || !distantPlanetHaze || !distantPlanetLight || !distantPlanetVeil) return;
+
+  let colors=environment.colors || {};
+  let fogColor=new THREE.Color(environment.fog || 0x7b4771);
+  let sky=environment.sky || ["#12072b","#33145f","#9c416f","#f08c71","#ffd3a5"];
+  let terrainMid=new THREE.Color(colors.mid ?? colors.low ?? environment.fog ?? 0x788fa8);
+  let terrainHigh=new THREE.Color(colors.high ?? colors.rock ?? environment.fog ?? 0x9db0be);
+  let accent=new THREE.Color(colors.water ?? colors.leaf ?? colors.trim ?? environment.fog ?? 0x78a8b8);
+  let skyGlow=new THREE.Color(sky[3] || sky[2] || sky[sky.length-1] || 0xbccfe0);
+
+  let planetColor=terrainMid.clone().lerp(terrainHigh,0.38).lerp(fogColor,0.22).lerp(accent,0.08);
+  let hazeColor=planetColor.clone().lerp(skyGlow,0.42);
+  let veilColor=planetColor.clone().lerp(new THREE.Color(0xffffff),0.48).lerp(skyGlow,0.18);
+  let lightColor=skyGlow.clone().lerp(planetColor,0.35);
+
+  distantMoon.material.color.copy(planetColor);
+  distantPlanetHaze.material.color.copy(hazeColor);
+  distantPlanetVeil.material.color.copy(veilColor);
+  distantPlanetLight.material.color.copy(lightColor);
+}
+
 function weatherSkyStops(){
   let sky=currentEnvironment.sky || ["#12072b","#33145f","#9c416f","#f08c71","#ffd3a5"];
   let stormAmount=Math.pow(Math.max(0,Math.min(1,rainIntensity)),stormSkyRainExponent)*stormSkyBlend;
@@ -197,6 +219,7 @@ function refreshSceneEnvironment(){
   lastSkyNightAmount=-1;
   lastSkyDreamAmount=-1;
   updateSkyForWeather(true);
+  updateDistantPlanetPalette();
   scene.fog=new THREE.Fog(currentEnvironment.fog || 0x7b4771,baseFogNear,baseFogFar);
 }
 
@@ -265,6 +288,67 @@ let scene=new THREE.Scene();
 let playerCamera=new THREE.PerspectiveCamera(45,innerWidth/innerHeight,.1,1e6);
 let secondCamera=new THREE.PerspectiveCamera(45,innerWidth/innerHeight,.1,1e6);
 let renderer=new THREE.WebGLRenderer({antialias:false,powerPreference:"high-performance"});
+let distantMoonDirection=new THREE.Vector3(-0.34,0.42,-0.84).normalize();
+let distantMoonTexture=new THREE.TextureLoader().load("./assets/planets/planet1.png?v=moon-planet1");
+distantMoonTexture.minFilter=THREE.LinearFilter;
+distantMoonTexture.magFilter=THREE.LinearFilter;
+distantMoonTexture.generateMipmaps=false;
+let distantMoon=new THREE.Sprite(new THREE.SpriteMaterial({
+  map:distantMoonTexture,
+  color:0x788fa8,
+  transparent:true,
+  opacity:0.22,
+  depthWrite:false,
+  depthTest:true,
+  fog:false
+}));
+distantMoon.scale.set(76800,76800,1);
+distantMoon.material.rotation=Math.PI*0.5;
+distantMoon.renderOrder=-10;
+distantMoon.frustumCulled=false;
+scene.add(distantMoon);
+let distantPlanetLight=new THREE.Sprite(new THREE.SpriteMaterial({
+  map:makeDistantPlanetLightTexture(),
+  color:0xffffff,
+  transparent:true,
+  opacity:0.78,
+  depthWrite:false,
+  depthTest:true,
+  fog:false
+}));
+distantPlanetLight.scale.set(76800,76800,1);
+distantPlanetLight.renderOrder=-9.5;
+distantPlanetLight.frustumCulled=false;
+scene.add(distantPlanetLight);
+let distantPlanetVeil=new THREE.Sprite(new THREE.SpriteMaterial({
+  map:makeDistantPlanetVeilTexture(),
+  color:0xdce8ec,
+  transparent:true,
+  opacity:0.16,
+  depthWrite:false,
+  depthTest:true,
+  fog:false
+}));
+distantPlanetVeil.scale.set(76800,76800,1);
+distantPlanetVeil.material.rotation=Math.PI*0.5;
+distantPlanetVeil.renderOrder=-9.25;
+distantPlanetVeil.frustumCulled=false;
+scene.add(distantPlanetVeil);
+let distantPlanetHaze=new THREE.Sprite(new THREE.SpriteMaterial({
+  map:makeDistantPlanetHazeTexture(),
+  color:0xd6e7f1,
+  transparent:true,
+  opacity:0.7,
+  depthWrite:false,
+  depthTest:true,
+  fog:false
+}));
+distantPlanetHaze.scale.set(77008,77008,1);
+distantPlanetHaze.center.set(0.5,0.5);
+distantPlanetHaze.material.rotation=Math.PI*0.5;
+distantPlanetHaze.renderOrder=-9;
+distantPlanetHaze.frustumCulled=false;
+scene.add(distantPlanetHaze);
 let currentPixelRatio=0;
 let lastPixelRatioUpdate=0;
 function rendererQualityState(){
@@ -416,6 +500,23 @@ let rocketFinGeo=new THREE.BoxGeometry(0.08,0.18,0.22);
 let rocketBodyMat=new THREE.MeshStandardMaterial({color:0x30363b,roughness:0.48,metalness:0.55});
 let rocketNoseMat=new THREE.MeshStandardMaterial({color:0xff6633,emissive:0x8f2108,emissiveIntensity:0.55,roughness:0.38,metalness:0.35});
 let rocketFlameMat=new THREE.MeshStandardMaterial({color:0xfff0a0,emissive:0xff7a12,emissiveIntensity:1.2,roughness:0.28});
+let ambientSpaceships=[];
+let ambientSpaceshipCooldown=540+Math.floor(Math.random()*620);
+let ambientSpaceshipMaxActive=2;
+let testingAmbientSpaceshipFormationAtStart=true;
+let testingAmbientSpaceshipFormationDelayFrames=30*60;
+let ambientStartFormationDelay=0;
+let ambientStartFormationSpawned=false;
+let ambientSpaceshipBodyGeo=new THREE.CylinderGeometry(0.46,0.66,4.8,8);
+let ambientSpaceshipNoseGeo=new THREE.ConeGeometry(0.66,1.55,8);
+let ambientSpaceshipWingGeo=new THREE.BoxGeometry(2.8,0.16,1.25);
+let ambientSpaceshipFinGeo=new THREE.BoxGeometry(0.22,0.92,0.95);
+let ambientSpaceshipEngineGeo=new THREE.SphereGeometry(0.34,16,10);
+let ambientSpaceshipTrailGeo=new THREE.CylinderGeometry(0.1,1.75,58,16,1,true);
+let ambientSpaceshipBodyMat=new THREE.MeshStandardMaterial({color:0x25313a,emissive:0x07131c,emissiveIntensity:0.42,roughness:0.5,metalness:0.68});
+let ambientSpaceshipWingMat=new THREE.MeshStandardMaterial({color:0x60717d,emissive:0x101a24,emissiveIntensity:0.3,roughness:0.46,metalness:0.62});
+let ambientSpaceshipEngineMat=new THREE.MeshBasicMaterial({color:0xb8f3ff,transparent:true,opacity:0.9,depthWrite:false,blending:THREE.AdditiveBlending});
+let ambientSpaceshipTrailMat=new THREE.MeshBasicMaterial({color:0x7edcff,transparent:true,opacity:0.18,depthWrite:false,depthTest:true,blending:THREE.AdditiveBlending,side:THREE.DoubleSide});
 let cannonSpeed=3.35;
 let cannonCooldownFrames=12;
 let cannonBolts=[];
@@ -3428,6 +3529,275 @@ function makeRocketMesh(){
   });
 
   return group;
+}
+
+function makeAmbientSpaceshipMesh(){
+  let group=new THREE.Group();
+
+  let body=new THREE.Mesh(ambientSpaceshipBodyGeo,ambientSpaceshipBodyMat);
+  body.rotation.x=Math.PI/2;
+  group.add(body);
+
+  let nose=new THREE.Mesh(ambientSpaceshipNoseGeo,ambientSpaceshipWingMat);
+  nose.rotation.x=Math.PI/2;
+  nose.position.z=3.08;
+  group.add(nose);
+
+  for(let side of [-1,1]){
+    let wing=new THREE.Mesh(ambientSpaceshipWingGeo,ambientSpaceshipWingMat);
+    wing.position.set(side*1.72,-0.06,-0.55);
+    wing.rotation.z=side*0.12;
+    group.add(wing);
+
+    let fin=new THREE.Mesh(ambientSpaceshipFinGeo,ambientSpaceshipBodyMat);
+    fin.position.set(side*0.58,0.45,-2.05);
+    fin.rotation.z=side*0.18;
+    group.add(fin);
+  }
+
+  let engine=new THREE.Mesh(ambientSpaceshipEngineGeo,ambientSpaceshipEngineMat);
+  engine.position.z=-2.72;
+  engine.scale.set(1.25,1.25,1.8);
+  group.add(engine);
+
+  let trail=new THREE.Mesh(ambientSpaceshipTrailGeo,ambientSpaceshipTrailMat);
+  trail.rotation.x=Math.PI/2;
+  trail.position.z=-31;
+  trail.renderOrder=2;
+  group.add(trail);
+
+  group.userData.engine=engine;
+  group.userData.trail=trail;
+  return group;
+}
+
+function ambientSpaceshipCenter(){
+  let players=activeCars().filter(car=>car && car.group && car.group.visible && car.health>0);
+  if(players.length===0) players=[playerCar];
+
+  let x=0,z=0;
+  for(let car of players){
+    x+=car.x;
+    z+=car.z;
+  }
+
+  return {x:x/players.length,z:z/players.length};
+}
+
+function scheduleNextAmbientSpaceship(){
+  ambientSpaceshipCooldown=620+Math.floor(Math.random()*980);
+}
+
+function spawnAmbientSpaceshipAlongPath(startX,startZ,endX,endZ,options={}){
+  if(ambientSpaceships.length>=ambientSpaceshipMaxActive) return false;
+
+  let dx=endX-startX;
+  let dz=endZ-startZ;
+  let distance=Math.max(1,Math.hypot(dx,dz));
+  let speed=options.speed || (5.1+Math.random()*2.2);
+  let altitude=options.altitude || (190+Math.random()*115);
+  let referenceX=Number.isFinite(options.referenceX) ? options.referenceX : (startX+endX)*0.5;
+  let referenceZ=Number.isFinite(options.referenceZ) ? options.referenceZ : (startZ+endZ)*0.5;
+  let y=Math.max(drivingSurfaceHeight(startX,startZ),drivingSurfaceHeight(referenceX,referenceZ))+altitude;
+
+  let mesh=makeAmbientSpaceshipMesh();
+  let scale=options.scale || (2.35+Math.random()*1.15);
+  mesh.scale.setScalar(scale);
+  mesh.position.set(startX,y,startZ);
+  mesh.rotation.y=Math.atan2(dx,dz);
+  mesh.rotation.z=(Math.random()-0.5)*0.08;
+  scene.add(mesh);
+
+  let sound=motorAudio && motorAudio.startAmbientSpaceshipFlyover
+    ? motorAudio.startAmbientSpaceshipFlyover({x:startX,y,z:startZ},{
+      gain:options.soundGain ?? 0.06,
+      volume:options.soundVolume ?? 0.52
+    })
+    : null;
+
+  ambientSpaceships.push({
+    mesh,
+    sound,
+    x:startX,
+    y,
+    z:startZ,
+    vx:(dx/distance)*speed,
+    vz:(dz/distance)*speed,
+    endX,
+    endZ,
+    startX,
+    startZ,
+    pathDistance:distance,
+    age:0,
+    life:Math.ceil(distance/speed)+90,
+    altitude,
+    phase:Math.random()*Math.PI*2,
+    trailEvery:options.trailEvery || (3+Math.floor(Math.random()*2))
+  });
+
+  return true;
+}
+
+function spawnAmbientSpaceship(){
+  if(ambientSpaceships.length>=ambientSpaceshipMaxActive) return false;
+
+  let center=ambientSpaceshipCenter();
+  let angle=Math.random()*Math.PI*2;
+  let dirX=Math.sin(angle);
+  let dirZ=Math.cos(angle);
+  let rightX=Math.cos(angle);
+  let rightZ=-Math.sin(angle);
+  let halfRun=2100+Math.random()*1250;
+  let lateral=(Math.random()-0.5)*1050;
+  let startX=center.x-dirX*halfRun+rightX*lateral;
+  let startZ=center.z-dirZ*halfRun+rightZ*lateral;
+  let drift=(Math.random()-0.5)*560;
+  let endX=center.x+dirX*halfRun+rightX*(lateral+drift);
+  let endZ=center.z+dirZ*halfRun+rightZ*(lateral+drift);
+
+  return spawnAmbientSpaceshipAlongPath(startX,startZ,endX,endZ,{
+    referenceX:center.x,
+    referenceZ:center.z
+  });
+}
+
+function spawnTestingAmbientSpaceshipFormationOverHomeBase(){
+  if(!testingAmbientSpaceshipFormationAtStart || ambientStartFormationSpawned || !gameStarted || !tradingOutpost) return;
+
+  if(ambientSpaceships.length>0) clearAmbientSpaceships();
+  ambientStartFormationSpawned=true;
+  let homeX=tradingOutpost.position.x;
+  let homeZ=tradingOutpost.position.z;
+  let angle=tradingOutpost.rotation.y || 0;
+  let dirX=Math.sin(angle);
+  let dirZ=Math.cos(angle);
+  let rightX=Math.cos(angle);
+  let rightZ=-Math.sin(angle);
+  let startDistance=760;
+  let endDistance=2300;
+  let altitude=220;
+  let speed=4.0;
+  let formation=[
+    {side:-34,back:0,scale:3.05},
+    {side:34,back:-56,scale:2.9}
+  ];
+
+  for(let ship of formation){
+    let startX=homeX-dirX*(startDistance-ship.back)+rightX*ship.side;
+    let startZ=homeZ-dirZ*(startDistance-ship.back)+rightZ*ship.side;
+    let endX=homeX+dirX*endDistance+rightX*ship.side;
+    let endZ=homeZ+dirZ*endDistance+rightZ*ship.side;
+    spawnAmbientSpaceshipAlongPath(startX,startZ,endX,endZ,{
+      referenceX:homeX,
+      referenceZ:homeZ,
+      altitude,
+      speed,
+      scale:ship.scale,
+      trailEvery:2
+    });
+  }
+
+  ambientSpaceshipCooldown=1300+Math.floor(Math.random()*700);
+}
+
+function scheduleTestingAmbientSpaceshipFormationOverHomeBase(){
+  if(!testingAmbientSpaceshipFormationAtStart || ambientStartFormationSpawned || !gameStarted || !tradingOutpost) return;
+
+  ambientStartFormationDelay=testingAmbientSpaceshipFormationDelayFrames;
+  ambientSpaceshipCooldown=ambientStartFormationDelay+1300+Math.floor(Math.random()*700);
+}
+
+function clearAmbientSpaceships(){
+  for(let ship of ambientSpaceships){
+    if(ship.sound && motorAudio.stopAmbientSpaceshipFlyover) motorAudio.stopAmbientSpaceshipFlyover(ship.sound,true);
+    scene.remove(ship.mesh);
+  }
+  ambientSpaceships=[];
+  scheduleNextAmbientSpaceship();
+}
+
+function updateAmbientSpaceships(){
+  if(!gameStarted || gameOver){
+    if(ambientSpaceships.length>0) clearAmbientSpaceships();
+    return;
+  }
+
+  if(ambientStartFormationDelay>0 && !ambientStartFormationSpawned){
+    ambientStartFormationDelay--;
+    if(ambientStartFormationDelay<=0) spawnTestingAmbientSpaceshipFormationOverHomeBase();
+  }
+
+  ambientSpaceshipCooldown--;
+  if(ambientSpaceshipCooldown<=0){
+    spawnAmbientSpaceship();
+    scheduleNextAmbientSpaceship();
+  }
+
+  for(let i=ambientSpaceships.length-1;i>=0;i--){
+    let ship=ambientSpaceships[i];
+    ship.age++;
+    ship.x+=ship.vx;
+    ship.z+=ship.vz;
+
+    let surfaceY=drivingSurfaceHeight(ship.x,ship.z);
+    let targetY=surfaceY+ship.altitude+Math.sin(ship.age*0.025+ship.phase)*12;
+    ship.y+=(targetY-ship.y)*0.018;
+    ship.mesh.position.set(ship.x,ship.y,ship.z);
+
+    let flightAngle=Math.atan2(ship.vx,ship.vz);
+    ship.mesh.rotation.y=flightAngle;
+    ship.mesh.rotation.x=Math.sin(ship.age*0.028+ship.phase)*0.018;
+    ship.mesh.rotation.z=Math.sin(ship.age*0.021+ship.phase)*0.05;
+
+    if(ship.mesh.userData.engine){
+      let pulse=1+Math.sin(ship.age*0.34+ship.phase)*0.18;
+      ship.mesh.userData.engine.scale.set(1.25*pulse,1.25*pulse,1.8*pulse);
+    }
+    if(ship.mesh.userData.trail){
+      let trailPulse=0.92+Math.sin(ship.age*0.18+ship.phase)*0.08;
+      ship.mesh.userData.trail.scale.set(trailPulse,trailPulse,1);
+    }
+    if(ship.sound && motorAudio.updateAmbientSpaceshipFlyover){
+      let traveled=Math.hypot(ship.x-ship.startX,ship.z-ship.startZ);
+      let progress=clamp(traveled/Math.max(1,ship.pathDistance),0,1);
+      let fadeIn=smoothStep(0.04,0.34,progress);
+      let fadeOut=1-smoothStep(0.64,0.98,progress);
+      let flyoverEnvelope=fadeIn*fadeOut;
+      motorAudio.updateAmbientSpaceshipFlyover(
+        ship.sound,
+        {x:ship.x,y:ship.y,z:ship.z},
+        flyoverEnvelope*(0.72+Math.min(0.28,Math.hypot(ship.vx,ship.vz)*0.03))
+      );
+    }
+
+    if(ship.age%ship.trailEvery===0){
+      let speedLen=Math.max(0.001,Math.hypot(ship.vx,ship.vz));
+      let backX=-ship.vx/speedLen;
+      let backZ=-ship.vz/speedLen;
+      for(let t=0;t<2;t++){
+        let offset=7+t*5.5;
+        dust.spawnJetExhaustParticle(
+          ship.x+backX*offset+(Math.random()-0.5)*2.4,
+          ship.y+(Math.random()-0.5)*1.2,
+          ship.z+backZ*offset+(Math.random()-0.5)*2.4,
+          backX*(10+Math.random()*3),
+          backZ*(10+Math.random()*3),
+          -0.5+Math.random()*1.1,
+          0.85+Math.random()*0.35,
+          2.4+Math.random()*1.8
+        );
+      }
+    }
+
+    let remainingDx=ship.endX-ship.x;
+    let remainingDz=ship.endZ-ship.z;
+    let passedTarget=remainingDx*ship.vx+remainingDz*ship.vz<0;
+    if(ship.age>ship.life || passedTarget){
+      if(ship.sound && motorAudio.stopAmbientSpaceshipFlyover) motorAudio.stopAmbientSpaceshipFlyover(ship.sound);
+      scene.remove(ship.mesh);
+      ambientSpaceships.splice(i,1);
+    }
+  }
 }
 
 function spawnRocketExplosion(x,y,z,playSound=true,soundType="rocket"){
@@ -9886,6 +10256,27 @@ function updateCameras(){
     py=(playerCar.y+secondCar.y)*0.5+cameraFollowHeight;
     pz=(playerCar.z+secondCar.z)*0.5;
   }
+
+  let moonDistance=92000;
+  distantMoon.position.set(
+    px+distantMoonDirection.x*moonDistance,
+    py+distantMoonDirection.y*moonDistance,
+    pz+distantMoonDirection.z*moonDistance
+  );
+  distantPlanetHaze.position.copy(distantMoon.position);
+  distantPlanetLight.position.copy(distantMoon.position);
+  distantPlanetVeil.position.copy(distantMoon.position);
+}
+
+function setDistantMoonDirectionForHeading(heading){
+  if(!Number.isFinite(heading)) return;
+
+  let moonAngle=heading+0.42;
+  distantMoonDirection.set(
+    Math.sin(moonAngle)*0.995,
+    0.0168,
+    Math.cos(moonAngle)*0.995
+  ).normalize();
 }
 
 function aimCrossVisibleFor(car){
@@ -10402,6 +10793,7 @@ function fixedUpdateGame(){
     updateCar(car);
   }
   updateTreasurePickups();
+  updateAmbientSpaceships();
   updateMothership();
   updateEnemies();
   updateVillageTurrets();
@@ -10780,6 +11172,9 @@ function startGame(mode,difficulty="medium",savedStatus=null){
   document.body.classList.toggle("double-player",mode==="double");
 
   clearRockets();
+  clearAmbientSpaceships();
+  ambientStartFormationDelay=0;
+  ambientStartFormationSpawned=false;
   clearEnemies();
   clearSupplyBoxes();
   clearGiantTestRobot();
@@ -11124,6 +11519,7 @@ function moveCarToBaseStart(car,lateralSlot=0){
 function placeStartingCarsInsideBase(mode){
   moveCarToBaseStart(playerCar,mode==="double" ? -5.5 : 0);
   if(mode==="double") moveCarToBaseStart(secondCar,5.5);
+  setDistantMoonDirectionForHeading(playerCar.cameraYaw);
 }
 
 function clearTradingOutpost(){
@@ -11892,6 +12288,7 @@ function placeTradingOutpostNearStart(startInfo){
   setTradingOutpostCollision(chosen.x,chosen.z,tradingOutpost.rotation.y,tradingOutpost.position.y,baseStationModel,"mission");
   scene.add(tradingOutpost);
   placeTestingRadarOutpostNearHomeBase();
+  scheduleTestingAmbientSpaceshipFormationOverHomeBase();
 }
 
 let terrainSeed=Math.random()*100000;

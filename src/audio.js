@@ -19,7 +19,7 @@ export function createMotorAudio(cars){
   let rainAudio=null;
   let supported=true;
   let sfxVolume=1;
-  let musicVolume=0.3;
+  let musicVolume=0.0;
   let paused=false;
   let sfxEnabled=false;
   let musicPlaylist=[
@@ -248,8 +248,8 @@ export function createMotorAudio(cars){
 
     let now=context.currentTime;
     let audible=Math.pow(level,0.82);
-    audio.rainGain.gain.setTargetAtTime(audible*0.18,now,0.65);
-    audio.patterGain.gain.setTargetAtTime(Math.pow(level,1.25)*0.075,now,0.42);
+    audio.rainGain.gain.setTargetAtTime(audible*0.095,now,0.65);
+    audio.patterGain.gain.setTargetAtTime(Math.pow(level,1.25)*0.032,now,0.42);
     audio.rainFilter.frequency.setTargetAtTime(900+level*1450,now,0.8);
     audio.patterFilter.frequency.setTargetAtTime(3300+level*2200,now,0.55);
   }
@@ -1100,6 +1100,133 @@ export function createMotorAudio(cars){
     },immediate ? 40 : 850);
   }
 
+  function startAmbientSpaceshipFlyover(position=null,options={}){
+    ensureContext();
+    if(!context || !supported || !sfxEnabled) return null;
+    if(context.state==="suspended") context.resume();
+
+    let time=context.currentTime;
+    let low=context.createOscillator();
+    let whine=context.createOscillator();
+    let lowFilter=context.createBiquadFilter();
+    let lowGain=context.createGain();
+    let whineGain=context.createGain();
+    let noise=context.createBufferSource();
+    let noiseFilter=context.createBiquadFilter();
+    let noiseGain=context.createGain();
+    let output=context.createGain();
+    let spatialGain=context.createGain();
+    let spatialPan=context.createStereoPanner ? context.createStereoPanner() : null;
+    let routeOptions={
+      minDistance:options.minDistance ?? 260,
+      maxDistance:options.maxDistance ?? 4200,
+      rolloff:options.rolloff ?? 1.05,
+      volume:options.volume ?? 0.52,
+      floor:options.floor ?? 0,
+      panStrength:options.panStrength ?? 0.62
+    };
+
+    low.type="triangle";
+    whine.type="sine";
+    low.frequency.setValueAtTime(54,time);
+    whine.frequency.setValueAtTime(116,time);
+    lowFilter.type="lowpass";
+    lowFilter.frequency.setValueAtTime(210,time);
+    lowFilter.Q.setValueAtTime(0.7,time);
+    lowGain.gain.setValueAtTime(0.012,time);
+    whineGain.gain.setValueAtTime(0.004,time);
+
+    noise.buffer=noiseBuffer || createNoiseBuffer();
+    noise.loop=true;
+    noiseFilter.type="bandpass";
+    noiseFilter.frequency.setValueAtTime(1350,time);
+    noiseFilter.Q.setValueAtTime(0.28,time);
+    noiseGain.gain.setValueAtTime(0.15,time);
+    output.gain.setValueAtTime(0.0001,time);
+    output.gain.setTargetAtTime(0.0001,time+0.02,0.35);
+
+    low.connect(lowFilter);
+    lowFilter.connect(lowGain);
+    lowGain.connect(output);
+    whine.connect(whineGain);
+    whineGain.connect(output);
+    noise.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(output);
+    if(spatialPan){
+      output.connect(spatialPan);
+      spatialPan.connect(spatialGain);
+    }else{
+      output.connect(spatialGain);
+    }
+    spatialGain.connect(master);
+    let initialSpatial=spatialMetrics(position,routeOptions);
+    spatialGain.gain.value=initialSpatial.gain;
+    if(spatialPan) spatialPan.pan.value=initialSpatial.pan;
+
+    low.start(time);
+    whine.start(time);
+    noise.start(time);
+
+    return {
+      low,
+      whine,
+      lowFilter,
+      lowGain,
+      whineGain,
+      noise,
+      noiseFilter,
+      noiseGain,
+      output,
+      spatialGain,
+      spatialPan,
+      routeOptions,
+      stopping:false,
+      baseGain:options.gain ?? 0.06
+    };
+  }
+
+  function updateAmbientSpaceshipFlyover(route,position=null,intensity=1){
+    if(!route || !context || !supported || route.stopping) return;
+
+    let now=context.currentTime;
+    let level=clamp(intensity,0,1);
+    let wobble=0.5+0.5*Math.sin(now*5.4);
+    updateSpatialRoute(
+      {gain:route.spatialGain,pan:route.spatialPan},
+      position,
+      route.routeOptions
+    );
+
+    route.low.frequency.setTargetAtTime(46+level*30+wobble*3,now,0.24);
+    route.whine.frequency.setTargetAtTime(92+level*26+wobble*5,now,0.34);
+    route.lowFilter.frequency.setTargetAtTime(150+level*120+wobble*22,now,0.5);
+    if(route.lowGain) route.lowGain.gain.setTargetAtTime(0.004+level*0.012,now,0.42);
+    if(route.whineGain) route.whineGain.gain.setTargetAtTime(0.0015+level*0.004,now,0.48);
+    route.noiseFilter.frequency.setTargetAtTime(980+level*980+wobble*260,now,0.5);
+    route.noiseGain.gain.setTargetAtTime(0.095+level*0.115,now,0.42);
+    route.output.gain.setTargetAtTime(route.baseGain*(0.04+level*0.98)*(0.96+wobble*0.05),now,0.6);
+  }
+
+  function stopAmbientSpaceshipFlyover(route,immediate=false){
+    if(!route || !context || !supported || route.stopping) return;
+
+    let now=context.currentTime;
+    let stopTime=immediate ? now+0.02 : now+0.72;
+    route.stopping=true;
+    route.output.gain.cancelScheduledValues(now);
+    route.output.gain.setTargetAtTime(0.0001,now,immediate ? 0.01 : 0.22);
+
+    try{ route.low.stop(stopTime); }catch(error){}
+    try{ route.whine.stop(stopTime); }catch(error){}
+    try{ route.noise.stop(stopTime); }catch(error){}
+    window.setTimeout(()=>{
+      try{ route.output.disconnect(); }catch(error){}
+      try{ route.spatialGain.disconnect(); }catch(error){}
+      try{ if(route.spatialPan) route.spatialPan.disconnect(); }catch(error){}
+    },immediate ? 40 : 820);
+  }
+
   return {
     resume,
     update,
@@ -1122,6 +1249,9 @@ export function createMotorAudio(cars){
     startMothershipHum,
     updateMothershipHum,
     stopMothershipHum,
+    startAmbientSpaceshipFlyover,
+    updateAmbientSpaceshipFlyover,
+    stopAmbientSpaceshipFlyover,
     updateRain
   };
 }

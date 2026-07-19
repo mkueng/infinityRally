@@ -30,6 +30,136 @@ export function makeSkyTexture(environment={}){
   return tex;
 }
 
+export function makeDistantPlanetHazeTexture(){
+  let canvas=document.createElement("canvas");
+  canvas.width=512;
+  canvas.height=512;
+  let ctx=canvas.getContext("2d");
+  let cx=256;
+  let cy=256;
+
+  ctx.clearRect(0,0,512,512);
+
+  let body=ctx.createRadialGradient(cx,cy,0,cx,cy,194);
+  body.addColorStop(0,"rgba(255,238,210,0.26)");
+  body.addColorStop(0.34,"rgba(250,205,204,0.2)");
+  body.addColorStop(0.68,"rgba(194,214,228,0.12)");
+  body.addColorStop(0.9,"rgba(150,188,214,0.035)");
+  body.addColorStop(0.98,"rgba(150,188,214,0.006)");
+  body.addColorStop(1,"rgba(150,188,214,0)");
+  ctx.fillStyle=body;
+  ctx.beginPath();
+  ctx.arc(cx,cy,194,0,Math.PI*2);
+  ctx.fill();
+
+  let atmosphere=ctx.createRadialGradient(cx,cy,190,cx,cy,203);
+  atmosphere.addColorStop(0,"rgba(184,222,240,0)");
+  atmosphere.addColorStop(0.42,"rgba(186,226,246,0.032)");
+  atmosphere.addColorStop(0.72,"rgba(178,222,246,0.072)");
+  atmosphere.addColorStop(0.92,"rgba(178,222,246,0.012)");
+  atmosphere.addColorStop(1,"rgba(178,222,246,0)");
+  ctx.fillStyle=atmosphere;
+  ctx.beginPath();
+  ctx.arc(cx,cy,203,0,Math.PI*2);
+  ctx.fill();
+
+  let tex=new THREE.CanvasTexture(canvas);
+  tex.minFilter=THREE.LinearFilter;
+  tex.magFilter=THREE.LinearFilter;
+  tex.generateMipmaps=false;
+  return tex;
+}
+
+export function makeDistantPlanetLightTexture(){
+  let canvas=document.createElement("canvas");
+  canvas.width=512;
+  canvas.height=512;
+  let ctx=canvas.getContext("2d");
+  let cx=256;
+  let cy=256;
+  let radius=188;
+
+  ctx.clearRect(0,0,512,512);
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx,cy,radius,0,Math.PI*2);
+  ctx.clip();
+
+  let shadow=ctx.createLinearGradient(cx-radius,cy,cx+radius,cy);
+  shadow.addColorStop(0,"rgba(1,4,14,0.9)");
+  shadow.addColorStop(0.34,"rgba(3,7,19,0.76)");
+  shadow.addColorStop(0.56,"rgba(9,16,31,0.52)");
+  shadow.addColorStop(0.72,"rgba(24,34,52,0.22)");
+  shadow.addColorStop(0.86,"rgba(255,255,255,0)");
+  shadow.addColorStop(1,"rgba(255,255,255,0)");
+  ctx.fillStyle=shadow;
+  ctx.fillRect(cx-radius,cy-radius,radius*2,radius*2);
+
+  let shine=ctx.createRadialGradient(cx+radius*0.48,cy-radius*0.24,0,cx+radius*0.48,cy-radius*0.24,radius*0.82);
+  shine.addColorStop(0,"rgba(255,246,218,0.34)");
+  shine.addColorStop(0.34,"rgba(255,232,204,0.18)");
+  shine.addColorStop(0.7,"rgba(255,232,204,0.045)");
+  shine.addColorStop(1,"rgba(255,232,204,0)");
+  ctx.fillStyle=shine;
+  ctx.fillRect(cx-radius,cy-radius,radius*2,radius*2);
+
+  let terminator=ctx.createLinearGradient(cx-radius*0.1,cy,cx+radius*0.58,cy);
+  terminator.addColorStop(0,"rgba(4,8,19,0.46)");
+  terminator.addColorStop(0.52,"rgba(4,8,19,0.2)");
+  terminator.addColorStop(1,"rgba(255,255,255,0)");
+  ctx.fillStyle=terminator;
+  ctx.fillRect(cx-radius,cy-radius,radius*2,radius*2);
+
+  ctx.restore();
+
+  let tex=new THREE.CanvasTexture(canvas);
+  tex.minFilter=THREE.LinearFilter;
+  tex.magFilter=THREE.LinearFilter;
+  tex.generateMipmaps=false;
+  return tex;
+}
+
+export function makeDistantPlanetVeilTexture(){
+  let canvas=document.createElement("canvas");
+  canvas.width=512;
+  canvas.height=512;
+  let ctx=canvas.getContext("2d");
+  let cx=256;
+  let cy=256;
+  let radius=190;
+
+  ctx.clearRect(0,0,512,512);
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx,cy,radius,0,Math.PI*2);
+  ctx.clip();
+
+  let veil=ctx.createRadialGradient(cx+radius*0.12,cy-radius*0.1,0,cx,cy,radius);
+  veil.addColorStop(0,"rgba(228,236,238,0.095)");
+  veil.addColorStop(0.22,"rgba(214,226,232,0.085)");
+  veil.addColorStop(0.46,"rgba(184,210,224,0.048)");
+  veil.addColorStop(0.62,"rgba(144,178,204,0.018)");
+  veil.addColorStop(1,"rgba(144,178,204,0.007)");
+  ctx.fillStyle=veil;
+  ctx.fillRect(cx-radius,cy-radius,radius*2,radius*2);
+
+  let wash=ctx.createLinearGradient(cx-radius,cy-radius,cx+radius,cy+radius);
+  wash.addColorStop(0,"rgba(248,220,204,0.012)");
+  wash.addColorStop(0.42,"rgba(248,220,204,0.022)");
+  wash.addColorStop(0.56,"rgba(214,232,236,0.064)");
+  wash.addColorStop(1,"rgba(172,210,228,0.05)");
+  ctx.fillStyle=wash;
+  ctx.fillRect(cx-radius,cy-radius,radius*2,radius*2);
+
+  ctx.restore();
+
+  let tex=new THREE.CanvasTexture(canvas);
+  tex.minFilter=THREE.LinearFilter;
+  tex.magFilter=THREE.LinearFilter;
+  tex.generateMipmaps=false;
+  return tex;
+}
+
 export function makeDustTexture(){
   let canvas=document.createElement("canvas");
   canvas.width=128;
