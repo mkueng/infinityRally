@@ -439,12 +439,17 @@ let gameWon=false;
 let healthDamageCooldown=0;
 let cameraFollowDistance=18;
 let cameraFollowHeight=7.5;
+let cameraDownhillSampleDistance=30;
+let cameraDownhillExtraHeight=9.5;
+let cameraDownhillPullIn=4.5;
+let cameraTerrainClearance=5.8;
 let screenShakeAmount=0;
 let screenShakeSeed=0;
 let screenShakeOffset=new THREE.Vector3();
 let cars=[];
 let gameStarted=false;
 let gamePaused=false;
+let controllerMenuButtonDown=false;
 let tradingScreenOpen=false;
 let missionScreenOpen=false;
 let gameMode="single";
@@ -458,6 +463,7 @@ let enemySpawnSerial=0;
 let enemyBudgetRun=0;
 let mothership=null;
 let giantTestRobot=null;
+let mothershipHoverAltitude=56;
 let mothershipDelay=mothershipMinDelay+Math.floor(Math.random()*mothershipRandomDelay);
 let baseStationModel=null;
 let enemyShipModel=null;
@@ -1164,6 +1170,7 @@ function createCarState(id,lateralOffset,controls,camera,gamepadIndex){
     gamepadIndex,
     camera,
     cameraYaw:0,
+    cameraDownhillAmount:0,
     group,
     shadow:createCarShadow(scene),
     x:0,
@@ -2492,6 +2499,25 @@ window.addEventListener("keydown",event=>{
   setGamePaused(!gamePaused);
 });
 
+function updateControllerMenuInput(){
+  let menuButton=gameStarted && activeCars().some(car=>{
+    let buttons=input.getGamepadFaceButtons(car.gamepadIndex);
+    return buttons.y;
+  });
+
+  if(menuButton && !controllerMenuButtonDown){
+    if(missionScreenOpen){
+      closeMissionScreen();
+    }else if(tradingScreenOpen){
+      closeTradingScreen();
+    }else if(!gameOver){
+      setGamePaused(!gamePaused);
+    }
+  }
+
+  controllerMenuButtonDown=menuButton;
+}
+
 function damageCar(car,amount,hitPoint=null){
   if(healthDamageCooldown>0 || car.health<=0) return;
   let shielded=shieldUnlocked();
@@ -3352,6 +3378,68 @@ function tradingOutpostRoomViolation(local,actorRadius,collision=tradingOutpostC
   );
 }
 
+function localPointInsideShell(local,shell,padding=0){
+  if(!local || !shell) return false;
+  return local.x>=shell.left-padding
+    && local.x<=shell.right+padding
+    && local.z>=shell.back-padding
+    && local.z<=shell.front+padding;
+}
+
+function shellCrossings(fromLocal,local,shell,padding=0){
+  if(!fromLocal || !local || !shell) return [];
+
+  let left=shell.left-padding;
+  let right=shell.right+padding;
+  let back=shell.back-padding;
+  let front=shell.front+padding;
+  let dx=local.x-fromLocal.x;
+  let dz=local.z-fromLocal.z;
+  let crossings=[];
+
+  function addCrossing(side,t,crossX,crossZ){
+    if(t<=0 || t>1) return;
+    if(crossX<left-0.001 || crossX>right+0.001 || crossZ<back-0.001 || crossZ>front+0.001) return;
+    crossings.push({side,t,x:crossX,z:crossZ});
+  }
+
+  if(Math.abs(dx)>0.0001){
+    let t=(left-fromLocal.x)/dx;
+    addCrossing("left",t,left,fromLocal.z+dz*t);
+    t=(right-fromLocal.x)/dx;
+    addCrossing("right",t,right,fromLocal.z+dz*t);
+  }
+  if(Math.abs(dz)>0.0001){
+    let t=(back-fromLocal.z)/dz;
+    addCrossing("back",t,fromLocal.x+dx*t,back);
+    t=(front-fromLocal.z)/dz;
+    addCrossing("front",t,fromLocal.x+dx*t,front);
+  }
+
+  crossings.sort((a,b)=>a.t-b.t);
+  return crossings;
+}
+
+function collidesWithTradingOutpostShell(actor,local,fromLocal,collision=tradingOutpostCollision){
+  let shell=collision && collision.solidShell;
+  if(!shell || !local || !fromLocal) return false;
+
+  let actorRadius=actor && Number.isFinite(actor.collisionRadius)
+    ? actor.collisionRadius
+    : 2.35;
+  let fromInside=localPointInsideShell(fromLocal,shell);
+  let toInside=localPointInsideShell(local,shell);
+  if(fromInside===toInside) return false;
+
+  let doorwayHalfWidth=Math.max(0,shell.entranceHalfWidth-actorRadius*0.65);
+  for(let crossing of shellCrossings(fromLocal,local,shell)){
+    let throughEntrance=crossing.side==="front" && Math.abs(crossing.x)<=doorwayHalfWidth;
+    if(!throughEntrance) return true;
+  }
+
+  return false;
+}
+
 function insideTradingOutpostFloor(local,margin=0.5,collision=tradingOutpostCollision){
   let floor=collision && collision.floor;
   if(!floor || !local) return false;
@@ -3412,6 +3500,8 @@ function collidesWithSingleTradingOutpost(actor,x,z,fromX=null,fromZ=null,collis
   let fromLocal=Number.isFinite(fromX) && Number.isFinite(fromZ)
     ? worldToTradingOutpostLocal(fromX,fromZ,collision)
     : null;
+  if(collidesWithTradingOutpostShell(actor,local,fromLocal,collision)) return true;
+
   let useRoomBoundary=insideTradingOutpostFloor(local,0.5,collision) || insideTradingOutpostFloor(fromLocal,0.5,collision);
   let roomViolation=useRoomBoundary ? tradingOutpostRoomViolation(local,actorRadius,collision) : 0;
   if(roomViolation>0){
@@ -5483,7 +5573,7 @@ function updatePlayerLaserInput(car){
 
   let buttons=input.getGamepadFaceButtons(car.gamepadIndex);
   let keyboardLaser=car===playerCar && input.keys.r;
-  let laserButton=buttons.y || keyboardLaser;
+  let laserButton=buttons.x || keyboardLaser;
   let pressedLaser=laserButton && !car.lastLaserButton;
   let canUseLaser=!gameOver
     && car.health>0
@@ -6643,7 +6733,7 @@ function spawnMothership(){
   let dx=center.x-hoverX;
   let dz=center.z-hoverZ;
   let group=makeMothershipModel();
-  let y=drivingSurfaceHeight(hoverX,hoverZ)+38+Math.random()*12;
+  let y=drivingSurfaceHeight(hoverX,hoverZ)+mothershipHoverAltitude-4+Math.random()*8;
   let surfaceY=drivingSurfaceHeight(x,z);
 
   group.position.set(x,y,z);
@@ -6791,7 +6881,7 @@ function updateMothership(){
   }
   let bob=Math.sin(mothership.age*0.025+mothership.phase)*4;
   if(mothership.hoverFrames<mothershipHoverFrames){
-    let targetY=drivingSurfaceHeight(mothership.x,mothership.z)+42;
+    let targetY=drivingSurfaceHeight(mothership.x,mothership.z)+mothershipHoverAltitude;
     mothership.y+=(targetY-mothership.y)*0.035;
   }
   mothership.group.position.set(mothership.x,mothership.y+bob,mothership.z);
@@ -9813,6 +9903,15 @@ function updateCar(car){
   let jetMovement=car.jetMode || car.jetProgress>0.65;
   let airborneMovement=car.airborne || !car.onGround;
   let carDisabled=car.health<=0;
+  let hoverButtons=input.getGamepadFaceButtons(car.gamepadIndex);
+  let keyboardHover=gameMode==="single" && car===playerCar && input.keys[" "];
+  let robotHoverMovement=!fuelBlocksMovement
+    && !car.jetAutoLandToRobot
+    && !jetMovement
+    && car.morphProgress<0.35
+    && !car.morphed
+    && (car.boostCharge || 0)>0
+    && (hoverButtons.leftStick || keyboardHover);
   let weightedMechMovement=!jetMovement && !airborneMovement && car.morphProgress<0.4;
   let carGroundMovement=!jetMovement && !airborneMovement && car.morphProgress>0.68;
 
@@ -9947,7 +10046,7 @@ function updateCar(car){
       }
       car.throttleEase*=1-climbEase*0.08;
     }
-    if(climbProfile.blocked){
+    if(climbProfile.blocked && !robotHoverMovement){
       car.x=prevX;
       car.z=prevZ;
       car.speed*=0.52;
@@ -10217,8 +10316,9 @@ function updateCar(car){
   let ceilingPitchRelease=jetHovering && (car.jetAltitudeTarget || 0)>=jetAltitudeMax-0.4;
   let jetLiftPitch=ceilingPitchRelease ? 0 : (car.liftInput || 0);
   let jetPitch=clamp(-jetLiftPitch*0.18-Math.max(0,car.speed)*0.025,-0.3,0.12);
-  let targetPitch=jetHovering ? jetPitch : -Math.atan2(frontY-backY,pitchSampleDist*2);
-  car.pitch+=(targetPitch-car.pitch)*0.18;
+  let robotHoverPitch=clamp(-Math.max(0,car.speed)*0.035-car.vy*0.08,-0.16,0.12);
+  let targetPitch=jetHovering ? jetPitch : flying ? robotHoverPitch : -Math.atan2(frontY-backY,pitchSampleDist*2);
+  car.pitch+=(targetPitch-car.pitch)*(flying ? 0.095 : 0.18);
   let jetBankTarget=jetHovering ? clamp((car.turnInputEase || 0)*-0.46+(car.turnVelocity || 0)*-4.4,-0.58,0.58) : 0;
   car.jetBank+=(jetBankTarget-(car.jetBank || 0))*(jetHovering ? 0.07 : 0.18);
 
@@ -10246,8 +10346,27 @@ function updateCar(car){
 function updateCameraForCar(car){
   car.cameraYaw+=normalizeAngle(car.velAngle-car.cameraYaw)*0.075;
 
-  let camDist=cameraFollowDistance;
-  let camHeight=cameraFollowHeight;
+  let downhillAmount=0;
+  let groundMovement=Math.abs(car.speed || 0)>0.035 && car.jetProgress<0.45;
+  if(groundMovement){
+    let direction=car.speed>=0 ? car.velAngle : car.velAngle+Math.PI;
+    let sampleDist=cameraDownhillSampleDistance;
+    let aheadX=car.x+Math.sin(direction)*sampleDist;
+    let aheadZ=car.z+Math.cos(direction)*sampleDist;
+    let behindX=car.x-Math.sin(direction)*sampleDist;
+    let behindZ=car.z-Math.cos(direction)*sampleDist;
+    let aheadY=surfaceHeightForActor(car,aheadX,aheadZ);
+    let behindY=surfaceHeightForActor(car,behindX,behindZ);
+    let downhillGrade=(behindY-aheadY)/(sampleDist*2);
+    downhillAmount=clamp((downhillGrade-0.045)/0.18,0,1);
+  }
+
+  if(!Number.isFinite(car.cameraDownhillAmount)) car.cameraDownhillAmount=0;
+  let downhillFollow=downhillAmount>car.cameraDownhillAmount ? 0.08 : 0.045;
+  car.cameraDownhillAmount+=(downhillAmount-car.cameraDownhillAmount)*downhillFollow;
+
+  let camDist=cameraFollowDistance-cameraDownhillPullIn*car.cameraDownhillAmount;
+  let camHeight=cameraFollowHeight+cameraDownhillExtraHeight*car.cameraDownhillAmount;
   let camX=car.x-Math.sin(car.cameraYaw)*camDist;
   let camZ=car.z-Math.cos(car.cameraYaw)*camDist;
   let targetCamY=car.y+camHeight;
@@ -10266,6 +10385,7 @@ function updateCameraForCar(car){
   camX+=rightX*screenShakeOffset.x;
   camY+=screenShakeOffset.y;
   camZ+=rightZ*screenShakeOffset.x;
+  camY=Math.max(camY,drivingSurfaceHeight(camX,camZ)+cameraTerrainClearance);
 
   let lookX=car.x+Math.sin(car.cameraYaw)*lookAhead;
   let lookY=car.y+3.8;
@@ -10923,6 +11043,8 @@ function loop(timestamp=performance.now()){
     return;
   }
 
+  updateControllerMenuInput();
+
   if(gamePaused){
     fixedAccumulator=0;
     updateCameras();
@@ -11487,6 +11609,7 @@ function placeCarOnOpenField(car,startInfo){
   car.cameraY=NaN;
   car.cameraLookY=NaN;
   car.cameraPitchOffset=0;
+  car.cameraDownhillAmount=0;
   car.lastAimMouseVersion=input.mouse.version;
   if(car.aimCross) car.aimCross.position.set(0,3.15,32);
   car.lastRocketButton=false;
@@ -11734,6 +11857,15 @@ function makeTradingOutpostCollision(x,z,angle,y,model=tradingOutpostModel,objec
       y:Number.isFinite(bounds.floorY) ? bounds.floorY : 0
     },
     room:null,
+    solidShell:terminalMode==="mission"
+      ? {
+        left:Math.min(wallLeftX,wallRightX),
+        right:Math.max(wallLeftX,wallRightX),
+        back:Math.min(wallMinZ,wallMaxZ),
+        front:Math.max(wallMinZ,wallMaxZ),
+        entranceHalfWidth
+      }
+      : null,
     terminal:tradingOutpostTerminalLocalInfo(bounds),
     walls:preciseWalls.length ? preciseWalls : fallbackWalls
   };
