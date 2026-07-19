@@ -94,6 +94,7 @@ let lastSkyNightAmount=-1;
 let lastSkyDreamAmount=-1;
 let hemiLight=null;
 let sun=null;
+let currentDayAmount=1;
 let headlightNightAmount=0;
 let hemiNightColor=new THREE.Color(0x6f86c8);
 let hemiGroundNightColor=new THREE.Color(0x07101b);
@@ -184,6 +185,16 @@ function updateDistantPlanetPalette(environment=currentEnvironment){
   distantPlanetLight.material.color.copy(lightColor);
 }
 
+function updateDistantPlanetVisibility(dayAmount=0){
+  if(!distantMoon || !distantPlanetHaze || !distantPlanetLight || !distantPlanetVeil) return;
+
+  let daylightFade=1-clamp01(dayAmount)*0.7;
+  distantMoon.material.opacity=0.22*daylightFade;
+  distantPlanetLight.material.opacity=0.78*daylightFade;
+  distantPlanetVeil.material.opacity=0.16*daylightFade;
+  distantPlanetHaze.material.opacity=0.7*daylightFade;
+}
+
 function weatherSkyStops(){
   let sky=currentEnvironment.sky || ["#12072b","#33145f","#9c416f","#f08c71","#ffd3a5"];
   let stormAmount=Math.pow(Math.max(0,Math.min(1,rainIntensity)),stormSkyRainExponent)*stormSkyBlend;
@@ -227,8 +238,10 @@ function updateDayNight(now=performance.now(),forceSky=false){
   let state=dayNightState(now);
   let day=state.dayAmount;
   let night=state.nightAmount;
+  currentDayAmount=day;
   let rainDim=1-rainIntensity*rainLightDim;
   headlightNightAmount=night;
+  updateDistantPlanetVisibility(day);
 
   if(hemiLight){
     hemiLight.intensity=(hemiBaseIntensity+day*hemiDayIntensityRange)*rainDim;
@@ -289,6 +302,7 @@ let playerCamera=new THREE.PerspectiveCamera(45,innerWidth/innerHeight,.1,1e6);
 let secondCamera=new THREE.PerspectiveCamera(45,innerWidth/innerHeight,.1,1e6);
 let renderer=new THREE.WebGLRenderer({antialias:false,powerPreference:"high-performance"});
 let distantMoonDirection=new THREE.Vector3(-0.34,0.42,-0.84).normalize();
+let distantPlanetScale=56000;
 let distantMoonTexture=new THREE.TextureLoader().load("./assets/planets/planet1.png?v=moon-planet1");
 distantMoonTexture.minFilter=THREE.LinearFilter;
 distantMoonTexture.magFilter=THREE.LinearFilter;
@@ -302,7 +316,7 @@ let distantMoon=new THREE.Sprite(new THREE.SpriteMaterial({
   depthTest:true,
   fog:false
 }));
-distantMoon.scale.set(76800,76800,1);
+distantMoon.scale.set(distantPlanetScale,distantPlanetScale,1);
 distantMoon.material.rotation=Math.PI*0.5;
 distantMoon.renderOrder=-10;
 distantMoon.frustumCulled=false;
@@ -316,7 +330,7 @@ let distantPlanetLight=new THREE.Sprite(new THREE.SpriteMaterial({
   depthTest:true,
   fog:false
 }));
-distantPlanetLight.scale.set(76800,76800,1);
+distantPlanetLight.scale.set(distantPlanetScale,distantPlanetScale,1);
 distantPlanetLight.renderOrder=-9.5;
 distantPlanetLight.frustumCulled=false;
 scene.add(distantPlanetLight);
@@ -329,7 +343,7 @@ let distantPlanetVeil=new THREE.Sprite(new THREE.SpriteMaterial({
   depthTest:true,
   fog:false
 }));
-distantPlanetVeil.scale.set(76800,76800,1);
+distantPlanetVeil.scale.set(distantPlanetScale,distantPlanetScale,1);
 distantPlanetVeil.material.rotation=Math.PI*0.5;
 distantPlanetVeil.renderOrder=-9.25;
 distantPlanetVeil.frustumCulled=false;
@@ -343,7 +357,7 @@ let distantPlanetHaze=new THREE.Sprite(new THREE.SpriteMaterial({
   depthTest:true,
   fog:false
 }));
-distantPlanetHaze.scale.set(77008,77008,1);
+distantPlanetHaze.scale.set(distantPlanetScale*1.0027,distantPlanetScale*1.0027,1);
 distantPlanetHaze.center.set(0.5,0.5);
 distantPlanetHaze.material.rotation=Math.PI*0.5;
 distantPlanetHaze.renderOrder=-9;
@@ -374,6 +388,41 @@ renderer.setPixelRatio(currentPixelRatio);
 renderer.setSize(innerWidth,innerHeight);
 renderer.setScissorTest(true);
 document.body.appendChild(renderer.domElement);
+
+let fpsDisplay=document.createElement("div");
+fpsDisplay.style.cssText=[
+  "position:fixed",
+  "right:12px",
+  "bottom:10px",
+  "z-index:80",
+  `font-family:${gameFontFamily}`,
+  "font-size:18px",
+  "font-weight:900",
+  "letter-spacing:0.08em",
+  "color:rgba(232,255,247,0.92)",
+  "text-shadow:0 0 6px rgba(103,244,255,0.46),0 2px 0 rgba(0,0,0,0.72)",
+  "pointer-events:none",
+  "user-select:none"
+].join(";");
+fpsDisplay.textContent="-- FPS";
+document.body.appendChild(fpsDisplay);
+let fpsSampleStart=0;
+let fpsSampleFrames=0;
+
+function updateFpsDisplay(timestamp){
+  if(!Number.isFinite(timestamp)) return;
+  if(fpsSampleStart<=0) fpsSampleStart=timestamp;
+  fpsSampleFrames++;
+
+  let elapsed=timestamp-fpsSampleStart;
+  if(elapsed<250) return;
+
+  let fps=Math.round((fpsSampleFrames*1000)/Math.max(1,elapsed));
+  fpsDisplay.textContent=fps+" FPS";
+  fpsSampleStart=timestamp;
+  fpsSampleFrames=0;
+}
+
 refreshSceneEnvironment();
 
 hemiLight=new THREE.HemisphereLight(hemiDayColor,hemiGroundDayColor,hemiInitialIntensity);
@@ -1208,7 +1257,7 @@ cars=[playerCar,secondCar];
 secondCar.group.visible=false;
 secondCar.shadow.setVisible(false);
 
-let world=createWorld(scene,{getDifficulty:()=>gameDifficulty,getEnvironment:()=>currentEnvironment});
+let world=createWorld(scene,{getDifficulty:()=>gameDifficulty,getEnvironment:()=>currentEnvironment,getPerformanceMode:()=>gameMode==="double" ? "split" : "full"});
 portalSystem=createPortalSystem({
   scene,
   waterLevel,
@@ -10817,7 +10866,7 @@ function fixedUpdateGame(){
   portalSystem.updatePortals();
   portalSystem.updateDreamDimensionVisuals();
   updateWeather();
-  world.updateWind(performance.now(),rainIntensity);
+  world.updateWind(performance.now(),rainIntensity,currentDayAmount,headlightNightAmount);
   for(let car of cars) updateVehicleHeadlights(car);
   motorAudio.update();
   updateCameras();
@@ -10836,6 +10885,7 @@ function loop(timestamp=performance.now()){
   if(lastLoopTime==null) lastLoopTime=timestamp;
   let frameMs=Math.min(250,Math.max(0,timestamp-lastLoopTime));
   lastLoopTime=timestamp;
+  updateFpsDisplay(timestamp);
 
   if(!gameStarted){
     fixedAccumulator=0;
@@ -10844,7 +10894,7 @@ function loop(timestamp=performance.now()){
     portalSystem.updatePortals(timestamp);
     portalSystem.updateDreamDimensionVisuals(timestamp);
     updateWeather();
-    world.updateWind(timestamp,rainIntensity);
+    world.updateWind(timestamp,rainIntensity,currentDayAmount,headlightNightAmount);
     for(let car of cars) updateVehicleHeadlights(car);
     updateGiantTestRobot();
     clouds.update();
@@ -10902,8 +10952,6 @@ function loop(timestamp=performance.now()){
   hud.updateCompassHud();
   let chunkBudget=chunkBuildBudget();
   world.processChunkQueue(chunkBudget.items,false,chunkBudget.frameMs);
-  updateRareTradingOutposts();
-  updateUnlockedRandomPortals();
   pauseMenu.update(timestamp);
   renderGame();
 }

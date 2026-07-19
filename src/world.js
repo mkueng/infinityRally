@@ -30,6 +30,7 @@ export function createWorld(scene,options={}){
   let chunkWorkerTerrainSeed=0;
   let chunkWorkerTerrainProfile={};
   let getDifficulty=typeof options.getDifficulty==="function" ? options.getDifficulty : ()=>"medium";
+  let getPerformanceMode=typeof options.getPerformanceMode==="function" ? options.getPerformanceMode : ()=>"full";
   let defaultEnvironment={
     colors:{
       underwater:0x8f5a6c,
@@ -100,7 +101,7 @@ let waterMat=new THREE.MeshStandardMaterial({
   emissive:0x036f6d,
   emissiveIntensity:0.38,
   transparent:true,
-  opacity:.42,
+  opacity:.5,
   depthWrite:false
 });
 let waterLevel=-20;
@@ -108,8 +109,72 @@ let waterLevel=-20;
 let barkMat=new THREE.MeshStandardMaterial({color:0x24133a,emissive:0x12061f,emissiveIntensity:0.2,roughness:0.88});
 let leafMat=new THREE.MeshStandardMaterial({color:0xb66cff,emissive:0x5a22c9,emissiveIntensity:0.48,roughness:0.64});
 let podMat=new THREE.MeshStandardMaterial({color:0xff6bd6,emissive:0xff2ca8,emissiveIntensity:0.78,roughness:0.52});
+let waterShimmerShader=null;
 let grassWindShader=null;
 let grassMat=new THREE.MeshStandardMaterial({color:0x9df58d,emissive:0x173d18,emissiveIntensity:0.12,roughness:0.84});
+waterMat.onBeforeCompile=shader=>{
+  shader.uniforms.waterShimmerTime={value:0};
+  shader.uniforms.waterDayAmount={value:1};
+  shader.uniforms.waterNightAmount={value:0};
+  shader.uniforms.waterRainIntensity={value:0};
+  waterShimmerShader=shader;
+  shader.vertexShader=shader.vertexShader.replace(
+    "#include <common>",
+    [
+      "#include <common>",
+      "varying vec3 vWaterWorldPosition;"
+    ].join("\n")
+  );
+  shader.vertexShader=shader.vertexShader.replace(
+    "#include <begin_vertex>",
+    [
+      "#include <begin_vertex>",
+      "vWaterWorldPosition=(modelMatrix*vec4(transformed,1.0)).xyz;"
+    ].join("\n")
+  );
+  shader.fragmentShader=shader.fragmentShader.replace(
+    "#include <common>",
+    [
+      "#include <common>",
+      "uniform float waterShimmerTime;",
+      "uniform float waterDayAmount;",
+      "uniform float waterNightAmount;",
+      "uniform float waterRainIntensity;",
+      "varying vec3 vWaterWorldPosition;",
+      "float waterHash(vec2 p){",
+      "  p=fract(p*vec2(123.34,456.21));",
+      "  p+=dot(p,p+45.32);",
+      "  return fract(p.x*p.y);",
+      "}",
+      "float waterValueNoise(vec2 p){",
+      "  vec2 i=floor(p);",
+      "  vec2 f=fract(p);",
+      "  vec2 u=f*f*(3.0-2.0*f);",
+      "  float a=waterHash(i);",
+      "  float b=waterHash(i+vec2(1.0,0.0));",
+      "  float c=waterHash(i+vec2(0.0,1.0));",
+      "  float d=waterHash(i+vec2(1.0,1.0));",
+      "  return mix(mix(a,b,u.x),mix(c,d,u.x),u.y);",
+      "}"
+    ].join("\n")
+  );
+  shader.fragmentShader=shader.fragmentShader.replace(
+    "#include <dithering_fragment>",
+    [
+      "vec2 waterUv=vWaterWorldPosition.xz;",
+      "float waterRainFade=1.0-clamp(waterRainIntensity*0.55,0.0,0.72);",
+      "float shimmerA=waterValueNoise(waterUv*0.058+vec2(waterShimmerTime*0.58,waterShimmerTime*0.25));",
+      "float shimmerB=waterValueNoise(waterUv*0.113+vec2(-waterShimmerTime*0.36,waterShimmerTime*0.5));",
+      "float shimmer=pow(max(shimmerA*0.62+shimmerB*0.48-0.48,0.0),2.6);",
+      "float dayShimmer=waterDayAmount*0.46;",
+      "float nightShimmer=waterNightAmount*0.3;",
+      "float shimmerAmount=shimmer*(dayShimmer+nightShimmer)*waterRainFade;",
+      "vec3 shimmerColor=mix(vec3(0.28,0.92,1.0),vec3(0.92,1.0,0.98),clamp(waterDayAmount,0.0,1.0));",
+      "gl_FragColor.rgb=mix(gl_FragColor.rgb,gl_FragColor.rgb+shimmerColor,shimmerAmount);",
+      "#include <dithering_fragment>"
+    ].join("\n")
+  );
+};
 grassMat.onBeforeCompile=shader=>{
   shader.uniforms.windTime={value:0};
   shader.uniforms.windStrength={value:1};
@@ -331,6 +396,20 @@ function mixHexColor(a,b,amount){
   return color.getHex();
 }
 
+function displayWaterColor(color){
+  let displayed=new THREE.Color(color);
+  let warmAmount=Math.max(0,Math.min(1,(displayed.r-displayed.b)*1.35+(displayed.r-displayed.g)*0.45));
+  displayed.lerp(new THREE.Color(0x22d7ff),0.24+warmAmount*0.56);
+  return displayed.getHex();
+}
+
+function displayWaterEmissive(color){
+  let displayed=new THREE.Color(color);
+  let warmAmount=Math.max(0,Math.min(1,(displayed.r-displayed.b)*1.35+(displayed.r-displayed.g)*0.45));
+  displayed.lerp(new THREE.Color(0x045f78),0.34+warmAmount*0.5);
+  return displayed.getHex();
+}
+
 function applyEnvironment(environment={}){
   currentEnvironment={
     ...defaultEnvironment,
@@ -342,7 +421,7 @@ function applyEnvironment(environment={}){
   if(landMat.map) landMat.map.dispose();
   landMat.map=makeGroundTexture(currentEnvironment);
   landMat.needsUpdate=true;
-  setMaterialColor(waterMat,colors.water,colors.waterEmissive);
+  setMaterialColor(waterMat,displayWaterColor(colors.water),displayWaterEmissive(colors.waterEmissive || colors.water));
   setMaterialColor(barkMat,colors.bark,colors.barkEmissive);
   setMaterialColor(leafMat,colors.leaf,colors.leafEmissive);
   setMaterialColor(podMat,colors.pod,colors.podEmissive);
@@ -2527,10 +2606,18 @@ function updateChunksForCenters(centers){
   let queuedChunks=new Set();
 
   function detailForDistanceSq(distanceSq){
-    if(distanceSq<=8) return {treeDensity:1,partDensity:1,grassDensity:1};
-    if(distanceSq<=24) return {treeDensity:0.58,partDensity:0.62,grassDensity:0.62};
-    if(distanceSq>viewDistance*viewDistance) return {treeDensity:0.12,partDensity:0.28,grassDensity:0.18};
-    return {treeDensity:0.24,partDensity:0.42,grassDensity:0.34};
+    let detail;
+    if(distanceSq<=8) detail={treeDensity:1,partDensity:1,grassDensity:1};
+    else if(distanceSq<=24) detail={treeDensity:0.58,partDensity:0.62,grassDensity:0.62};
+    else if(distanceSq>viewDistance*viewDistance) detail={treeDensity:0.12,partDensity:0.28,grassDensity:0.18};
+    else detail={treeDensity:0.24,partDensity:0.42,grassDensity:0.34};
+
+    if(getPerformanceMode()!=="split") return detail;
+    return {
+      treeDensity:detail.treeDensity*0.72,
+      partDensity:detail.partDensity*0.82,
+      grassDensity:detail.grassDensity*0.54
+    };
   }
 
   for(let center of chunkCenters){
@@ -2840,7 +2927,7 @@ function processChunkQueue(maxItems=1,immediate=false,maxFrameMs=2){
   }
 }
 
-function updateWind(time,rainIntensity=0){
+function updateWind(time,rainIntensity=0,dayAmount=1,nightAmount=0){
   let t=time*0.004;
   for(let ring of animatedLandingRings){
     let pulse=(Math.sin(t+(ring.userData.phase || 0))*0.5+0.5);
@@ -2857,8 +2944,15 @@ function updateWind(time,rainIntensity=0){
     }
   }
 
-  if(!grassWindShader) return;
   let rain=Math.max(0,Math.min(1,rainIntensity));
+  if(waterShimmerShader){
+    if(waterShimmerShader.uniforms.waterShimmerTime) waterShimmerShader.uniforms.waterShimmerTime.value=time*0.001;
+    if(waterShimmerShader.uniforms.waterDayAmount) waterShimmerShader.uniforms.waterDayAmount.value=Math.max(0,Math.min(1,dayAmount));
+    if(waterShimmerShader.uniforms.waterNightAmount) waterShimmerShader.uniforms.waterNightAmount.value=Math.max(0,Math.min(1,nightAmount));
+    if(waterShimmerShader.uniforms.waterRainIntensity) waterShimmerShader.uniforms.waterRainIntensity.value=rain;
+  }
+
+  if(!grassWindShader) return;
   if(grassWindShader.uniforms.windTime) grassWindShader.uniforms.windTime.value=time*0.001*(1+rain*0.55);
   if(grassWindShader.uniforms.windStrength) grassWindShader.uniforms.windStrength.value=1+rain*2.4;
 }
