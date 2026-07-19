@@ -4,6 +4,16 @@ function pick(list,index,fallback){
   return list && list[index] ? list[index] : fallback;
 }
 
+function boostedSkyStop(color,index){
+  let boosted=new THREE.Color(color);
+  if(index<=1){
+    boosted.lerp(new THREE.Color(0x000000),index===0 ? 0.26 : 0.16);
+  }else if(index>=3){
+    boosted.lerp(new THREE.Color(0xffffff),index===4 ? 0.2 : 0.13);
+  }
+  return `#${boosted.getHexString()}`;
+}
+
 function randomChannel(base,spread){
   return Math.max(0,Math.min(255,base+Math.random()*spread));
 }
@@ -15,11 +25,11 @@ export function makeSkyTexture(environment={}){
   canvas.height=512;
   let ctx=canvas.getContext("2d");
   let gradient=ctx.createLinearGradient(0,0,0,512);
-  gradient.addColorStop(0,pick(sky,0,"#12072b"));
-  gradient.addColorStop(0.34,pick(sky,1,"#33145f"));
-  gradient.addColorStop(0.68,pick(sky,2,"#9c416f"));
-  gradient.addColorStop(0.88,pick(sky,3,"#f08c71"));
-  gradient.addColorStop(1,pick(sky,4,"#ffd3a5"));
+  gradient.addColorStop(0,boostedSkyStop(pick(sky,0,"#12072b"),0));
+  gradient.addColorStop(0.24,boostedSkyStop(pick(sky,1,"#33145f"),1));
+  gradient.addColorStop(0.58,boostedSkyStop(pick(sky,2,"#9c416f"),2));
+  gradient.addColorStop(0.84,boostedSkyStop(pick(sky,3,"#f08c71"),3));
+  gradient.addColorStop(1,boostedSkyStop(pick(sky,4,"#ffd3a5"),4));
   ctx.fillStyle=gradient;
   ctx.fillRect(0,0,1024,512);
 

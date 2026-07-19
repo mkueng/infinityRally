@@ -1,6 +1,6 @@
 import { THREE } from "./three.js";
 import { carRadius, chunkSize, segments, viewDistance } from "./constants.js";
-import { groundHeight, rand, roadCenterX, roadDistance } from "./terrain.js?v=broad-mountains";
+import { groundHeight, rand, roadCenterX, roadDistance } from "./terrain.js?v=mountain-detail";
 import { makeGroundTexture } from "./textures.js?v=alien-planet";
 import { makeMissionOutpostTerminal } from "./models.js?v=radar-performance-fix";
 
@@ -95,6 +95,62 @@ let landMat=new THREE.MeshStandardMaterial({
   roughness:0.92,
   metalness:0.04
 });
+landMat.onBeforeCompile=shader=>{
+  shader.vertexShader=shader.vertexShader.replace(
+    "#include <common>",
+    [
+      "#include <common>",
+      "varying vec3 vLandWorldPosition;"
+    ].join("\n")
+  );
+  shader.vertexShader=shader.vertexShader.replace(
+    "#include <begin_vertex>",
+    [
+      "#include <begin_vertex>",
+      "vLandWorldPosition=(modelMatrix*vec4(transformed,1.0)).xyz;"
+    ].join("\n")
+  );
+  shader.fragmentShader=shader.fragmentShader.replace(
+    "#include <common>",
+    [
+      "#include <common>",
+      "varying vec3 vLandWorldPosition;",
+      "float landHash(vec2 p){",
+      "  p=fract(p*vec2(127.1,311.7));",
+      "  p+=dot(p,p+74.7);",
+      "  return fract(p.x*p.y);",
+      "}",
+      "float landNoise(vec2 p){",
+      "  vec2 i=floor(p);",
+      "  vec2 f=fract(p);",
+      "  vec2 u=f*f*(3.0-2.0*f);",
+      "  float a=landHash(i);",
+      "  float b=landHash(i+vec2(1.0,0.0));",
+      "  float c=landHash(i+vec2(0.0,1.0));",
+      "  float d=landHash(i+vec2(1.0,1.0));",
+      "  return mix(mix(a,b,u.x),mix(c,d,u.x),u.y);",
+      "}"
+    ].join("\n")
+  );
+  shader.fragmentShader=shader.fragmentShader.replace(
+    "#include <dithering_fragment>",
+    [
+      "float mountainTintMask=smoothstep(18.0,46.0,vLandWorldPosition.y);",
+      "if(mountainTintMask>0.001){",
+      "  float crag=landNoise(vLandWorldPosition.xz*0.055+vec2(vLandWorldPosition.y*0.017,-vLandWorldPosition.y*0.013));",
+      "  float breakup=landNoise(vLandWorldPosition.xz*0.021+vec2(41.2,-29.6));",
+      "  float crack=1.0-abs(landNoise(vLandWorldPosition.xz*0.115+vec2(23.4,-17.8)+breakup*1.7)*2.0-1.0);",
+      "  float darkCuts=smoothstep(0.78,0.96,crack)*0.24;",
+      "  float paleEdges=smoothstep(0.74,1.0,crag)*smoothstep(0.24,0.92,breakup)*0.12;",
+      "  vec3 rockShadow=vec3(0.52,0.48,0.62);",
+      "  vec3 rockHighlight=vec3(1.18,1.12,1.04);",
+      "  gl_FragColor.rgb=mix(gl_FragColor.rgb,gl_FragColor.rgb*rockShadow,mountainTintMask*darkCuts);",
+      "  gl_FragColor.rgb=mix(gl_FragColor.rgb,gl_FragColor.rgb*rockHighlight,mountainTintMask*paleEdges);",
+      "}",
+      "#include <dithering_fragment>"
+    ].join("\n")
+  );
+};
 
 let waterMat=new THREE.MeshStandardMaterial({
   color:0x20ffd4,
@@ -459,7 +515,7 @@ function createChunkWorker(){
   if(options.disableChunkWorker || typeof Worker==="undefined") return null;
 
   try{
-    let worker=new Worker(new URL("./chunkWorker.js?v=broad-mountains",import.meta.url),{type:"module"});
+    let worker=new Worker(new URL("./chunkWorker.js?v=mountain-detail",import.meta.url),{type:"module"});
     let template=makeTerrainVertexTemplate();
     worker.postMessage({
       type:"setTerrainTemplate",

@@ -58,6 +58,32 @@ export function fbm(x,z){
   return h;
 }
 
+function noise01(x,z){
+  let X=Math.floor(x),Z=Math.floor(z);
+  let fx=x-X,fz=z-Z;
+
+  let a=rand01(X,Z);
+  let b=rand01(X+1,Z);
+  let c=rand01(X,Z+1);
+  let d=rand01(X+1,Z+1);
+
+  fx=smooth(fx);
+  fz=smooth(fz);
+
+  return a+(b-a)*fx+(c-a)*fz+(a-b-c+d)*fx*fz;
+}
+
+function fbm01(x,z){
+  let h=0,amp=0.5,freq=1,total=0;
+  for(let i=0;i<5;i++){
+    h+=noise01(x*freq,z*freq)*amp;
+    total+=amp;
+    amp*=0.5;
+    freq*=2;
+  }
+  return total>0 ? h/total : 0;
+}
+
 function rand01(x,z){
   let value=rand(x,z);
   return value-Math.floor(value);
@@ -124,6 +150,23 @@ function broadMountainHeight(x,z){
   return total*roadFade;
 }
 
+function mountainCragHeight(x,z,mountainMask,broadHeight){
+  let broadMask=smoothstep01((broadHeight-5)/24);
+  let detailMask=Math.max(mountainMask,broadMask);
+  if(detailMask<=0.001) return 0;
+
+  let roadFade=smoothstep01((roadDistance(x,z)-130)/170);
+  if(roadFade<=0.001) return 0;
+
+  let ridgeA=1-Math.abs(fbm01(x*0.016+71.3,z*0.016-43.8)*2-1);
+  let ridgeB=1-Math.abs(fbm01(x*0.034-18.7,z*0.028+92.1)*2-1);
+  let pitted=fbm01(x*0.072+11.4,z*0.072-26.8)-0.5;
+  let breakup=fbm01(x*0.011+81.2,z*0.019-32.5)-0.5;
+  let crags=(Math.pow(ridgeA,3.2)-0.28)*2.6+(Math.pow(ridgeB,2.4)-0.34)*1.45+pitted*0.95+breakup*0.7;
+
+  return crags*detailMask*roadFade*terrainProfile.mountainScale;
+}
+
 export function height(x,z){
   let continent=fbm(x*.0012,z*.0012);
   let hills=fbm(x*.004,z*.004);
@@ -134,11 +177,13 @@ export function height(x,z){
 
   let mountainMask=Math.max(0,continent-.45)*2.2;
   mountainMask=Math.min(1,mountainMask);
+  let broadHeight=broadMountainHeight(x,z);
 
   return continent*14*terrainProfile.heightScale
     + hills*5*terrainProfile.hillScale
     + mountains*40*mountainMask*terrainProfile.mountainScale
-    + broadMountainHeight(x,z)
+    + broadHeight
+    + mountainCragHeight(x,z,mountainMask,broadHeight)
     - 14
     + terrainProfile.baseHeight;
 }

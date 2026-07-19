@@ -1,15 +1,15 @@
 import { THREE } from "./three.js";
 import { carRadius, gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize, viewDistance, mothershipDropCount, mothershipDropInterval, mothershipDropLineSpacing, mothershipHoverDistance, mothershipHoverFrames, mothershipMinDelay, mothershipRandomDelay, mothershipRocketHits } from "./constants.js";
-import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=broad-mountains";
+import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=mountain-detail";
 import { createInput } from "./input.js?v=scanner-bumper";
 import { createHud } from "./hud.js?v=radar-outposts";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=night-stars";
-import { createWorld } from "./world.js?v=radar-performance-fix";
-import { createMotorAudio } from "./audio.js?v=noisy-slow-flyovers";
+import { createWorld } from "./world.js?v=mountain-detail";
+import { createMotorAudio } from "./audio.js?v=sfx-resume";
 import { worldEnvironments } from "./environments.js?v=broad-mountains";
 import { difficultySettings } from "./gameConfig.js?v=ammo-caps";
 import { loadBackPackModel, loadBaseStationModel, loadCarModel, loadEnemyBattleShipModel, loadJetModel, loadLandingSpaceModel, loadTradingOutpostModel, loadTreasureChestModels, makeMechModel } from "./models.js?v=radar-performance-fix";
-import { makeDistantPlanetHazeTexture, makeDistantPlanetLightTexture, makeDistantPlanetVeilTexture, makeSkyTexture } from "./textures.js?v=planet-darker-gradient";
+import { makeDistantPlanetHazeTexture, makeDistantPlanetLightTexture, makeDistantPlanetVeilTexture, makeSkyTexture } from "./textures.js?v=stronger-sky-gradient-2";
 import { createPortalSystem } from "./portals.js";
 import { approach, clamp, clamp01, hash01, randomRange, smoothStep } from "./utils.js";
 
@@ -92,6 +92,8 @@ let jetFogAmount=0;
 let lastSkyWeatherIntensity=-1;
 let lastSkyNightAmount=-1;
 let lastSkyDreamAmount=-1;
+let skyDome=null;
+let skyDomeMat=null;
 let hemiLight=null;
 let sun=null;
 let currentDayAmount=1;
@@ -209,6 +211,18 @@ function timeOfDaySkyStops(now=performance.now()){
   return weatherSkyStops().map((color,index)=>blendHexColor(color,nightSkyStops[index] || nightSkyStops[nightSkyStops.length-1],nightAmount));
 }
 
+function setWorldSkyTexture(texture){
+  if(skyDomeMat){
+    if(skyDomeMat.map && skyDomeMat.map.dispose) skyDomeMat.map.dispose();
+    skyDomeMat.map=texture;
+    skyDomeMat.needsUpdate=true;
+    scene.background=null;
+  }else{
+    if(scene.background && scene.background.dispose) scene.background.dispose();
+    scene.background=texture;
+  }
+}
+
 function updateSkyForWeather(force=false,now=performance.now()){
   let weatherBucket=Math.round(rainIntensity*weatherSkyBucketSteps)/weatherSkyBucketSteps;
   let nightState=dayNightState(now);
@@ -221,8 +235,7 @@ function updateSkyForWeather(force=false,now=performance.now()){
   lastSkyWeatherIntensity=weatherBucket;
   lastSkyNightAmount=nightBucket;
   lastSkyDreamAmount=dreamBucket;
-  if(scene.background && scene.background.dispose) scene.background.dispose();
-  scene.background=makeSkyTexture({...currentEnvironment,sky:timeOfDaySkyStops(now)});
+  setWorldSkyTexture(makeSkyTexture({...currentEnvironment,sky:timeOfDaySkyStops(now)}));
 }
 
 function refreshSceneEnvironment(){
@@ -422,6 +435,18 @@ function updateFpsDisplay(timestamp){
   fpsSampleStart=timestamp;
   fpsSampleFrames=0;
 }
+
+skyDomeMat=new THREE.MeshBasicMaterial({
+  side:THREE.BackSide,
+  depthWrite:false,
+  depthTest:false,
+  fog:false,
+  toneMapped:false
+});
+skyDome=new THREE.Mesh(new THREE.SphereGeometry(420000,32,16),skyDomeMat);
+skyDome.frustumCulled=false;
+skyDome.renderOrder=-1000;
+scene.add(skyDome);
 
 refreshSceneEnvironment();
 
@@ -10478,12 +10503,18 @@ function setAimCrossForRender(focusedCar){
   }
 }
 
+function positionSkyForCamera(camera){
+  if(!skyDome || !camera) return;
+  skyDome.position.copy(camera.position);
+}
+
 function renderGame(){
   let width=innerWidth;
   let height=innerHeight;
 
   if(gameMode==="single"){
     setAimCrossForRender(playerCar);
+    positionSkyForCamera(playerCamera);
     renderer.setViewport(0,0,width,height);
     renderer.setScissor(0,0,width,height);
     renderer.render(scene,playerCamera);
@@ -10497,11 +10528,13 @@ function renderGame(){
   let rightCar=displayCars()[1];
 
   setAimCrossForRender(leftCar);
+  positionSkyForCamera(leftCar.camera);
   renderer.setViewport(0,0,halfWidth,height);
   renderer.setScissor(0,0,halfWidth,height);
   renderer.render(scene,leftCar.camera);
 
   setAimCrossForRender(rightCar);
+  positionSkyForCamera(rightCar.camera);
   renderer.setViewport(halfWidth,0,width-halfWidth,height);
   renderer.setScissor(halfWidth,0,width-halfWidth,height);
   renderer.render(scene,rightCar.camera);
@@ -11379,6 +11412,7 @@ function startGame(mode,difficulty="medium",savedStatus=null){
   missionScreenOpen=false;
   jetFogAmount=0;
   if(motorAudio.setSfxEnabled) motorAudio.setSfxEnabled(true);
+  if(motorAudio.resume) motorAudio.resume();
   motorAudio.setPaused(false);
   pauseMenu.setVisible(false);
   missionScreen.setVisible(false);

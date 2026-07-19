@@ -503,8 +503,10 @@ export function createMotorAudio(cars){
   }
 
   function resume(){
+    sfxEnabled=true;
     ensureContext();
     if(context && context.state==="suspended") context.resume();
+    applyVolumes();
     if(backgroundMusic.paused){
       playBackgroundMusic();
     }
