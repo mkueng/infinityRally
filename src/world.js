@@ -184,6 +184,9 @@ let radarOutpostBaseGeo=new THREE.CylinderGeometry(1,1.18,1,10);
 let radarOutpostMastGeo=new THREE.CylinderGeometry(0.18,0.28,1,10);
 let radarOutpostDishGeo=new THREE.SphereGeometry(1,24,12,0,Math.PI*2,0,Math.PI*0.55);
 let radarOutpostPanelGeo=new THREE.BoxGeometry(1,1,1);
+for(let geometry of [radarOutpostBaseGeo,radarOutpostMastGeo,radarOutpostDishGeo,radarOutpostPanelGeo]){
+  geometry.computeVertexNormals();
+}
 let turretBaseGeo=new THREE.CylinderGeometry(1,1.25,1,8);
 let turretHeadGeo=new THREE.BoxGeometry(1,1,1);
 let turretBarrelGeo=new THREE.CylinderGeometry(0.16,0.2,2.4,10);
@@ -197,6 +200,17 @@ let landingRingGeo=new THREE.RingGeometry(0.72,1,96);
 let turretBaseMat=new THREE.MeshStandardMaterial({color:0x312a3e,roughness:0.82,metalness:0.42});
 let turretHeadMat=new THREE.MeshStandardMaterial({color:0x554163,emissive:0x16091f,emissiveIntensity:0.22,roughness:0.72,metalness:0.48});
 let turretBarrelMat=new THREE.MeshStandardMaterial({color:0x151923,emissive:0x06162d,emissiveIntensity:0.32,roughness:0.56,metalness:0.7});
+let chunkSharedMaterials=new Set([
+  radarOutpostBaseMat,
+  radarOutpostDishMat,
+  radarOutpostGlowMat
+]);
+let chunkSharedGeometries=new Set([
+  radarOutpostBaseGeo,
+  radarOutpostMastGeo,
+  radarOutpostDishGeo,
+  radarOutpostPanelGeo
+]);
 
 function environmentColors(){
   return {...defaultEnvironment.colors,...(currentEnvironment.colors || {})};
@@ -512,6 +526,35 @@ function hideInstance(mesh,index){
   mesh.instanceMatrix.needsUpdate=true;
 }
 
+function disposeObjectResources(object,{disposeGeometry=false}={}){
+  if(!object || typeof object.traverse!=="function") return;
+
+  let disposedMaterials=new Set();
+  let disposedGeometries=new Set();
+  object.traverse(child=>{
+    if(disposeGeometry && child.geometry && !chunkSharedGeometries.has(child.geometry) && !disposedGeometries.has(child.geometry)){
+      child.geometry.dispose();
+      disposedGeometries.add(child.geometry);
+    }
+
+    if(!child.material) return;
+    let materials=Array.isArray(child.material) ? child.material : [child.material];
+    for(let material of materials){
+      if(!material || chunkSharedMaterials.has(material) || disposedMaterials.has(material)) continue;
+      if(typeof material.dispose==="function") material.dispose();
+      disposedMaterials.add(material);
+    }
+  });
+}
+
+function disposeRadarOutpostObject(object){
+  disposeObjectResources(object,{disposeGeometry:true});
+}
+
+function disposeLandingSpaceObject(object){
+  disposeObjectResources(object,{disposeGeometry:false});
+}
+
 function makeTurret(x,y,z,angle){
   let group=new THREE.Group();
   let base=new THREE.Mesh(turretBaseGeo,turretBaseMat);
@@ -654,10 +697,6 @@ function makeRadarOutpost(x,y,z,angle=0){
   add(new THREE.Mesh(radarOutpostMastGeo,radarOutpostBaseMat),0,0.13,7.55,0.18,5.4,0.18,Math.PI*0.5,0,0);
   add(new THREE.Mesh(radarOutpostPanelGeo,radarOutpostDishMat),0,0.18,4.92,0.64,0.22,0.5,0,0,0);
   add(new THREE.Mesh(radarOutpostPanelGeo,radarOutpostDishMat),0,0.18,10.12,0.48,0.18,0.42,0,0,0);
-
-  group.traverse(child=>{
-    if(child.isMesh && child.geometry) child.geometry.computeVertexNormals();
-  });
 
   group.userData.radarDishPivot=dishPivot;
   animatedRadarDishes.push(dishPivot);
@@ -1120,6 +1159,7 @@ function clearTestingRadarOutpost(){
   }
   if(object && object.parent) object.parent.remove(object);
   else if(object) scene.remove(object);
+  disposeRadarOutpostObject(object);
 
   testingRadarOutpost=null;
 }
@@ -2620,12 +2660,19 @@ function disposeChunk(chunk){
       if(ring.material) ring.material.dispose();
     }
   }
+  if(chunk.landingSpaces){
+    for(let landingSpace of chunk.landingSpaces){
+      disposeLandingSpaceObject(landingSpace);
+    }
+  }
   if(chunk.radarOutposts){
     for(let outpost of chunk.radarOutposts){
       let dishPivot=outpost && outpost.userData ? outpost.userData.radarDishPivot : null;
-      if(!dishPivot) continue;
-      let dishIndex=animatedRadarDishes.indexOf(dishPivot);
-      if(dishIndex>=0) animatedRadarDishes.splice(dishIndex,1);
+      if(dishPivot){
+        let dishIndex=animatedRadarDishes.indexOf(dishPivot);
+        if(dishIndex>=0) animatedRadarDishes.splice(dishIndex,1);
+      }
+      disposeRadarOutpostObject(outpost);
     }
   }
 }
