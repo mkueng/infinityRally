@@ -530,6 +530,7 @@ let tradingRocketAmount=50;
 let tradingBombAmount=1;
 let jetPurchaseBombAmount=10;
 let maxBoostCharge=100;
+let hoverBoostRechargeRate=maxBoostCharge/(30*60);
 let maxFuel=100;
 let carFuelDrainRate=0.003;
 let jetFuelDrainRate=carFuelDrainRate*2;
@@ -1237,6 +1238,7 @@ function createCarState(id,lateralOffset,controls,camera,gamepadIndex){
     clusterBombCooldown:0,
     clusterBombAmmo:initialClusterBombAmmo,
     boostCharge:maxBoostCharge,
+    hoverInputActive:false,
     fuel:maxFuel,
     hitRattle:0,
     hitRattleSeed:0,
@@ -7401,7 +7403,9 @@ function updateMorphInput(car){
 function updateFlightThrust(car,surfaceY){
   let buttons=input.getGamepadFaceButtons(car.gamepadIndex);
   let keyboardFlight=gameMode==="single" && car===playerCar && input.keys[" "];
-  if(!(buttons.x || keyboardFlight) || gameOver || car.health<=0) return false;
+  let hoverInput=buttons.leftStick || keyboardFlight;
+  car.hoverInputActive=hoverInput;
+  if(!hoverInput || gameOver || car.health<=0) return false;
   if((car.fuel ?? maxFuel)<=0.001) return false;
   if(car.morphed || car.morphProgress>0.35) return false;
   if(car.boostCharge<=0) return false;
@@ -7417,6 +7421,13 @@ function updateFlightThrust(car,surfaceY){
   car.vy=clamp(car.vy+altitudeLift,-0.08,0.62);
   car.onGround=false;
   return true;
+}
+
+function rechargeHoverBoost(car){
+  if(gameOver || car.health<=0 || car.hoverInputActive) return;
+  if(!Number.isFinite(car.boostCharge)) car.boostCharge=maxBoostCharge;
+  if(car.boostCharge>=maxBoostCharge) return;
+  car.boostCharge=Math.min(maxBoostCharge,car.boostCharge+hoverBoostRechargeRate);
 }
 
 function updateFuelForCar(car,jetHovering){
@@ -9970,8 +9981,14 @@ function updateCar(car){
     car.landingReleaseFrames--;
   }
 
-  let flying=car.jetAutoLandToRobot ? false : updateFlightThrust(car,surfaceY);
+  let flying=false;
+  if(car.jetAutoLandToRobot){
+    car.hoverInputActive=false;
+  }else{
+    flying=updateFlightThrust(car,surfaceY);
+  }
   if(flying) emitFlightExhaust(car);
+  rechargeHoverBoost(car);
   let jetHovering=car.jetMode || car.jetProgress>0.65;
   let autoLanding=jetHovering && landingSurface && car.jetProgress>0.82 && !(car.landingReleaseFrames>0);
   let fuelAutoLanding=jetHovering && fuelEmpty && !autoLanding;
@@ -11488,6 +11505,7 @@ function placeCarOnOpenField(car,startInfo){
   car.clusterBombCooldown=0;
   car.clusterBombAmmo=initialClusterBombAmmo;
   car.boostCharge=maxBoostCharge;
+  car.hoverInputActive=false;
   car.fuel=maxFuel;
   car.hitRattle=0;
   car.hitRattleSeed=0;
