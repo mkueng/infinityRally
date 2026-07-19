@@ -816,14 +816,15 @@ function tradingOutpostSurfaceHeightAt(x,z,margin=0){
 }
 
 function drivingSurfaceHeight(x,z,outpostMargin=0){
-  let surfaceY=carSurfaceHeight(x,z);
+  let terrainY=carSurfaceHeight(x,z);
+  let surfaceY=terrainY;
   let holeSurfaceY=world && world.holeSurfaceHeightAt ? world.holeSurfaceHeightAt(x,z) : null;
   if(Number.isFinite(holeSurfaceY)) surfaceY=Math.min(surfaceY,holeSurfaceY);
   let landingSurfaceY=world && world.landingSurfaceHeightAt ? world.landingSurfaceHeightAt(x,z,true) : null;
   if(Number.isFinite(landingSurfaceY)) surfaceY=Math.max(surfaceY,landingSurfaceY);
   let tradingOutpostSurfaceY=tradingOutpostSurfaceHeightAt(x,z,outpostMargin);
   if(Number.isFinite(tradingOutpostSurfaceY)) surfaceY=tradingOutpostSurfaceY;
-  return waterDepthAt(x,z)>0.15 ? Math.max(surfaceY,waterLevel-0.34) : surfaceY;
+  return waterLevel-terrainY>0.15 ? Math.max(surfaceY,waterLevel-0.34) : surfaceY;
 }
 
 function surfaceHeightForActor(actor,x,z){
