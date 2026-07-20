@@ -737,6 +737,51 @@
       color: #1c211f;
     }
 
+    .asset-loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      min-height: 30px;
+      max-height: 30px;
+      margin: -12px 0 16px;
+      overflow: hidden;
+      color: rgba(232,248,255,0.84);
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+      transition: opacity 180ms ease, transform 180ms ease, max-height 180ms ease, min-height 180ms ease, margin 180ms ease;
+    }
+
+    .asset-loading::before {
+      content: "";
+      width: 18px;
+      height: 18px;
+      border: 2px solid rgba(141,255,242,0.22);
+      border-top-color: #67f4ff;
+      border-right-color: #d6b25a;
+      border-radius: 50%;
+      box-shadow: 0 0 12px rgba(103,244,255,0.24);
+      animation: assetSpinner 760ms linear infinite;
+    }
+
+    .start-screen.is-ready .asset-loading {
+      min-height: 0;
+      max-height: 0;
+      margin: 0;
+      opacity: 0;
+      transform: translateY(-4px);
+      pointer-events: none;
+    }
+
+    @keyframes assetSpinner {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
     .start-actions button {
       height: 52px;
       border: 0;
@@ -936,6 +981,7 @@
   </div>
   <div class="start-panel">
     <h1 class="start-title">SEED</h1>
+    <div class="asset-loading" data-loading-status>Loading assets</div>
     <div class="difficulty-actions" aria-label="Difficulty">
       <button type="button" data-difficulty="easy">Easy</button>
       <button type="button" data-difficulty="medium" class="is-selected">Not so easy</button>
@@ -944,8 +990,8 @@
     <div class="start-actions">
       <button type="button" data-load-game disabled>Load Last Game</button>
       <div class="saved-game-date" data-load-game-date></div>
-      <button type="button" data-mode="single">Single Player</button>
-      <button type="button" data-mode="double">Double Player</button>
+      <button type="button" data-mode="single" disabled>Single Player</button>
+      <button type="button" data-mode="double" disabled>Double Player</button>
     </div>
     <div class="start-credits" aria-label="Credits">
       <div>design: Noa Kueng-Dinally</div>
@@ -1102,6 +1148,25 @@
     }
   }
 </script>
-<script type="module" src="./src/main.js?v=minimap-terrain-sync"></script>
+<script type="module" src="./src/main.js?v=longer-jet-visual"></script>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js";
+  import { getAnalytics, isSupported } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-analytics.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyB0PUx2k81-UEylsy0CBBdJGVpAVWOdhWc",
+    authDomain: "seed-1160f.firebaseapp.com",
+    projectId: "seed-1160f",
+    storageBucket: "seed-1160f.firebasestorage.app",
+    messagingSenderId: "259795934499",
+    appId: "1:259795934499:web:a525e4958e2cc1272c0096",
+    measurementId: "G-QZTC8RFGM9"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  isSupported().then(supported => {
+    if(supported) getAnalytics(app);
+  }).catch(() => {});
+</script>
 </body>
 </html>

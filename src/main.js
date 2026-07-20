@@ -512,8 +512,10 @@ let currentGameFromSave=false;
 let jetUnlocked=false;
 let initialUnits=500;
 let testingScannerAvailableFromStart=false;
-let jetAvailableFromStart=true;
+let jetAvailableFromStart=false;
 let testingLaserAvailableFromStart=false;
+let testingRocketBuggiesAtStart=true;
+let testingRocketBuggyStartCount=5;
 let units=initialUnits;
 let lastBuildingExplosionSoundAt=0;
 let buildingExplosionSoundCooldownMs=80;
@@ -747,6 +749,10 @@ let droneCoreMat=new THREE.MeshBasicMaterial({color:0x9fd8ff,transparent:true,op
 let boatHullMat=new THREE.MeshStandardMaterial({color:0x1a2630,emissive:0x06121a,emissiveIntensity:0.28,roughness:0.58,metalness:0.62});
 let boatDeckMat=new THREE.MeshStandardMaterial({color:0x4f6172,emissive:0x101820,emissiveIntensity:0.16,roughness:0.52,metalness:0.58});
 let boatMissileMat=new THREE.MeshStandardMaterial({color:0x7f2f25,emissive:0x2f0703,emissiveIntensity:0.42,roughness:0.4,metalness:0.5});
+let buggyHullMat=new THREE.MeshStandardMaterial({color:0x26302b,emissive:0x07110d,emissiveIntensity:0.24,roughness:0.68,metalness:0.48});
+let buggyArmorMat=new THREE.MeshStandardMaterial({color:0x5d5142,emissive:0x120d08,emissiveIntensity:0.18,roughness:0.58,metalness:0.62});
+let buggyWheelMat=new THREE.MeshStandardMaterial({color:0x101315,roughness:0.86,metalness:0.12});
+let buggyLauncherMat=new THREE.MeshStandardMaterial({color:0x7f2f25,emissive:0x2f0703,emissiveIntensity:0.48,roughness:0.42,metalness:0.58});
 let spiderBodyMat=new THREE.MeshStandardMaterial({color:0x151821,emissive:0x220912,emissiveIntensity:0.38,roughness:0.76,metalness:0.52});
 let spiderLegMat=new THREE.MeshStandardMaterial({color:0x3a2334,emissive:0x120512,emissiveIntensity:0.26,roughness:0.68,metalness:0.48});
 let mothershipHullMat=new THREE.MeshStandardMaterial({color:0x211c32,emissive:0x09051a,emissiveIntensity:0.42,roughness:0.72,metalness:0.58});
@@ -2327,14 +2333,54 @@ function readSavedGameStatus(){
   }
 }
 
+let startupAssetsReady=false;
+let startupAssetSettled=0;
+let startupAssetTotal=0;
+
+function updateStartupLoadingState(){
+  let screen=document.getElementById("startScreen");
+  if(!screen) return;
+
+  screen.classList.toggle("is-loading",!startupAssetsReady);
+  screen.classList.toggle("is-ready",startupAssetsReady);
+
+  let status=screen.querySelector("[data-loading-status]");
+  if(status){
+    status.textContent=startupAssetsReady
+      ? "Ready"
+      : startupAssetTotal>0
+        ? `Loading assets ${startupAssetSettled}/${startupAssetTotal}`
+        : "Loading assets";
+  }
+
+  for(let button of screen.querySelectorAll("[data-mode]")){
+    button.disabled=!startupAssetsReady;
+  }
+}
+
+function trackStartupAsset(promise){
+  startupAssetTotal++;
+  updateStartupLoadingState();
+  return promise.finally(()=>{
+    startupAssetSettled++;
+    updateStartupLoadingState();
+  });
+}
+
+function finishStartupAssetLoading(){
+  startupAssetsReady=true;
+  updateStartupLoadingState();
+  updateLoadGameButton();
+}
+
 function updateLoadGameButton(){
   let button=document.querySelector("[data-load-game]");
   let dateEl=document.querySelector("[data-load-game-date]");
   if(!button) return;
 
   let status=readSavedGameStatus();
-  button.disabled=!status;
-  button.textContent=status ? "Load Last Game" : "No Saved Game";
+  button.disabled=!startupAssetsReady || !status;
+  button.textContent=!startupAssetsReady ? "Loading Assets" : status ? "Load Last Game" : "No Saved Game";
   if(dateEl){
     let savedAtText=status ? (status.savedAtText || formatSavedGameDate(status.savedAt)) : "";
     dateEl.textContent=savedAtText ? `Saved ${savedAtText}` : "";
@@ -5258,6 +5304,99 @@ function fireBoatMissile(boat,target){
   return true;
 }
 
+function buggyRocketLaunchPoint(buggy){
+  let launcher=buggy.buggyModel && buggy.buggyModel.userData ? buggy.buggyModel.userData.launcher : null;
+  if(launcher){
+    buggy.group.updateMatrixWorld(true);
+    launcher.updateWorldMatrix(true,false);
+    let side=buggy.rocketLauncherSide || 1;
+    buggy.rocketLauncherSide=-side;
+    return launcher.localToWorld(new THREE.Vector3(side*0.34,0,1.74));
+  }
+
+  let forwardX=Math.sin(buggy.angle);
+  let forwardZ=Math.cos(buggy.angle);
+  let rightX=Math.cos(buggy.angle);
+  let rightZ=-Math.sin(buggy.angle);
+  return new THREE.Vector3(
+    buggy.x+forwardX*1.6+rightX*(buggy.rocketLauncherSide || 1)*0.36,
+    buggy.y+3.72,
+    buggy.z+forwardZ*1.6+rightZ*(buggy.rocketLauncherSide || 1)*0.36
+  );
+}
+
+function fireEnemyBuggyRocket(buggy,target){
+  if(gameOver || !buggy || !target || buggy.health<=0 || buggy.cannonCooldown>0) return false;
+  if(playerInvisibleToEnemies(target)) return false;
+
+  let start=buggyRocketLaunchPoint(buggy);
+  let targetSpeed=Number.isFinite(target.speed) ? target.speed : 0;
+  let leadFrames=clamp(Math.hypot(target.x-start.x,target.z-start.z)/2.1,24,72);
+  let targetX=target.x+Math.sin(target.velAngle || target.angle || 0)*targetSpeed*leadFrames;
+  let targetZ=target.z+Math.cos(target.velAngle || target.angle || 0)*targetSpeed*leadFrames;
+  let targetY=Math.max(target.y+1.4,drivingSurfaceHeight(targetX,targetZ)+1.2);
+  let dx=targetX-start.x;
+  let dz=targetZ-start.z;
+  let distance=Math.max(1,Math.hypot(dx,dz));
+  let flightTime=clamp(distance/1.62,84,180);
+  let gravity=0.016;
+  let vx=dx/flightTime;
+  let vz=dz/flightTime;
+  let vy=(targetY-start.y+0.5*gravity*flightTime*flightTime)/flightTime;
+  let mesh=makeRocketMesh();
+
+  mesh.scale.setScalar(1.16);
+  mesh.position.copy(start);
+  scene.add(mesh);
+
+  let angle=Math.atan2(vx,vz);
+  mesh.rotation.y=angle;
+  mesh.rotation.x=-Math.atan2(vy,Math.max(0.001,Math.hypot(vx,vz)));
+
+  rockets.push({
+    owner:buggy,
+    mesh,
+    x:start.x,
+    y:start.y,
+    z:start.z,
+    angle,
+    targetX,
+    targetY,
+    targetZ,
+    vx,
+    vy,
+    vz,
+    age:0,
+    life:Math.ceil(flightTime)+42,
+    impactAge:Math.ceil(flightTime),
+    ballistic:true,
+    gravity,
+    longRange:true,
+    trailEvery:1,
+    trailScale:1.24,
+    damage:20,
+    blastRadius:19
+  });
+
+  let aimLen=Math.max(0.001,Math.hypot(vx,vy,vz));
+  for(let i=0;i<10;i++){
+    dust.spawnThrusterParticle(
+      start.x,
+      start.y,
+      start.z,
+      -(vx/aimLen)*(2.1+Math.random()*2.2)+(Math.random()-0.5)*1.0,
+      -(vz/aimLen)*(2.1+Math.random()*2.2)+(Math.random()-0.5)*1.0,
+      -(vy/aimLen)*(1.0+Math.random()*1.4)+(Math.random()-0.5)*0.7,
+      0.2+Math.random()*0.1,
+      0.08+Math.random()*0.05
+    );
+  }
+
+  if(motorAudio.playRocketLaunch) motorAudio.playRocketLaunch(buggy);
+  buggy.cannonCooldown=scaledDelay(138+Math.floor(Math.random()*84),currentDifficulty().fireDelay);
+  return true;
+}
+
 function rattleCar(car,amount=1){
   car.hitRattle=Math.max(car.hitRattle,amount);
   car.hitRattleSeed=Math.random()*Math.PI*2;
@@ -6475,6 +6614,69 @@ function enemyBoatSpawnPoint(index){
   return null;
 }
 
+function testingRocketBuggyStartPoint(index,total){
+  let center={x:playerCar.x,z:playerCar.z};
+  let baseAngle=playerCar && Number.isFinite(playerCar.angle) ? playerCar.angle : 0;
+  let spread=(index-(total-1)*0.5)*0.34;
+  let relaxedFallback=null;
+
+  for(let attempt=0;attempt<42;attempt++){
+    let ring=Math.floor(attempt/total);
+    let angle=baseAngle+spread+(Math.random()-0.5)*0.16+ring*0.18;
+    let distance=72+index*12+ring*18+Math.random()*10;
+    let x=center.x+Math.sin(angle)*distance;
+    let z=center.z+Math.cos(angle)*distance;
+    let h=drivingSurfaceHeight(x,z);
+    let dry=waterDepthAt(x,z)<1.4;
+    let clear=!world.collidesWithObstacles(x,z);
+
+    if(
+      Number.isFinite(h)
+      && playerSpawnDistanceSq(x,z)>58*58
+      && dry
+      && clear
+      && roadDistance(x,z)>10
+    ){
+      return {x,z};
+    }
+
+    if(!relaxedFallback && Number.isFinite(h) && playerSpawnDistanceSq(x,z)>52*52 && dry && clear){
+      relaxedFallback={x,z};
+    }
+  }
+
+  if(relaxedFallback) return relaxedFallback;
+
+  let angle=baseAngle+spread;
+  let distance=86+index*10;
+  return {
+    x:center.x+Math.sin(angle)*distance,
+    z:center.z+Math.cos(angle)*distance
+  };
+}
+
+function spawnTestingRocketBuggiesAtStart(){
+  if(!testingRocketBuggiesAtStart) return;
+
+  let count=Math.max(1,Math.floor(testingRocketBuggyStartCount || 1));
+  for(let i=0;i<count;i++){
+    let point=testingRocketBuggyStartPoint(i,count);
+    if(!point) continue;
+
+    let enemy=createEnemyState(++enemySpawnSerial,point.x,point.z,"buggy");
+    enemy.isPatrol=true;
+    enemy.guardPhase=Math.random()*Math.PI*2;
+    enemy.angle=Math.atan2(playerCar.x-enemy.x,playerCar.z-enemy.z)+(Math.random()-0.5)*0.28;
+    enemy.velAngle=enemy.angle;
+    enemy.cannonCooldown=scaledDelay(34+i*18,currentDifficulty().fireDelay);
+    enemy.group.position.set(enemy.x,enemy.y,enemy.z);
+    enemy.group.rotation.y=enemy.angle;
+    if(enemy.shadow) enemy.shadow.update({carX:enemy.x,carZ:enemy.z,carY:enemy.y,surfaceY:enemy.y,carVelAngle:enemy.angle});
+    enemies.push(enemy);
+    enemy.group.scale.setScalar(1);
+  }
+}
+
 function spawnEnemyWave(){
   let village=enemySpawnVillage();
   if(!village) return false;
@@ -6495,6 +6697,8 @@ function spawnEnemyWave(){
       type="giant";
     }else if(Math.random()<(village.bossVillage ? 0.38 : 0.22)){
       type="drone";
+    }else if(Math.random()<(village.bossVillage ? 0.28 : 0.18)){
+      type="buggy";
     }
     let enemy=createEnemyState(++enemySpawnSerial,point.x,point.z,type);
     enemy.spawnVillage=village;
@@ -6521,7 +6725,7 @@ function spawnEnemyPatrol(){
     let point=boatPoint || enemyPatrolSpawnPoint(i);
     if(!point) return false;
     let roll=Math.random();
-    let type=boatPoint ? "boat" : roll<0.08 ? "giant" : roll<0.48 ? "drone" : "mech";
+    let type=boatPoint ? "boat" : roll<0.08 ? "giant" : roll<0.34 ? "buggy" : roll<0.58 ? "drone" : "mech";
     let enemy=createEnemyState(++enemySpawnSerial,point.x,point.z,type);
     enemy.isPatrol=true;
     enemy.angle=boatPoint ? Math.random()*Math.PI*2 : roadYawAt(point.z)+Math.PI+(Math.random()-0.5)*1.4;
@@ -7057,7 +7261,26 @@ function updateEnemy(enemy){
   let desiredAngle=targetAngle;
   let desiredSpeed;
 
-  if(enemy.isSpider){
+  if(enemy.isBuggy){
+    let minDistance=68;
+    let preferredDistance=118;
+    let farDistance=176;
+    if(distance<minDistance){
+      let escapeStrength=clamp((minDistance-distance)/minDistance,0,1);
+      desiredAngle=targetAngle+Math.PI+enemy.aiStrafe*(0.28+escapeStrength*0.46);
+      desiredSpeed=0.22+escapeStrength*0.18;
+    }else if(distance>farDistance){
+      desiredAngle=targetAngle+enemy.aiStrafe*0.16;
+      desiredSpeed=0.48;
+    }else{
+      let orbit=0.34+Math.sin(performance.now()*0.0014+enemy.guardPhase)*0.12;
+      desiredAngle=targetAngle+enemy.aiStrafe*orbit;
+      desiredSpeed=distance>preferredDistance ? 0.32 : 0.16;
+    }
+    if(distance>78 && distance<186 && enemy.cannonCooldown<20){
+      desiredAngle=targetAngle+enemy.aiStrafe*0.08;
+    }
+  }else if(enemy.isSpider){
     if(distance<22){
       desiredAngle+=enemy.aiStrafe*clamp((22-distance)/18,0,1)*0.42;
     }
@@ -7122,13 +7345,13 @@ function updateEnemy(enemy){
     desiredSpeed=distance>58 ? 0.38 : distance>30 ? 0.18 : -0.08;
   }
 
-  let turnLimit=enemy.isGiant ? 0.026 : enemy.isDrone || enemy.isSpider ? 0.075 : 0.045;
+  let turnLimit=enemy.isGiant ? 0.026 : enemy.isBuggy ? 0.055 : enemy.isDrone || enemy.isSpider ? 0.075 : 0.045;
   let turn=clamp(normalizeAngle(desiredAngle-enemy.angle),-turnLimit,turnLimit);
   enemy.angle=normalizeAngle(enemy.angle+turn);
 
   desiredSpeed*=settings.speed;
   enemy.speed+=clamp(desiredSpeed-enemy.speed,-0.012*settings.speed,0.012*settings.speed);
-  let maxEnemySpeed=(enemy.isSpider ? 0.32 : enemy.isDrone ? 0.48 : enemy.isGiant ? 0.22 : enemy.isGuard ? 0.32 : enemy.isBoss ? 0.15 : enemy.spawnVillage && !enemy.isPatrol ? 0.18 : 0.42)*settings.speed;
+  let maxEnemySpeed=(enemy.isSpider ? 0.32 : enemy.isDrone ? 0.48 : enemy.isBuggy ? 0.56 : enemy.isGiant ? 0.22 : enemy.isGuard ? 0.32 : enemy.isBoss ? 0.15 : enemy.spawnVillage && !enemy.isPatrol ? 0.18 : 0.42)*settings.speed;
   enemy.speed=clamp(enemy.speed,-0.14*settings.speed,maxEnemySpeed);
 
   let prevX=enemy.x;
@@ -7164,7 +7387,7 @@ function updateEnemy(enemy){
     if(enemy.droneModel && enemy.droneModel.userData.core){
       enemy.droneModel.userData.core.scale.setScalar(1+Math.sin(performance.now()*0.025+enemy.guardPhase)*0.12);
     }
-  }else if(settings.hardFlight && enemy.flightTimer>0){
+  }else if(settings.hardFlight && !enemy.isBuggy && enemy.flightTimer>0){
     enemy.flightTimer--;
     let flightOffset=enemy.isPatrol ? 24 : 12;
     let targetY=surfaceY+flightOffset+Math.sin(performance.now()*0.0018+enemy.guardPhase)*3.5;
@@ -7172,8 +7395,8 @@ function updateEnemy(enemy){
     enemy.onGround=false;
     enemy.airborne=true;
   }else{
-    if(settings.hardFlight && enemy.flightCooldown>0) enemy.flightCooldown--;
-    if(settings.hardFlight && enemy.flightCooldown<=0 && distance>34 && Math.random()<0.018){
+    if(settings.hardFlight && !enemy.isBuggy && enemy.flightCooldown>0) enemy.flightCooldown--;
+    if(settings.hardFlight && !enemy.isBuggy && enemy.flightCooldown<=0 && distance>34 && Math.random()<0.018){
       enemy.flightTimer=150+Math.floor(Math.random()*130);
       enemy.flightCooldown=260+Math.floor(Math.random()*220);
     }
@@ -7198,12 +7421,23 @@ function updateEnemy(enemy){
       enemy.spiderModel.userData.core.scale.setScalar(1+Math.sin(t*1.8)*0.1);
     }
   }
+  if(enemy.buggyModel && enemy.buggyModel.userData){
+    let wheelSpin=Math.max(-0.22,Math.min(0.72,enemy.speed))*0.44;
+    for(let wheel of enemy.buggyModel.userData.wheels || []){
+      wheel.pivot.rotation.x+=wheelSpin;
+    }
+    if(enemy.buggyModel.userData.launcher){
+      let localAim=clamp(normalizeAngle(targetAngle-enemy.angle),-0.64,0.64);
+      enemy.buggyModel.userData.launcher.rotation.y+=(localAim-enemy.buggyModel.userData.launcher.rotation.y)*0.16;
+      enemy.buggyModel.userData.launcher.rotation.x=-0.08-Math.min(0.24,Math.max(0,(distance-70)/360));
+    }
+  }
 
-  let fireRange=enemy.isDrone ? 118 : enemy.isGiant ? 132 : enemy.isGuard ? 96 : enemy.isBoss ? 112 : 82;
-  let fireArc=enemy.isDrone ? 0.82 : enemy.isGiant ? 0.58 : enemy.isGuard ? 0.62 : enemy.isBoss ? 0.68 : 0.52;
+  let fireRange=enemy.isBuggy ? 190 : enemy.isDrone ? 118 : enemy.isGiant ? 132 : enemy.isGuard ? 96 : enemy.isBoss ? 112 : 82;
+  let fireArc=enemy.isBuggy ? 0.76 : enemy.isDrone ? 0.82 : enemy.isGiant ? 0.58 : enemy.isGuard ? 0.62 : enemy.isBoss ? 0.68 : 0.52;
   if(!enemy.isSpider && distance<fireRange && Math.abs(normalizeAngle(targetAngle-enemy.angle))<fireArc){
-    if(fireCannon(enemy)){
-      let baseDelay=enemy.isDrone ? 54+Math.floor(Math.random()*42) : enemy.isGiant ? 92+Math.floor(Math.random()*46) : enemy.isGuard ? 64+Math.floor(Math.random()*36) : enemy.isBoss ? 44+Math.floor(Math.random()*36) : 78+Math.floor(Math.random()*58);
+    if(enemy.isBuggy ? (distance>58 && fireEnemyBuggyRocket(enemy,target)) : fireCannon(enemy)){
+      let baseDelay=enemy.isBuggy ? 138+Math.floor(Math.random()*84) : enemy.isDrone ? 54+Math.floor(Math.random()*42) : enemy.isGiant ? 92+Math.floor(Math.random()*46) : enemy.isGuard ? 64+Math.floor(Math.random()*36) : enemy.isBoss ? 44+Math.floor(Math.random()*36) : 78+Math.floor(Math.random()*58);
       enemy.cannonCooldown=scaledDelay(baseDelay,settings.fireDelay);
     }
   }
@@ -8652,6 +8886,150 @@ function makeRobotBoatModel(seed=0){
   return boat;
 }
 
+function makeEnemyBuggyModel(seed=0){
+  let buggy=new THREE.Group();
+  let variant=Math.abs(Math.sin(seed*31.4159)*43758.5453)%1;
+
+  function addPart(mesh){
+    mesh.castShadow=true;
+    mesh.receiveShadow=true;
+    buggy.add(mesh);
+    return mesh;
+  }
+
+  let chassis=new THREE.Mesh(new THREE.BoxGeometry(5.45,0.86,7.15),buggyHullMat.clone());
+  chassis.position.y=1.02;
+  chassis.scale.x=0.96+variant*0.12;
+  addPart(chassis);
+
+  let skidPlate=new THREE.Mesh(new THREE.BoxGeometry(4.75,0.24,6.9),enemyTrimMat.clone());
+  skidPlate.position.set(0,0.64,0.02);
+  skidPlate.rotation.x=0.02;
+  addPart(skidPlate);
+
+  let nose=new THREE.Mesh(new THREE.BoxGeometry(4.35,0.74,2.85),buggyArmorMat.clone());
+  nose.position.set(0,1.44,2.12);
+  nose.rotation.x=-0.12;
+  addPart(nose);
+
+  let cabin=new THREE.Mesh(new THREE.BoxGeometry(2.65,1.18,2.05),buggyArmorMat.clone());
+  cabin.position.set(0,2.12,-0.45);
+  cabin.rotation.x=0.07;
+  addPart(cabin);
+
+  let windshield=new THREE.Mesh(new THREE.BoxGeometry(1.86,0.5,0.08),enemyEyeMat.clone());
+  windshield.position.set(0,2.34,0.64);
+  windshield.rotation.x=-0.2;
+  addPart(windshield);
+
+  let launcherBase=new THREE.Mesh(new THREE.CylinderGeometry(0.68,0.84,0.42,14),buggyLauncherMat.clone());
+  launcherBase.position.set(0,2.98,-1.08);
+  addPart(launcherBase);
+
+  let launcher=new THREE.Group();
+  launcher.name="buggy-roof-rocket-launcher";
+  launcher.position.set(0,3.3,-1.08);
+  buggy.add(launcher);
+
+  for(let side of [-1,1]){
+    let tube=new THREE.Mesh(new THREE.CylinderGeometry(0.24,0.28,2.55,12),rocketBodyMat);
+    tube.position.set(side*0.45,0,0.58);
+    tube.rotation.x=Math.PI*0.5-0.12;
+    tube.castShadow=true;
+    tube.receiveShadow=true;
+    launcher.add(tube);
+
+    let cap=new THREE.Mesh(new THREE.ConeGeometry(0.29,0.44,12),rocketNoseMat);
+    cap.position.set(side*0.45,0,1.9);
+    cap.rotation.x=Math.PI*0.5;
+    launcher.add(cap);
+  }
+
+  let rack=new THREE.Mesh(new THREE.BoxGeometry(1.48,0.28,1.88),buggyLauncherMat.clone());
+  rack.position.set(0,-0.12,0.6);
+  rack.castShadow=true;
+  rack.receiveShadow=true;
+  launcher.add(rack);
+
+  let wheels=[];
+  for(let side of [-1,1]){
+    for(let z of [-2.68,2.48]){
+      let wheelPivot=new THREE.Group();
+      wheelPivot.position.set(side*2.85,0.78,z);
+      buggy.add(wheelPivot);
+
+      let wheel=new THREE.Mesh(new THREE.CylinderGeometry(1.02,1.02,0.72,20),buggyWheelMat.clone());
+      wheel.rotation.z=Math.PI*0.5;
+      wheel.castShadow=true;
+      wheel.receiveShadow=true;
+      wheelPivot.add(wheel);
+      wheels.push({pivot:wheelPivot,side,z});
+
+      let tireRing=new THREE.Mesh(new THREE.TorusGeometry(1.04,0.09,8,22),enemyTrimMat.clone());
+      tireRing.rotation.y=Math.PI*0.5;
+      tireRing.castShadow=true;
+      tireRing.receiveShadow=true;
+      wheelPivot.add(tireRing);
+
+      let hub=new THREE.Mesh(new THREE.CylinderGeometry(0.4,0.4,0.78,12),enemyTrimMat.clone());
+      hub.rotation.z=Math.PI*0.5;
+      hub.castShadow=true;
+      hub.receiveShadow=true;
+      wheelPivot.add(hub);
+    }
+
+    let fender=new THREE.Mesh(new THREE.BoxGeometry(0.58,0.34,6.1),buggyArmorMat.clone());
+    fender.position.set(side*2.45,1.56,-0.1);
+    fender.rotation.z=side*0.1;
+    addPart(fender);
+
+    let nerfBar=new THREE.Mesh(new THREE.CylinderGeometry(0.08,0.08,6.4,8),enemyTrimMat.clone());
+    nerfBar.position.set(side*2.92,1.38,-0.08);
+    nerfBar.rotation.x=Math.PI*0.5;
+    nerfBar.rotation.z=side*0.03;
+    addPart(nerfBar);
+  }
+
+  let rollCage=new THREE.Group();
+  rollCage.position.set(0,2.68,-0.46);
+  buggy.add(rollCage);
+  for(let side of [-1,1]){
+    let upright=new THREE.Mesh(new THREE.CylinderGeometry(0.07,0.07,1.42,8),enemyTrimMat.clone());
+    upright.position.set(side*1.32,-0.08,-0.76);
+    upright.rotation.z=side*0.14;
+    upright.castShadow=true;
+    upright.receiveShadow=true;
+    rollCage.add(upright);
+
+    let frontPost=new THREE.Mesh(new THREE.CylinderGeometry(0.065,0.065,1.32,8),enemyTrimMat.clone());
+    frontPost.position.set(side*1.08,-0.22,0.54);
+    frontPost.rotation.x=-0.18;
+    frontPost.rotation.z=side*0.1;
+    frontPost.castShadow=true;
+    frontPost.receiveShadow=true;
+    rollCage.add(frontPost);
+  }
+  let roofBar=new THREE.Mesh(new THREE.BoxGeometry(2.9,0.1,1.55),enemyTrimMat.clone());
+  roofBar.position.set(0,0.62,-0.12);
+  roofBar.castShadow=true;
+  roofBar.receiveShadow=true;
+  rollCage.add(roofBar);
+
+  let bumper=new THREE.Mesh(new THREE.BoxGeometry(5.2,0.42,0.46),enemyTrimMat.clone());
+  bumper.position.set(0,1.18,3.82);
+  addPart(bumper);
+
+  for(let side of [-1,1]){
+    let light=new THREE.Mesh(new THREE.SphereGeometry(0.18,12,8),droneCoreMat.clone());
+    light.position.set(side*1.1,1.42,3.62);
+    buggy.add(light);
+  }
+
+  buggy.userData.wheels=wheels;
+  buggy.userData.launcher=launcher;
+  return buggy;
+}
+
 function addMothershipHoverHaze(ship,bounds=null){
   let box=bounds && !bounds.isEmpty() ? bounds.clone() : new THREE.Box3().setFromObject(ship);
   let size=box.getSize(new THREE.Vector3());
@@ -8825,10 +9203,12 @@ function createEnemyState(index,x,z,type="mech"){
   let isGuard=type==="guard";
   let isGiant=type==="giant";
   let isBoat=type==="boat";
-  let mech=(isDrone || isSpider || isBoat) ? null : isGuard ? makeGuardRobotModel(index) : makeEnemyMechModel(index,type);
+  let isBuggy=type==="buggy";
+  let mech=(isDrone || isSpider || isBoat || isBuggy) ? null : isGuard ? makeGuardRobotModel(index) : makeEnemyMechModel(index,type);
   let drone=isDrone ? makeDroneModel(index) : null;
   let spider=isSpider ? makeSpiderModel(index) : null;
   let boat=isBoat ? makeRobotBoatModel(index) : null;
+  let buggy=isBuggy ? makeEnemyBuggyModel(index) : null;
   if(mech){
     if(isBoss) mech.scale.multiplyScalar(1.55);
     if(isGiant) mech.scale.multiplyScalar(2.2);
@@ -8837,12 +9217,13 @@ function createEnemyState(index,x,z,type="mech"){
   if(drone) group.add(drone);
   if(spider) group.add(spider);
   if(boat) group.add(boat);
-  let collisionRadius=isGiant ? 7.9 : isBoss ? 5.8 : isBoat ? 5.6 : isGuard ? 3.15 : isSpider ? 3.2 : isDrone ? 2.9 : 2.35;
-  let aimRadius=isGiant ? 10.5 : isBoss ? 9.5 : isBoat ? 7.5 : isSpider ? 4.8 : isDrone ? 4.2 : isGuard ? 5.0 : 4.5;
-  let hitHeight=isGiant ? 12.5 : isBoss ? 8.5 : isBoat ? 4.6 : isDrone ? 5.2 : isSpider ? 3.6 : 5.2;
-  let baseHealth=isGiant ? 420 : isBoss ? 260 : isGuard ? 82 : isBoat ? 72 : isDrone ? 34 : isSpider ? 24 : 36;
+  if(buggy) group.add(buggy);
+  let collisionRadius=isGiant ? 7.9 : isBoss ? 5.8 : isBoat ? 5.6 : isBuggy ? 4.8 : isGuard ? 3.15 : isSpider ? 3.2 : isDrone ? 2.9 : 2.35;
+  let aimRadius=isGiant ? 10.5 : isBoss ? 9.5 : isBoat ? 7.5 : isBuggy ? 7.2 : isSpider ? 4.8 : isDrone ? 4.2 : isGuard ? 5.0 : 4.5;
+  let hitHeight=isGiant ? 12.5 : isBoss ? 8.5 : isBoat ? 4.6 : isBuggy ? 4.8 : isDrone ? 5.2 : isSpider ? 3.6 : 5.2;
+  let baseHealth=isGiant ? 420 : isBoss ? 260 : isGuard ? 82 : isBoat ? 72 : isBuggy ? 92 : isDrone ? 34 : isSpider ? 24 : 36;
   let startY=isBoat ? waterLevel+0.56 : drivingSurfaceHeight(x,z)+(isDrone ? 20 : 0);
-  let walkMaxSpeed=isGiant ? 0.24 : isBoss ? 0.2 : isGuard ? 0.32 : 0.4;
+  let walkMaxSpeed=isGiant ? 0.24 : isBoss ? 0.2 : isGuard ? 0.32 : isBuggy ? 0.54 : 0.4;
 
   return {
     id:`enemy-${index}`,
@@ -8854,6 +9235,7 @@ function createEnemyState(index,x,z,type="mech"){
     isBoss,
     isGiant,
     isBoat,
+    isBuggy,
     blocksTradingOutpostFootprint:isGiant,
     active:true,
     group,
@@ -8862,6 +9244,7 @@ function createEnemyState(index,x,z,type="mech"){
     droneModel:drone,
     spiderModel:spider,
     boatModel:boat,
+    buggyModel:buggy,
     carModel:null,
     aimCross:null,
     x,
@@ -8897,7 +9280,7 @@ function createEnemyState(index,x,z,type="mech"){
     lastRocketButton:false,
     rocketCooldown:0,
     lastCannonButton:false,
-    cannonCooldown:(isBoat ? 150 : isGiant ? 70 : isBoss ? 35 : isDrone ? 46 : 60)+Math.floor(Math.random()*(isBoat ? 120 : isGiant ? 70 : isBoss ? 35 : isDrone ? 38 : 70)),
+    cannonCooldown:(isBoat || isBuggy ? 150 : isGiant ? 70 : isBoss ? 35 : isDrone ? 46 : 60)+Math.floor(Math.random()*(isBoat || isBuggy ? 120 : isGiant ? 70 : isBoss ? 35 : isDrone ? 38 : 70)),
     clusterBombCooldown:0,
     clusterBombAmmo:0,
     flightTimer:0,
@@ -8914,7 +9297,7 @@ function createEnemyState(index,x,z,type="mech"){
     aiThink:0,
     guardPhase:Math.random()*Math.PI*2,
     lateralOffset:0,
-    walkProfile:(isDrone || isSpider || isBoat) ? null : makeEnemyWalkProfile(index,type),
+    walkProfile:(isDrone || isSpider || isBoat || isBuggy) ? null : makeEnemyWalkProfile(index,type),
     walkMaxSpeed
   };
 }
@@ -9685,7 +10068,7 @@ function updateMorphVisual(car){
   let bodyFold=morphStage(p,0.08,0.62);
   let vehicleReveal=morphStage(p,0.58,0.88);
   let lockIn=morphStage(p,0.64,0.96);
-  let jetReveal=morphStage(jetP,0.46,0.86);
+  let jetReveal=morphStage(jetP,0.34,0.86);
   let jetFold=morphStage(jetP,0.1,0.72);
   let transformShake=Math.max(morphPulse(p,0.5,0.32),morphPulse(jetP,0.46,0.32));
 
@@ -9726,12 +10109,14 @@ function updateMorphVisual(car){
   if(car.jetModel){
     let baseY=car.jetModel.userData.baseY || 0.45;
     let baseScale=car.jetModel.userData.baseScale || new THREE.Vector3(1,1,1);
-    let scale=0.82+jetReveal*0.18;
+    let jetVisible=car.jetMode || jetP>0.12;
+    let jetVisualFade=morphStage(jetP,0.12,0.34);
+    let scale=0.48+jetVisualFade*0.34+jetReveal*0.18;
     let snap=morphStage(jetP,0.72,1);
 
-    car.jetModel.visible=jetP>0.34;
+    car.jetModel.visible=jetVisible;
     car.jetModel.scale.set(baseScale.x*scale,baseScale.y*(0.74+jetReveal*0.26),baseScale.z*scale);
-    car.jetModel.position.y=baseY+(1-jetReveal)*0.62+Math.sin(performance.now()*0.006)*0.12*jetReveal;
+    car.jetModel.position.y=baseY+(1-jetReveal)*0.62+(1-jetVisualFade)*0.18+Math.sin(performance.now()*0.006)*0.12*jetReveal;
     car.jetModel.rotation.x=(1-jetReveal)*0.28-0.08*snap;
     car.jetModel.rotation.z=Math.sin(performance.now()*0.052)*0.035*transformShake*(1-snap);
   }
@@ -11487,6 +11872,7 @@ function startGame(mode,difficulty="medium",savedStatus=null){
   spawnBossBaseGuards();
   setCarActive(playerCar,true);
   setCarActive(secondCar,mode==="double");
+  if(!savedStatus) spawnTestingRocketBuggiesAtStart();
   playerCar.cameraYaw=playerCar.angle;
   secondCar.cameraYaw=secondCar.angle;
   updateRendererPixelRatio();
@@ -11512,8 +11898,11 @@ function startGame(mode,difficulty="medium",savedStatus=null){
 
 let startScreen=document.getElementById("startScreen");
 if(startScreen){
+  updateStartupLoadingState();
   updateLoadGameButton();
   startScreen.addEventListener("click",event=>{
+    if(!startupAssetsReady) return;
+
     let loadButton=event.target.closest("[data-load-game]");
     if(loadButton && !gameStarted){
       let status=readSavedGameStatus();
@@ -11534,65 +11923,67 @@ setupMorphModels(secondCar,0x2f66d8);
 setCarActive(playerCar,true);
 setCarActive(secondCar,false);
 
-loadBackPackModel()
+let startupAssetPromises=[];
+
+startupAssetPromises.push(trackStartupAsset(loadBackPackModel()
   .then(model=>{
     attachBackPackToPlayerRobot(playerCar,model);
     attachBackPackToPlayerRobot(secondCar,model);
   })
   .catch(error=>{
     console.error("Failed to load backpack model:",error);
-  });
+  })));
 
-loadCarModel()
+startupAssetPromises.push(trackStartupAsset(loadCarModel()
   .then(model=>{
     setMorphCarModel(playerCar,model.clone(true));
     setMorphCarModel(secondCar,model.clone(true));
   })
   .catch(error=>{
     console.error("Failed to load car model:",error);
-  });
+  })));
 
-loadJetModel(0xb83a32)
+startupAssetPromises.push(trackStartupAsset(loadJetModel(0xb83a32)
   .then(model=>{
     setMorphJetModel(playerCar,model);
   })
   .catch(error=>{
     console.error("Failed to load player jet model:",error);
-  });
+  })));
 
-loadJetModel(0x2f66d8)
+startupAssetPromises.push(trackStartupAsset(loadJetModel(0x2f66d8)
   .then(model=>{
     setMorphJetModel(secondCar,model);
   })
   .catch(error=>{
     console.error("Failed to load second jet model:",error);
-  });
+  })));
 
-loadEnemyBattleShipModel()
+startupAssetPromises.push(trackStartupAsset(loadEnemyBattleShipModel()
   .then(model=>{
     enemyShipModel=model;
   })
   .catch(error=>{
     console.error("Failed to load enemy ship model:",error);
-  });
+  })));
 
-loadLandingSpaceModel()
+startupAssetPromises.push(trackStartupAsset(loadLandingSpaceModel()
   .then(model=>{
     world.setLandingSpaceModel(model);
   })
   .catch(error=>{
     console.error("Failed to load landing space model:",error);
-  });
+  })));
 
-loadTreasureChestModels()
+startupAssetPromises.push(trackStartupAsset(loadTreasureChestModels()
   .then(models=>{
     if(world.setTreasureChestModels) world.setTreasureChestModels(models);
   })
   .catch(error=>{
     console.error("Failed to load treasure chest models:",error);
-  });
+  })));
 
-loadBaseStationModel()
+startupAssetPromises.push(trackStartupAsset(loadBaseStationModel()
   .then(model=>{
     baseStationModel=model;
     placeTradingOutpostNearStart(currentStartInfo);
@@ -11601,9 +11992,9 @@ loadBaseStationModel()
   })
   .catch(error=>{
     console.error("Failed to load base station model:",error);
-  });
+  })));
 
-loadTradingOutpostModel()
+startupAssetPromises.push(trackStartupAsset(loadTradingOutpostModel()
   .then(model=>{
     tradingOutpostModel=model;
     placeTestingTradingOutpostNearHomeBase();
@@ -11611,7 +12002,9 @@ loadTradingOutpostModel()
   })
   .catch(error=>{
     console.error("Failed to load trading outpost model:",error);
-  });
+  })));
+
+Promise.allSettled(startupAssetPromises).then(finishStartupAssetLoading);
 
 function placeCarOnOpenField(car,startInfo){
   let point=roadPointForOffset(startInfo.z,startInfo.fieldOffset+car.lateralOffset);
