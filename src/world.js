@@ -639,6 +639,21 @@ function chunkKey(cx,cz){
   return cx+","+cz;
 }
 
+function chunkKeyForWorldPoint(x,z){
+  return chunkKey(Math.floor(x/chunkSize),Math.floor(z/chunkSize));
+}
+
+function chunkLoadedAt(x,z){
+  return chunks.has(chunkKeyForWorldPoint(x,z));
+}
+
+function updateIndependentStructureVisibility(){
+  for(let base of bossBases){
+    if(!base || !base.group) continue;
+    base.group.visible=chunkLoadedAt(base.x,base.z);
+  }
+}
+
 function cloneChunkDetail(detail){
   return detail
     ? {
@@ -1025,6 +1040,7 @@ function makeBossBase(x,z,angle=0){
   }
 
   scene.add(group);
+  group.visible=chunkLoadedAt(x,z);
 
   return {
     group,
@@ -2796,6 +2812,7 @@ function updateChunksForCenters(centers){
       chunkDetails.delete(key);
     }
   }
+  updateIndependentStructureVisibility();
 }
 
 function updateChunks(px,pz){
@@ -3005,6 +3022,7 @@ function finishChunkBuild(job,chunk){
 
   chunks.set(job.key,chunk);
   registerChunk(chunk);
+  updateIndependentStructureVisibility();
 }
 
 function processChunkQueue(maxItems=1,immediate=false,maxFrameMs=2){

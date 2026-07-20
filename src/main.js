@@ -4,7 +4,7 @@ import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed
 import { createInput } from "./input.js?v=scanner-bumper";
 import { createHud } from "./hud.js?v=radar-outposts";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=night-stars";
-import { createWorld } from "./world.js?v=clipped-water";
+import { createWorld } from "./world.js?v=structure-terrain-sync";
 import { createMotorAudio } from "./audio.js?v=sfx-resume";
 import { worldEnvironments } from "./environments.js?v=broad-mountains";
 import { difficultySettings } from "./gameConfig.js?v=ammo-caps";
@@ -7382,6 +7382,7 @@ function updateBossLaserBeams(){
 function updateBossBaseDefenses(){
   for(let base of world.bossBases || []){
     if(!base || !base.active || base.health<=0) continue;
+    if(base.group && !base.group.visible) continue;
 
     if(base.impactPulse>0){
       let pulse=base.impactPulse;
