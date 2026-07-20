@@ -5,7 +5,7 @@ import { createInput } from "./input.js?v=scanner-bumper";
 import { createHud } from "./hud.js?v=radar-outposts";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=night-stars";
 import { createWorld } from "./world.js?v=structure-terrain-sync";
-import { createMotorAudio } from "./audio.js?v=sfx-resume";
+import { createMotorAudio } from "./audio.js?v=lazy-music";
 import { worldEnvironments } from "./environments.js?v=broad-mountains";
 import { difficultySettings } from "./gameConfig.js?v=ammo-caps";
 import { loadBackPackModel, loadBaseStationModel, loadCarModel, loadEnemyBattleShipModel, loadJetModel, loadLandingSpaceModel, loadTradingOutpostModel, loadTreasureChestModels, makeMechModel } from "./models.js?v=radar-performance-fix";
@@ -473,6 +473,11 @@ let cameraTerrainClearance=5.8;
 let screenShakeAmount=0;
 let screenShakeSeed=0;
 let screenShakeOffset=new THREE.Vector3();
+let startSequence=null;
+let startSequenceCameraPos=new THREE.Vector3();
+let startSequenceLookAt=new THREE.Vector3();
+let startSequenceNormalPos=new THREE.Vector3();
+let startSequenceNormalQuat=new THREE.Quaternion();
 let cars=[];
 let gameStarted=false;
 let gamePaused=false;
@@ -10461,6 +10466,8 @@ function updateCameras(){
   updateScreenShakeFrame();
   updateCameraForCar(playerCar);
   if(gameMode==="double") updateCameraForCar(secondCar);
+  applyStartSequenceCameraForCar(playerCar);
+  if(gameMode==="double") applyStartSequenceCameraForCar(secondCar);
 
   if(gameMode==="single"){
     px=playerCar.x;
@@ -11017,7 +11024,9 @@ function fixedUpdateGame(){
   updateRareTradingOutposts();
   updateUnlockedRandomPortals();
   updateScannerMode();
+  updateStartSequence();
   for(let car of activeCars()){
+    if(isCarInStartSequence(car)) continue;
     updateCar(car);
   }
   updateTreasurePickups();
@@ -11148,8 +11157,11 @@ window.addEventListener("resize",()=>{
 });
 
 function setCarActive(car,active){
-  car.group.visible=active;
-  car.shadow.setVisible(active);
+  let hiddenForStart=startSequence
+    && car.startSequenceLocked
+    && (startSequence.age || 0)<(startSequence.spawnStartFrames || startSequence.preludeFrames || 0);
+  car.group.visible=active && !hiddenForStart;
+  car.shadow.setVisible(active && !hiddenForStart);
 }
 
 function roadPointForOffset(z,lateralOffset){
@@ -11410,6 +11422,7 @@ function startGame(mode,difficulty="medium",savedStatus=null){
   clearTradingOutpost();
   clearTestingTradingOutpost();
   clearTestingRadarOutpost();
+  clearStartSequence();
   if(world.clearBossBases) world.clearBossBases();
   if(savedStatus) applySavedWorldSettings(savedStatus);
   jetUnlocked=false;
@@ -11468,7 +11481,7 @@ function startGame(mode,difficulty="medium",savedStatus=null){
   spawnGiantTestRobot(startInfo);
   placeTradingOutpostNearStart(startInfo);
   placeTestingTradingOutpostNearHomeBase();
-  if(!savedStatus) placeStartingCarsInsideBase(mode);
+  if(!savedStatus) placeStartingCarsAtBaseEntrance(mode,true);
   world.placeTestBossBaseNearStart(playerCar.x,playerCar.z,playerCar.angle);
   spawnBossBaseGuards();
   setCarActive(playerCar,true);
@@ -11583,7 +11596,7 @@ loadBaseStationModel()
     baseStationModel=model;
     placeTradingOutpostNearStart(currentStartInfo);
     placeTestingTradingOutpostNearHomeBase();
-    if(gameStarted && !currentGameFromSave) placeStartingCarsInsideBase(gameMode);
+    if(gameStarted && !currentGameFromSave && !startSequence) placeStartingCarsAtBaseEntrance(gameMode,false);
   })
   .catch(error=>{
     console.error("Failed to load base station model:",error);
@@ -11686,6 +11699,176 @@ function placeCarOnOpenField(car,startInfo){
   updateMorphVisual(car);
 }
 
+function createStartBeam(x,z,surfaceY){
+  let height=58;
+  let radius=5.4;
+  let beamMat=teleportBeamMat.clone();
+  beamMat.color.set(0x9fe9ff);
+  beamMat.opacity=0;
+  let beam=new THREE.Mesh(teleportBeamGeo,beamMat);
+  beam.position.set(x,surfaceY+height*0.5,z);
+  beam.scale.set(radius,height,radius);
+  beam.renderOrder=34;
+  scene.add(beam);
+
+  let coreMat=teleportBeamMat.clone();
+  coreMat.color.set(0xffffff);
+  coreMat.opacity=0;
+  let core=new THREE.Mesh(teleportBeamGeo,coreMat);
+  core.position.copy(beam.position);
+  core.scale.set(0.72,height*1.04,0.72);
+  core.renderOrder=36;
+  scene.add(core);
+
+  let ringMat=explosionRingMat.clone();
+  ringMat.color.set(0xb7f4ff);
+  ringMat.opacity=0;
+  let ring=new THREE.Mesh(teleportRingGeo,ringMat);
+  ring.position.set(x,surfaceY+0.16,z);
+  ring.rotation.x=Math.PI/2;
+  ring.scale.setScalar(radius*0.46);
+  ring.renderOrder=35;
+  scene.add(ring);
+
+  return {beam,core,ring,beamMat,coreMat,ringMat,height,radius};
+}
+
+function disposeStartBeam(beam){
+  if(!beam) return;
+  scene.remove(beam.beam,beam.core,beam.ring);
+  if(beam.beamMat) beam.beamMat.dispose();
+  if(beam.coreMat) beam.coreMat.dispose();
+  if(beam.ringMat) beam.ringMat.dispose();
+}
+
+function clearStartSequence(){
+  if(!startSequence) return;
+  for(let entry of startSequence.entries || []){
+    disposeStartBeam(entry.beam);
+    if(entry.car){
+      entry.car.group.scale.setScalar(1);
+      entry.car.group.visible=true;
+      if(entry.car.shadow && entry.car.shadow.setVisible) entry.car.shadow.setVisible(true);
+      entry.car.startSequenceLocked=false;
+    }
+  }
+  startSequence=null;
+}
+
+function baseEntranceStartPoint(lateralSlot=0){
+  if(!tradingOutpostCollision) return null;
+
+  let shell=tradingOutpostCollision.solidShell;
+  let floor=tradingOutpostCollision.floor;
+  let entranceHalfWidth=shell && Number.isFinite(shell.entranceHalfWidth)
+    ? shell.entranceHalfWidth
+    : 12;
+  let localX=clamp(lateralSlot,-entranceHalfWidth*0.55,entranceHalfWidth*0.55);
+  let frontZ=shell && Number.isFinite(shell.front)
+    ? shell.front
+    : floor && Number.isFinite(floor.maxZ)
+    ? floor.maxZ
+    : 0;
+  let local={x:localX,z:frontZ+64};
+  let worldPoint=tradingOutpostLocalToWorld(local,tradingOutpostCollision);
+  let lookPoint=tradingOutpostLocalToWorld({x:localX,z:frontZ+96},tradingOutpostCollision);
+  if(!worldPoint) return null;
+
+  let surfaceY=drivingSurfaceHeight(worldPoint.x,worldPoint.z);
+  let facing=lookPoint
+    ? Math.atan2(lookPoint.x-worldPoint.x,lookPoint.z-worldPoint.z)
+    : tradingOutpostCollision.angle+Math.PI;
+  return {
+    x:worldPoint.x,
+    z:worldPoint.z,
+    y:surfaceY,
+    angle:facing
+  };
+}
+
+function setCarAtStartPoint(car,point,beamIntro=false){
+  if(!car || !point) return null;
+
+  let finalY=drivingSurfaceHeight(point.x,point.z);
+  let startY=finalY+54;
+  car.x=point.x;
+  car.z=point.z;
+  car.y=beamIntro ? startY : finalY;
+  car.angle=point.angle;
+  car.velAngle=point.angle;
+  car.cameraYaw=point.angle;
+  car.speed=0;
+  car.throttleEase=0;
+  car.turnInputEase=0;
+  car.turnVelocity=0;
+  car.speedDelta=0;
+  car.surfaceDistance=roadDistance(car.x,car.z);
+  car.vy=0;
+  car.onGround=!beamIntro;
+  car.airborne=beamIntro;
+  car.lastWalkX=car.x;
+  car.lastWalkZ=car.z;
+  car.jetAltitudeTarget=finalY+8;
+  car.startSequenceLocked=beamIntro;
+  car.group.scale.setScalar(beamIntro ? 0.08 : 1);
+  car.group.position.set(car.x,car.y,car.z);
+  car.group.rotation.y=car.angle;
+  car.group.rotation.x=0;
+  car.group.rotation.z=0;
+  updateMechAnimation(car);
+  updateMorphVisual(car);
+  return {
+    car,
+    x:car.x,
+    z:car.z,
+    finalY,
+    startY,
+    angle:car.angle,
+    beam:beamIntro ? createStartBeam(car.x,car.z,finalY) : null
+  };
+}
+
+function placeStartingCarsAtBaseEntrance(mode,beamIntro=true){
+  clearStartSequence();
+
+  let entries=[];
+  let playerPoint=baseEntranceStartPoint(mode==="double" ? -4.5 : 0);
+  if(!playerPoint){
+    playerPoint={
+      x:playerCar.x,
+      z:playerCar.z,
+      y:drivingSurfaceHeight(playerCar.x,playerCar.z),
+      angle:playerCar.angle
+    };
+  }
+  let playerEntry=setCarAtStartPoint(playerCar,playerPoint,beamIntro);
+  if(playerEntry) entries.push(playerEntry);
+
+  if(mode==="double"){
+    let secondPoint=baseEntranceStartPoint(4.5) || {
+      x:secondCar.x,
+      z:secondCar.z,
+      y:drivingSurfaceHeight(secondCar.x,secondCar.z),
+      angle:secondCar.angle
+    };
+    let secondEntry=setCarAtStartPoint(secondCar,secondPoint,beamIntro);
+    if(secondEntry) entries.push(secondEntry);
+  }
+
+  if(beamIntro && entries.length){
+    startSequence={
+      age:0,
+      beamStartFrames:120,
+      spawnStartFrames:240,
+      duration:560,
+      beamFrames:190,
+      blendStart:468,
+      entries
+    };
+  }
+  setDistantMoonDirectionForHeading(playerCar.cameraYaw);
+}
+
 function moveCarToBaseStart(car,lateralSlot=0){
   if(!car || !tradingOutpostCollision || !tradingOutpostCollision.floor) return false;
 
@@ -11752,6 +11935,130 @@ function placeStartingCarsInsideBase(mode){
   moveCarToBaseStart(playerCar,mode==="double" ? -5.5 : 0);
   if(mode==="double") moveCarToBaseStart(secondCar,5.5);
   setDistantMoonDirectionForHeading(playerCar.cameraYaw);
+}
+
+function isCarInStartSequence(car){
+  return !!(startSequence && car && car.startSequenceLocked);
+}
+
+function updateStartSequence(){
+  if(!startSequence) return;
+
+  startSequence.age++;
+  let age=startSequence.age;
+  let beamStartFrames=startSequence.beamStartFrames || startSequence.preludeFrames || 0;
+  let spawnStartFrames=startSequence.spawnStartFrames || beamStartFrames;
+  let beamVisualAge=Math.max(0,age-beamStartFrames);
+  let beamAge=Math.max(0,age-spawnStartFrames);
+  let beamStarted=age>=beamStartFrames;
+  let spawnStarted=age>=spawnStartFrames;
+  let beamFrames=startSequence.beamFrames || 96;
+  let duration=startSequence.duration || 210;
+  let fadeOut=clamp((beamAge-beamFrames)/Math.max(1,duration-spawnStartFrames-beamFrames),0,1);
+
+  for(let entry of startSequence.entries || []){
+    let car=entry.car;
+    if(!car) continue;
+
+    let descendT=smoothStep(clamp((beamAge-6)/Math.max(1,beamFrames-24),0,1));
+    let scaleT=smoothStep(clamp((beamAge-18)/Math.max(1,beamFrames-28),0,1));
+    let y=entry.startY+(entry.finalY-entry.startY)*descendT;
+    let scale=spawnStarted ? 0.08+scaleT*0.92 : 0.001;
+    car.x=entry.x;
+    car.z=entry.z;
+    car.y=y;
+    car.speed=0;
+    car.vy=0;
+    car.throttleEase=0;
+    car.turnInputEase=0;
+    car.turnVelocity=0;
+    car.onGround=spawnStarted && beamAge>=beamFrames-8;
+    car.airborne=!car.onGround;
+    car.group.visible=spawnStarted;
+    if(car.shadow && car.shadow.setVisible) car.shadow.setVisible(spawnStarted);
+    car.group.position.set(car.x,car.y,car.z);
+    car.group.rotation.y=car.angle;
+    car.group.rotation.x=0;
+    car.group.rotation.z=0;
+    car.group.scale.setScalar(scale);
+    updateMechAnimation(car);
+    updateMorphVisual(car);
+    car.shadow.update({carX:car.x,carZ:car.z,carY:car.y,surfaceY:entry.finalY,carVelAngle:car.angle});
+
+    if(entry.beam){
+      let beamFade=1-fadeOut;
+      let beamIn=smoothStep(clamp(beamVisualAge/36,0,1));
+      let pulse=1+Math.sin(beamVisualAge*0.19)*0.035;
+      entry.beam.beam.scale.set(
+        entry.beam.radius*(0.92+descendT*0.28)*pulse,
+        entry.beam.height,
+        entry.beam.radius*(0.92+descendT*0.28)*pulse
+      );
+      entry.beam.core.scale.set(
+        0.7+Math.sin(beamVisualAge*0.24)*0.08,
+        entry.beam.height*1.04,
+        0.7+Math.sin(beamVisualAge*0.24)*0.08
+      );
+      entry.beam.beamMat.opacity=beamStarted ? 0.34*beamFade*beamIn : 0;
+      entry.beam.coreMat.opacity=beamStarted ? 0.58*beamFade*(1-descendT*0.35)*beamIn : 0;
+      entry.beam.ring.scale.setScalar(entry.beam.radius*(0.44+descendT*1.15+fadeOut*0.8));
+      entry.beam.ringMat.opacity=beamStarted ? 0.82*beamFade*beamIn : 0;
+    }
+  }
+
+  if(age>=duration){
+    clearStartSequence();
+  }
+}
+
+function applyStartSequenceCameraForCar(car){
+  if(!startSequence || !car) return;
+  let entry=(startSequence.entries || []).find(item=>item.car===car);
+  if(!entry) return;
+
+  startSequenceNormalPos.copy(car.camera.position);
+  startSequenceNormalQuat.copy(car.camera.quaternion);
+
+  let age=startSequence.age;
+  let duration=startSequence.duration || 210;
+  let beamStartFrames=startSequence.beamStartFrames || startSequence.preludeFrames || 0;
+  let spawnStartFrames=startSequence.spawnStartFrames || beamStartFrames;
+  let beamAge=Math.max(0,age-spawnStartFrames);
+  let spawnFollow=smoothStep(clamp(beamAge/70,0,1));
+  let blendStart=startSequence.blendStart || 118;
+  let blend=smoothStep(clamp((age-blendStart)/Math.max(1,duration-blendStart),0,1));
+  let skyHold=age<spawnStartFrames ? 1 : 1-smoothStep(clamp((age-spawnStartFrames)/150,0,1));
+  let materialize=clamp(beamAge/Math.max(1,startSequence.beamFrames || 96),0,1);
+  let heading=entry.angle;
+  let orbit=Math.sin(age*0.012)*0.18;
+  let cameraYaw=heading-orbit;
+  let side=gameMode==="double" && car===secondCar ? -1 : 1;
+
+  let trackedY=entry.finalY+(car.y-entry.finalY)*spawnFollow;
+  let groundCamX=entry.x-Math.sin(cameraYaw)*28+Math.cos(cameraYaw)*side*10;
+  let groundCamY=entry.finalY+7.8+Math.sin(age*0.035)*0.25;
+  let groundCamZ=entry.z-Math.cos(cameraYaw)*28-Math.sin(cameraYaw)*side*10;
+  let skyCamX=entry.x-Math.sin(heading)*12+Math.cos(heading)*side*4;
+  let skyCamY=entry.finalY+7.4;
+  let skyCamZ=entry.z-Math.cos(heading)*12-Math.sin(heading)*side*4;
+
+  startSequenceCameraPos.set(
+    skyCamX*skyHold+groundCamX*(1-skyHold),
+    skyCamY*skyHold+groundCamY*(1-skyHold),
+    skyCamZ*skyHold+groundCamZ*(1-skyHold)
+  );
+  startSequenceLookAt.set(
+    entry.x+Math.sin(heading)*22*skyHold,
+    entry.finalY+110*skyHold+(trackedY-entry.finalY+3.2+materialize*1.4)*(1-skyHold),
+    entry.z+Math.cos(heading)*22*skyHold
+  );
+
+  car.camera.position.copy(startSequenceCameraPos);
+  car.camera.lookAt(startSequenceLookAt);
+  if(blend>0){
+    car.camera.position.lerp(startSequenceNormalPos,blend);
+    car.camera.quaternion.slerp(startSequenceNormalQuat,blend);
+  }
 }
 
 function clearTradingOutpost(){
@@ -12541,7 +12848,7 @@ placeCarOnOpenField(secondCar,initialStartInfo);
 spawnGiantTestRobot(initialStartInfo);
 placeTradingOutpostNearStart(initialStartInfo);
 placeTestingTradingOutpostNearHomeBase();
-placeStartingCarsInsideBase("double");
+placeStartingCarsAtBaseEntrance("double",false);
 world.placeTestBossBaseNearStart(playerCar.x,playerCar.z,playerCar.angle);
 playerCar.cameraYaw=playerCar.angle;
 secondCar.cameraYaw=secondCar.angle;

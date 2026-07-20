@@ -31,10 +31,10 @@ export function createMotorAudio(cars){
   let musicLoopsPerTrack=2;
   let musicSwitchDelayMs=5000;
   let musicSwitchTimer=null;
-  let backgroundMusic=new Audio(musicPlaylist[musicTrackIndex]);
+  let backgroundMusic=new Audio();
   backgroundMusic.loop=false;
   backgroundMusic.volume=musicVolume;
-  backgroundMusic.preload="auto";
+  backgroundMusic.preload="none";
 
   function clamp(value,min,max){
     return Math.max(min,Math.min(max,value));
@@ -138,7 +138,14 @@ export function createMotorAudio(cars){
     if(master) master.gain.value=paused || !sfxEnabled ? 0 : 0.26*sfxVolume;
   }
 
+  function ensureBackgroundMusicSource(){
+    if(backgroundMusic.src) return;
+    backgroundMusic.src=musicPlaylist[musicTrackIndex];
+  }
+
   function playBackgroundMusic(){
+    if(musicVolume<=0) return;
+    ensureBackgroundMusicSource();
     backgroundMusic.play().catch(()=>{});
   }
 
@@ -153,7 +160,6 @@ export function createMotorAudio(cars){
       musicPlayCount=0;
       musicTrackIndex=(musicTrackIndex+1)%musicPlaylist.length;
       backgroundMusic.src=musicPlaylist[musicTrackIndex];
-      backgroundMusic.load();
       musicSwitchTimer=window.setTimeout(()=>{
         musicSwitchTimer=null;
         playBackgroundMusic();
@@ -167,6 +173,7 @@ export function createMotorAudio(cars){
   function setMusicVolume(value){
     musicVolume=clamp(Number(value) || 0,0,1);
     applyVolumes();
+    if(musicVolume>0 && backgroundMusic.paused) playBackgroundMusic();
   }
 
   function setSfxVolume(value){
