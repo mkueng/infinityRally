@@ -2,10 +2,10 @@ import { THREE } from "./three.js";
 import { carRadius, gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize, viewDistance, mothershipDropCount, mothershipDropInterval, mothershipDropLineSpacing, mothershipHoverDistance, mothershipHoverFrames, mothershipMinDelay, mothershipRandomDelay, mothershipRocketHits } from "./constants.js";
 import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=mountain-detail";
 import { createInput } from "./input.js?v=scanner-bumper";
-import { createHud } from "./hud.js?v=radar-outposts";
+import { createHud } from "./hud.js?v=minimap-terrain-sync";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=night-stars";
 import { createWorld } from "./world.js?v=structure-terrain-sync";
-import { createMotorAudio } from "./audio.js?v=lazy-music";
+import { createMotorAudio } from "./audio.js?v=intro-beam-sizzle";
 import { worldEnvironments } from "./environments.js?v=broad-mountains";
 import { difficultySettings } from "./gameConfig.js?v=ammo-caps";
 import { loadBackPackModel, loadBaseStationModel, loadCarModel, loadEnemyBattleShipModel, loadJetModel, loadLandingSpaceModel, loadTradingOutpostModel, loadTreasureChestModels, makeMechModel } from "./models.js?v=radar-performance-fix";
@@ -2161,6 +2161,7 @@ let hud=createHud({
   getScannedPortals:()=>Array.from(scannedPortals.values()),
   getNearestTradingOutpost:nearestTradingOutpostForCompass,
   getNearestBossBase:nearestBossBaseForCompass,
+  getTerrainHeight:(x,z)=>carSurfaceHeight(x,z),
   getStationState:()=>tradingOutpost ? ({
     x:tradingOutpost.position.x,
     z:tradingOutpost.position.z
@@ -11743,6 +11744,9 @@ function disposeStartBeam(beam){
 
 function clearStartSequence(){
   if(!startSequence) return;
+  if(startSequence.beamSound && motorAudio.stopIntroBeamSound){
+    motorAudio.stopIntroBeamSound(startSequence.beamSound);
+  }
   for(let entry of startSequence.entries || []){
     disposeStartBeam(entry.beam);
     if(entry.car){
@@ -11955,6 +11959,17 @@ function updateStartSequence(){
   let beamFrames=startSequence.beamFrames || 96;
   let duration=startSequence.duration || 210;
   let fadeOut=clamp((beamAge-beamFrames)/Math.max(1,duration-spawnStartFrames-beamFrames),0,1);
+  if(beamStarted && !startSequence.beamSoundStarted){
+    startSequence.beamSoundStarted=true;
+    let firstEntry=startSequence.entries && startSequence.entries[0];
+    if(firstEntry && motorAudio.startIntroBeamSound){
+      startSequence.beamSound=motorAudio.startIntroBeamSound({
+        x:firstEntry.x,
+        y:firstEntry.finalY,
+        z:firstEntry.z
+      });
+    }
+  }
 
   for(let entry of startSequence.entries || []){
     let car=entry.car;

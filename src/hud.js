@@ -1,5 +1,4 @@
 import { chunkSize } from "./constants.js";
-import { carSurfaceHeight } from "./terrain.js?v=no-ramps";
 
 const gameFontFamily="\"Astor\", Arial, sans-serif";
 const mapHudSize=259;
@@ -11,7 +10,7 @@ const speedHudScale=1.2;
 const speedHudWidth=mapHudSize/speedHudScale;
 const laserHudFrames=300;
 
-export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStationState=()=>null,getNearestTradingOutpost=()=>null,getNearestBossBase=()=>null,getScannedBossBases=()=>[],getScannedTradingOutposts=()=>[],getScannedRadarOutposts=()=>[],getScannedLandingSpaces=()=>[],getScannedPortals=()=>[],getPerformanceMode=()=>"full",getEnvironment=()=>({})}){
+export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStationState=()=>null,getNearestTradingOutpost=()=>null,getNearestBossBase=()=>null,getScannedBossBases=()=>[],getScannedTradingOutposts=()=>[],getScannedRadarOutposts=()=>[],getScannedLandingSpaces=()=>[],getScannedPortals=()=>[],getPerformanceMode=()=>"full",getEnvironment=()=>({}),getTerrainHeight=()=>0}){
   let panels=[];
   let gameOverOverlay;
   let mapUpdateFrame=0;
@@ -408,7 +407,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       for(let gx=0;gx<cells;gx++){
         let wx=centerX-radius+((gx+0.5)/cells)*radius*2;
         let wz=centerZ-radius+((gy+0.5)/cells)*radius*2;
-        let h=carSurfaceHeight(wx,wz);
+        let h=getTerrainHeight(wx,wz);
         if(h<-20) mapCtx.fillStyle=palette.water;
         else if(h<15) mapCtx.fillStyle=palette.low;
         else if(h<30) mapCtx.fillStyle=palette.mid;

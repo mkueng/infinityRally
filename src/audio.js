@@ -18,8 +18,8 @@ export function createMotorAudio(cars){
   let mothershipHum=null;
   let rainAudio=null;
   let supported=true;
-  let sfxVolume=0.0;
-  let musicVolume=0.0;
+  let sfxVolume=1.0;
+  let musicVolume=0.1;
   let paused=false;
   let sfxEnabled=false;
   let musicPlaylist=[
@@ -213,15 +213,15 @@ export function createMotorAudio(cars){
     rainNoise.buffer=noiseBuffer || createNoiseBuffer();
     rainNoise.loop=true;
     rainFilter.type="bandpass";
-    rainFilter.frequency.value=1450;
-    rainFilter.Q.value=0.9;
+    rainFilter.frequency.value=1150;
+    rainFilter.Q.value=0.55;
     rainGain.gain.value=0;
 
     patterNoise.buffer=noiseBuffer || createNoiseBuffer();
     patterNoise.loop=true;
     patterFilter.type="highpass";
-    patterFilter.frequency.value=4200;
-    patterFilter.Q.value=0.45;
+    patterFilter.frequency.value=5100;
+    patterFilter.Q.value=0.72;
     patterGain.gain.value=0;
     output.gain.value=1;
 
@@ -254,11 +254,15 @@ export function createMotorAudio(cars){
     if(!audio || !context || !supported) return;
 
     let now=context.currentTime;
-    let audible=Math.pow(level,0.82);
-    audio.rainGain.gain.setTargetAtTime(audible*0.095,now,0.65);
-    audio.patterGain.gain.setTargetAtTime(Math.pow(level,1.25)*0.032,now,0.42);
-    audio.rainFilter.frequency.setTargetAtTime(900+level*1450,now,0.8);
-    audio.patterFilter.frequency.setTargetAtTime(3300+level*2200,now,0.55);
+    let bed=Math.pow(level,0.72);
+    let splatter=Math.pow(level,0.92);
+    let heavy=level*level;
+    audio.rainGain.gain.setTargetAtTime(bed*(0.038+0.024*(1-heavy)),now,0.78);
+    audio.patterGain.gain.setTargetAtTime(splatter*(0.052+heavy*0.056),now,0.28);
+    audio.rainFilter.frequency.setTargetAtTime(760+level*820,now,0.9);
+    audio.rainFilter.Q.setTargetAtTime(0.42+level*0.26,now,0.9);
+    audio.patterFilter.frequency.setTargetAtTime(4300+level*3600,now,0.32);
+    audio.patterFilter.Q.setTargetAtTime(0.65+level*0.7,now,0.32);
   }
 
   function visibleCarCount(){
@@ -1236,6 +1240,121 @@ export function createMotorAudio(cars){
     },immediate ? 40 : 820);
   }
 
+  function startIntroBeamSound(position=null){
+    ensureContext();
+    if(!context || !supported || !sfxEnabled) return null;
+    if(context.state==="suspended") context.resume();
+
+    let time=context.currentTime;
+    let noise=context.createBufferSource();
+    let crackle=context.createBufferSource();
+    let fizzFilter=context.createBiquadFilter();
+    let crackleFilter=context.createBiquadFilter();
+    let fizzGain=context.createGain();
+    let crackleGain=context.createGain();
+    let body=context.createOscillator();
+    let bodyGain=context.createGain();
+    let whine=context.createOscillator();
+    let whineFilter=context.createBiquadFilter();
+    let whineGain=context.createGain();
+    let output=context.createGain();
+    let spatialGain=context.createGain();
+    let spatialPan=context.createStereoPanner ? context.createStereoPanner() : null;
+    let routeOptions={minDistance:26,maxDistance:920,rolloff:2.2,volume:1.1,panStrength:0.68};
+
+    noise.buffer=noiseBuffer || createNoiseBuffer();
+    noise.loop=true;
+    crackle.buffer=noiseBuffer || createNoiseBuffer();
+    crackle.loop=true;
+
+    fizzFilter.type="highpass";
+    fizzFilter.frequency.setValueAtTime(6200,time);
+    fizzFilter.Q.setValueAtTime(0.82,time);
+    crackleFilter.type="bandpass";
+    crackleFilter.frequency.setValueAtTime(10400,time);
+    crackleFilter.Q.setValueAtTime(5.4,time);
+    fizzGain.gain.setValueAtTime(0.058,time);
+    crackleGain.gain.setValueAtTime(0.02,time);
+
+    body.type="sine";
+    body.frequency.setValueAtTime(260,time);
+    body.frequency.linearRampToValueAtTime(318,time+0.9);
+    bodyGain.gain.setValueAtTime(0.072,time);
+
+    whine.type="sine";
+    whine.frequency.setValueAtTime(880,time);
+    whine.frequency.linearRampToValueAtTime(1180,time+1.2);
+    whineFilter.type="bandpass";
+    whineFilter.frequency.setValueAtTime(1850,time);
+    whineFilter.Q.setValueAtTime(3.2,time);
+    whineGain.gain.setValueAtTime(0.088,time);
+
+    output.gain.setValueAtTime(0.0001,time);
+    output.gain.setTargetAtTime(0.2,time+0.02,0.2);
+
+    noise.connect(fizzFilter);
+    fizzFilter.connect(fizzGain);
+    fizzGain.connect(output);
+    crackle.connect(crackleFilter);
+    crackleFilter.connect(crackleGain);
+    crackleGain.connect(output);
+    body.connect(bodyGain);
+    bodyGain.connect(output);
+    whine.connect(whineFilter);
+    whineFilter.connect(whineGain);
+    whineGain.connect(output);
+
+    if(spatialPan){
+      output.connect(spatialPan);
+      spatialPan.connect(spatialGain);
+    }else{
+      output.connect(spatialGain);
+    }
+    spatialGain.connect(master);
+    let initialSpatial=spatialMetrics(position,routeOptions);
+    spatialGain.gain.value=initialSpatial.gain;
+    if(spatialPan) spatialPan.pan.value=initialSpatial.pan;
+
+    noise.start(time);
+    crackle.start(time);
+    body.start(time);
+    whine.start(time);
+
+    return {
+      noise,
+      crackle,
+      body,
+      whine,
+      fizzFilter,
+      crackleFilter,
+      output,
+      spatialGain,
+      spatialPan,
+      routeOptions,
+      stopping:false
+    };
+  }
+
+  function stopIntroBeamSound(route,immediate=false){
+    if(!route || !context || !supported || route.stopping) return;
+
+    let now=context.currentTime;
+    let stopTime=immediate ? now+0.02 : now+0.48;
+    route.stopping=true;
+    route.output.gain.cancelScheduledValues(now);
+    route.output.gain.setTargetAtTime(0.0001,now,immediate ? 0.01 : 0.16);
+
+    try{ route.noise.stop(stopTime); }catch(error){}
+    try{ route.crackle.stop(stopTime); }catch(error){}
+    try{ route.body.stop(stopTime); }catch(error){}
+    try{ route.whine.stop(stopTime); }catch(error){}
+    window.setTimeout(()=>{
+      try{ route.output.disconnect(); }catch(error){}
+      try{ route.spatialGain.disconnect(); }catch(error){}
+      try{ if(route.spatialPan) route.spatialPan.disconnect(); }catch(error){}
+    },immediate ? 40 : 620);
+  }
+
   return {
     resume,
     update,
@@ -1261,6 +1380,8 @@ export function createMotorAudio(cars){
     startAmbientSpaceshipFlyover,
     updateAmbientSpaceshipFlyover,
     stopAmbientSpaceshipFlyover,
+    startIntroBeamSound,
+    stopIntroBeamSound,
     updateRain
   };
 }
