@@ -1,5 +1,5 @@
 import { chunkSize } from "./constants.js";
-import { groundHeight, rand, roadDistance, setWorldSeed } from "./terrain.js?v=mountain-detail";
+import { groundHeight, rand, roadDistance, setWorldSeed } from "./terrain.js?v=terrain-structure";
 
 const waterLevel=-20;
 let terrainLocalX=null;

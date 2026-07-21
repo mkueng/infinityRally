@@ -23,8 +23,8 @@ export function createMotorAudio(cars){
   let paused=false;
   let sfxEnabled=false;
   let musicPlaylist=[
-    "./assets/music/ROSpace.mp3",
-    "./assets/music/Planetatmospher.mp3"
+    "./assets/music/Planetatmospher.mp3",
+    "./assets/music/ROSpace.mp3"
   ];
   let musicTrackIndex=0;
   let musicPlayCount=0;

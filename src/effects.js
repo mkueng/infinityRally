@@ -9,14 +9,18 @@ function normalizeTrackAngle(angle){
   return angle;
 }
 
-export function createCarShadow(scene){
+export function createCarShadow(scene,options={}){
+  let width=options.width || 4.8;
+  let length=options.length || 7.0;
+  let baseOpacity=options.opacity || 0.48;
+  let minOpacity=options.minOpacity || Math.min(0.24,baseOpacity);
   let carShadowRoot=new THREE.Group();
   let carShadow=new THREE.Mesh(
-    new THREE.PlaneGeometry(4.8,7.0),
+    new THREE.PlaneGeometry(width,length),
     new THREE.MeshBasicMaterial({
       map:makeCarShadowTexture(),
       transparent:true,
-      opacity:0.48,
+      opacity:baseOpacity,
       depthWrite:false,
       depthTest:true,
       blending:THREE.NormalBlending,
@@ -34,7 +38,7 @@ export function createCarShadow(scene){
     let shadowLift=Math.max(0,carY-surfaceY);
     carShadowRoot.position.set(carX,surfaceY+0.16,carZ);
     carShadowRoot.rotation.y=carVelAngle;
-    carShadow.material.opacity=Math.max(0.24,0.48-shadowLift*0.014);
+    carShadow.material.opacity=Math.max(minOpacity,baseOpacity-shadowLift*0.014);
     let shadowScale=1+Math.min(0.55,shadowLift*0.025);
     carShadow.scale.set(shadowScale,shadowScale,1);
   }

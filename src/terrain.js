@@ -5,6 +5,7 @@ const defaultTerrainProfile={
   heightScale:1,
   hillScale:1,
   mountainScale:1,
+  terrainStructureScale:1,
   broadMountainScale:1,
   broadMountainChance:0.26,
   baseHeight:0,
@@ -167,6 +168,35 @@ function mountainCragHeight(x,z,mountainMask,broadHeight){
   return crags*detailMask*roadFade*terrainProfile.mountainScale;
 }
 
+function terrainStructureHeight(x,z,continent,hills,mountainMask,broadHeight){
+  let scale=(terrainProfile.terrainStructureScale ?? 1)*terrainProfile.heightScale;
+  if(scale<=0) return 0;
+
+  let roadFade=smoothstep01((roadDistance(x,z)-86)/145);
+  if(roadFade<=0.001) return 0;
+
+  let broadMask=smoothstep01((broadHeight-3)/30);
+  let uplandMask=smoothstep01((continent-0.12)/0.42);
+  let hillMask=smoothstep01((hills-0.18)/0.38);
+  let structureMask=Math.max(mountainMask*0.78,broadMask,uplandMask*0.44,hillMask*0.32);
+  if(structureMask<=0.001) return 0;
+
+  let warpX=(fbm01(x*0.0027+19.4,z*0.0024-33.8)-0.5)*94;
+  let warpZ=(fbm01(x*0.0023-51.7,z*0.0029+12.6)-0.5)*94;
+  let sx=x+warpX;
+  let sz=z+warpZ;
+
+  let rolling=(fbm01(sx*0.0042+7.5,sz*0.0038-18.2)-0.5)*4.2;
+  let ribs=1-Math.abs(fbm01(sx*0.013+43.2,sz*0.0105-61.4)*2-1);
+  let ribBreakup=0.38+fbm01(x*0.0061-28.8,z*0.0053+47.1)*0.62;
+  let ribHeight=(Math.pow(ribs,3.7)-0.25)*6.2*ribBreakup;
+  let gullies=1-Math.abs(fbm01((x-warpZ*0.45)*0.018-9.1,(z+warpX*0.45)*0.015+77.3)*2-1);
+  let gullyCut=smoothstep01((gullies-0.64)/0.28);
+  gullyCut*=0.45+fbm01(x*0.0087+65.1,z*0.0079-24.6)*0.55;
+
+  return (rolling+ribHeight-gullyCut*6.2)*structureMask*roadFade*scale;
+}
+
 export function height(x,z){
   let continent=fbm(x*.0012,z*.0012);
   let hills=fbm(x*.004,z*.004);
@@ -184,6 +214,7 @@ export function height(x,z){
     + mountains*40*mountainMask*terrainProfile.mountainScale
     + broadHeight
     + mountainCragHeight(x,z,mountainMask,broadHeight)
+    + terrainStructureHeight(x,z,continent,hills,mountainMask,broadHeight)
     - 14
     + terrainProfile.baseHeight;
 }

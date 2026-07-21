@@ -1,10 +1,10 @@
 import { THREE } from "./three.js";
 import { carRadius, gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize, viewDistance, mothershipDropCount, mothershipDropInterval, mothershipDropLineSpacing, mothershipHoverDistance, mothershipHoverFrames, mothershipMinDelay, mothershipRandomDelay, mothershipRocketHits } from "./constants.js";
-import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=mountain-detail";
+import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=terrain-structure";
 import { createInput } from "./input.js?v=scanner-bumper";
 import { createHud } from "./hud.js?v=minimap-terrain-sync";
-import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=night-stars";
-import { createWorld } from "./world.js?v=structure-terrain-sync";
+import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=tracked-enemy-shadows";
+import { createWorld } from "./world.js?v=terraform-green-fade";
 import { createMotorAudio } from "./audio.js?v=intro-beam-sizzle";
 import { worldEnvironments } from "./environments.js?v=broad-mountains";
 import { difficultySettings } from "./gameConfig.js?v=ammo-caps";
@@ -314,6 +314,35 @@ let scene=new THREE.Scene();
 let playerCamera=new THREE.PerspectiveCamera(45,innerWidth/innerHeight,.1,1e6);
 let secondCamera=new THREE.PerspectiveCamera(45,innerWidth/innerHeight,.1,1e6);
 let renderer=new THREE.WebGLRenderer({antialias:false,powerPreference:"high-performance"});
+let fullscreenRequestBlocked=false;
+
+function currentFullscreenElement(){
+  return document.fullscreenElement || document.webkitFullscreenElement || null;
+}
+
+function requestBrowserFullscreen(){
+  if(fullscreenRequestBlocked || currentFullscreenElement()) return;
+  let target=document.documentElement || document.body;
+  let request=target.requestFullscreen || target.webkitRequestFullscreen;
+  if(!target || !request) return;
+  try{
+    let result=request.call(target);
+    if(result && result.catch){
+      result.catch(()=>{
+        fullscreenRequestBlocked=true;
+      });
+    }
+  }catch(error){
+    fullscreenRequestBlocked=true;
+  }
+}
+
+document.addEventListener("fullscreenchange",()=>{
+  if(currentFullscreenElement()) fullscreenRequestBlocked=false;
+});
+document.addEventListener("webkitfullscreenchange",()=>{
+  if(currentFullscreenElement()) fullscreenRequestBlocked=false;
+});
 let distantMoonDirection=new THREE.Vector3(-0.34,0.42,-0.84).normalize();
 let distantPlanetScale=56000;
 let distantMoonTexture=new THREE.TextureLoader().load("./assets/planets/planet1.png?v=moon-planet1");
@@ -419,6 +448,39 @@ fpsDisplay.style.cssText=[
 ].join(";");
 fpsDisplay.textContent="-- FPS";
 document.body.appendChild(fpsDisplay);
+let terraformFadeOverlay=document.createElement("div");
+terraformFadeOverlay.style.cssText=[
+  "position:fixed",
+  "inset:0",
+  "z-index:120",
+  "background:#000",
+  "opacity:0",
+  "pointer-events:none",
+  "transition:none"
+].join(";");
+document.body.appendChild(terraformFadeOverlay);
+let terraformCompleteText=document.createElement("div");
+terraformCompleteText.textContent="Mission Accomplished";
+terraformCompleteText.style.cssText=[
+  "position:fixed",
+  "left:50%",
+  "top:50%",
+  "transform:translate(-50%,-50%)",
+  "z-index:121",
+  `font-family:${gameFontFamily}`,
+  "font-size:clamp(34px,7vw,92px)",
+  "font-weight:900",
+  "letter-spacing:0.08em",
+  "text-transform:uppercase",
+  "color:rgba(232,255,238,0.96)",
+  "text-align:center",
+  "text-shadow:0 0 22px rgba(125,255,113,0.5),0 4px 0 rgba(0,0,0,0.9)",
+  "opacity:0",
+  "pointer-events:none",
+  "user-select:none",
+  "white-space:nowrap"
+].join(";");
+document.body.appendChild(terraformCompleteText);
 let fpsSampleStart=0;
 let fpsSampleFrames=0;
 let lastMeasuredFps=60;
@@ -473,6 +535,127 @@ let cameraTerrainClearance=5.8;
 let screenShakeAmount=0;
 let screenShakeSeed=0;
 let screenShakeOffset=new THREE.Vector3();
+let terraformFinale=null;
+let terraformFinaleTriggered=false;
+let testingTerraformFinaleAfterSpawn=false;
+let testingTerraformFinaleDelayFrames=5*60;
+let terraformMatrixDummy=new THREE.Object3D();
+
+function finishTerraformGeometry(geometry){
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function deformTerraformGeometry(geometry,seed,options={}){
+  let pos=geometry.attributes.position;
+  let rough=options.rough ?? 0.22;
+  let vertical=options.vertical ?? 0.08;
+  let flatten=options.flatten ?? 1;
+  for(let i=0;i<pos.count;i++){
+    let x=pos.getX(i);
+    let y=pos.getY(i);
+    let z=pos.getZ(i);
+    let l=Math.max(0.001,Math.hypot(x,y,z));
+    let n1=hash01(x*13.7+seed,y*19.3-z*7.1)*2-1;
+    let n2=hash01(z*17.1-seed,x*11.9+y*5.7)*2-1;
+    let wobble=1+n1*rough+n2*rough*0.38;
+    pos.setXYZ(
+      i,
+      x*wobble+n2*0.035,
+      y*flatten+(n1+n2)*vertical*(0.35+Math.abs(y)/l),
+      z*(1+n2*rough*0.72)+n1*0.035
+    );
+  }
+  return finishTerraformGeometry(geometry);
+}
+
+function makeTerraformGrassGeometry(){
+  let positions=[];
+  for(let i=0;i<4;i++){
+    let angle=i*Math.PI*0.5+hash01(i,4.7)*0.28;
+    let rightX=Math.cos(angle)*0.055;
+    let rightZ=-Math.sin(angle)*0.055;
+    let leanX=Math.sin(angle)*(0.08+hash01(i,2.1)*0.08);
+    let leanZ=Math.cos(angle)*(0.08+hash01(i,5.3)*0.08);
+    let height=0.82+hash01(i,8.9)*0.34;
+    positions.push(
+      -rightX,0,-rightZ,
+      rightX,0,rightZ,
+      leanX,height,leanZ
+    );
+  }
+  let geometry=new THREE.BufferGeometry();
+  geometry.setAttribute("position",new THREE.Float32BufferAttribute(positions,3));
+  return finishTerraformGeometry(geometry);
+}
+
+function makeTerraformTrunkGeometry(seed=1,topRadius=0.13,bottomRadius=0.22){
+  let geometry=new THREE.CylinderGeometry(topRadius,bottomRadius,1,7,6);
+  let pos=geometry.attributes.position;
+  for(let i=0;i<pos.count;i++){
+    let x=pos.getX(i);
+    let y=pos.getY(i);
+    let z=pos.getZ(i);
+    let t=y+0.5;
+    let bend=Math.sin(t*Math.PI)*(0.08+hash01(seed,2.7)*0.06);
+    let twist=(hash01(seed+x*9.1,z*7.3)-0.5)*0.06;
+    pos.setXYZ(
+      i,
+      x*(1+twist)+bend,
+      y,
+      z*(1-twist)+Math.sin(t*5.2+seed)*0.025
+    );
+  }
+  return finishTerraformGeometry(geometry);
+}
+
+function makeTerraformFlowerGeometry(){
+  let positions=[];
+  for(let i=0;i<6;i++){
+    let a=i*Math.PI/3;
+    let next=a+Math.PI/6;
+    let inner=0.04;
+    let outer=0.18+(i%2)*0.035;
+    positions.push(
+      0,0,0,
+      Math.sin(a)*inner,0.025,Math.cos(a)*inner,
+      Math.sin(next)*outer,0.02,Math.cos(next)*outer
+    );
+  }
+  positions.push(
+    -0.04,0.015,-0.04,
+    0.04,0.015,-0.04,
+    0,0.07,0.04
+  );
+  let geometry=new THREE.BufferGeometry();
+  geometry.setAttribute("position",new THREE.Float32BufferAttribute(positions,3));
+  return finishTerraformGeometry(geometry);
+}
+
+let terraformGrassGeo=makeTerraformGrassGeometry();
+let terraformFernGeo=deformTerraformGeometry(new THREE.IcosahedronGeometry(0.55,1),3,{rough:0.34,vertical:0.08,flatten:1.35});
+let terraformBushGeo=deformTerraformGeometry(new THREE.IcosahedronGeometry(0.9,2),5,{rough:0.28,vertical:0.1,flatten:0.78});
+let terraformFlowerStemGeo=makeTerraformTrunkGeometry(7,0.025,0.038);
+let terraformTrunkGeo=makeTerraformTrunkGeometry(11);
+let terraformCrownGeo=deformTerraformGeometry(new THREE.IcosahedronGeometry(1,2),13,{rough:0.28,vertical:0.12,flatten:0.96});
+let terraformConiferCrownGeo=deformTerraformGeometry(new THREE.IcosahedronGeometry(1,2),17,{rough:0.24,vertical:0.1,flatten:0.72});
+let terraformBroadCrownGeo=deformTerraformGeometry(new THREE.SphereGeometry(1,12,8),19,{rough:0.2,vertical:0.08,flatten:0.58});
+let terraformColumnCrownGeo=deformTerraformGeometry(new THREE.SphereGeometry(1,12,10),23,{rough:0.18,vertical:0.1,flatten:1.55});
+let terraformFlowerGeo=makeTerraformFlowerGeometry();
+let terraformGrassMat=new THREE.MeshStandardMaterial({color:0x7cff7a,emissive:0x123c12,emissiveIntensity:0.16,roughness:0.8});
+let terraformFernMat=new THREE.MeshStandardMaterial({color:0x55d86f,emissive:0x0a3216,emissiveIntensity:0.18,roughness:0.82});
+let terraformBushMat=new THREE.MeshStandardMaterial({color:0x38c85f,emissive:0x082f14,emissiveIntensity:0.2,roughness:0.78});
+let terraformTrunkMat=new THREE.MeshStandardMaterial({color:0x6f4a2e,roughness:0.9,metalness:0.02});
+let terraformCrownMat=new THREE.MeshStandardMaterial({color:0x4dff7a,emissive:0x0f4d1f,emissiveIntensity:0.28,roughness:0.72});
+let terraformDarkCrownMat=new THREE.MeshStandardMaterial({color:0x1fbd58,emissive:0x063916,emissiveIntensity:0.2,roughness:0.78});
+let terraformPaleCrownMat=new THREE.MeshStandardMaterial({color:0x9aff84,emissive:0x1c4d18,emissiveIntensity:0.22,roughness:0.7});
+let terraformFlowerMat=new THREE.MeshBasicMaterial({color:0xfff0a8,transparent:true,opacity:0.94,depthWrite:false});
+let terraformPinkFlowerMat=new THREE.MeshBasicMaterial({color:0xff7ccf,transparent:true,opacity:0.94,depthWrite:false});
+let terraformBlueFlowerMat=new THREE.MeshBasicMaterial({color:0x76d9ff,transparent:true,opacity:0.94,depthWrite:false});
+let terraformOrangeFlowerMat=new THREE.MeshBasicMaterial({color:0xffb55f,transparent:true,opacity:0.94,depthWrite:false});
+let terraformStemMat=new THREE.MeshStandardMaterial({color:0x72e36b,emissive:0x0b3413,emissiveIntensity:0.14,roughness:0.82});
+let terraformRingMat=new THREE.MeshBasicMaterial({color:0x8dff95,transparent:true,opacity:0.36,depthWrite:false,depthTest:true,side:THREE.DoubleSide});
 let startSequence=null;
 let startSequenceCameraPos=new THREE.Vector3();
 let startSequenceLookAt=new THREE.Vector3();
@@ -2186,7 +2369,7 @@ function showGameOver(){
   hud.showGameOverOverlay();
 }
 
-function showGameWon(){
+function showGameWon(source=null){
   if(gameOver) return;
   gameOver=true;
   gameWon=true;
@@ -2195,7 +2378,7 @@ function showGameWon(){
     car.vy=0;
   }
   hud.updateHealthHud();
-  hud.showGameOverOverlay("You Won");
+  startTerraformFinale(source || playerCar);
 }
 
 function finiteOr(value,fallback){
@@ -2980,7 +3163,7 @@ function damageBossBaseObstacle(obstacle,x,y,z,amount){
       );
     }
     addUnits(bossBaseUnitAmount);
-    showGameWon();
+    showGameWon(base);
   }
 
   return true;
@@ -7422,9 +7605,42 @@ function updateEnemy(enemy){
     }
   }
   if(enemy.buggyModel && enemy.buggyModel.userData){
-    let wheelSpin=Math.max(-0.22,Math.min(0.72,enemy.speed))*0.44;
-    for(let wheel of enemy.buggyModel.userData.wheels || []){
-      wheel.pivot.rotation.x+=wheelSpin;
+    let trackSpeed=Math.max(-0.24,Math.min(0.72,enemy.speed))*0.018;
+    let trackOffset=(enemy.buggyModel.userData.trackOffset || 0)+trackSpeed;
+    trackOffset=trackOffset-Math.floor(trackOffset);
+    enemy.buggyModel.userData.trackOffset=trackOffset;
+    for(let track of enemy.buggyModel.userData.tracks || []){
+      let offset=trackOffset+(track.phase || 0);
+      for(let pad of track.pads || []){
+        let t=(pad.baseT+offset)%1;
+        if(t<0) t+=1;
+        let y;
+        let z;
+        let rotX;
+        if(t<0.35){
+          let u=t/0.35;
+          z=-2.74+u*5.48;
+          y=-0.56;
+          rotX=0;
+        }else if(t<0.5){
+          let u=(t-0.35)/0.15;
+          z=2.74+Math.sin(u*Math.PI)*0.2;
+          y=-0.56+u*1.12;
+          rotX=u*Math.PI;
+        }else if(t<0.85){
+          let u=(t-0.5)/0.35;
+          z=2.74-u*5.48;
+          y=0.56;
+          rotX=Math.PI;
+        }else{
+          let u=(t-0.85)/0.15;
+          z=-2.74-Math.sin(u*Math.PI)*0.2;
+          y=0.56-u*1.12;
+          rotX=Math.PI+u*Math.PI;
+        }
+        pad.mesh.position.set(0,y,z);
+        pad.mesh.rotation.x=rotX;
+      }
     }
     if(enemy.buggyModel.userData.launcher){
       let localAim=clamp(normalizeAngle(targetAngle-enemy.angle),-0.64,0.64);
@@ -8951,37 +9167,55 @@ function makeEnemyBuggyModel(seed=0){
   rack.receiveShadow=true;
   launcher.add(rack);
 
-  let wheels=[];
+  let tracks=[];
   for(let side of [-1,1]){
-    for(let z of [-2.68,2.48]){
-      let wheelPivot=new THREE.Group();
-      wheelPivot.position.set(side*2.85,0.78,z);
-      buggy.add(wheelPivot);
+    let trackGroup=new THREE.Group();
+    trackGroup.position.set(side*2.82,0.76,-0.1);
+    buggy.add(trackGroup);
 
-      let wheel=new THREE.Mesh(new THREE.CylinderGeometry(1.02,1.02,0.72,20),buggyWheelMat.clone());
-      wheel.rotation.z=Math.PI*0.5;
-      wheel.castShadow=true;
-      wheel.receiveShadow=true;
-      wheelPivot.add(wheel);
-      wheels.push({pivot:wheelPivot,side,z});
+    let belt=new THREE.Mesh(new THREE.BoxGeometry(0.82,1.02,6.35),buggyWheelMat.clone());
+    belt.position.set(0,0,0);
+    belt.castShadow=true;
+    belt.receiveShadow=true;
+    trackGroup.add(belt);
 
-      let tireRing=new THREE.Mesh(new THREE.TorusGeometry(1.04,0.09,8,22),enemyTrimMat.clone());
-      tireRing.rotation.y=Math.PI*0.5;
-      tireRing.castShadow=true;
-      tireRing.receiveShadow=true;
-      wheelPivot.add(tireRing);
+    let sideArmor=new THREE.Mesh(new THREE.BoxGeometry(0.92,0.62,5.55),buggyHullMat.clone());
+    sideArmor.position.set(-side*0.02,0.15,0);
+    sideArmor.castShadow=true;
+    sideArmor.receiveShadow=true;
+    trackGroup.add(sideArmor);
 
-      let hub=new THREE.Mesh(new THREE.CylinderGeometry(0.4,0.4,0.78,12),enemyTrimMat.clone());
+    for(let z of [-2.74,2.74]){
+      let sprocket=new THREE.Mesh(new THREE.CylinderGeometry(0.64,0.64,0.92,18),enemyTrimMat.clone());
+      sprocket.position.set(0,0,z);
+      sprocket.rotation.z=Math.PI*0.5;
+      sprocket.castShadow=true;
+      sprocket.receiveShadow=true;
+      trackGroup.add(sprocket);
+
+      let hub=new THREE.Mesh(new THREE.CylinderGeometry(0.32,0.32,0.98,12),buggyLauncherMat.clone());
+      hub.position.set(0,0,z);
       hub.rotation.z=Math.PI*0.5;
       hub.castShadow=true;
       hub.receiveShadow=true;
-      wheelPivot.add(hub);
+      trackGroup.add(hub);
     }
 
-    let fender=new THREE.Mesh(new THREE.BoxGeometry(0.58,0.34,6.1),buggyArmorMat.clone());
-    fender.position.set(side*2.45,1.56,-0.1);
-    fender.rotation.z=side*0.1;
-    addPart(fender);
+    let pads=[];
+    for(let i=0;i<20;i++){
+      let pad=new THREE.Mesh(new THREE.BoxGeometry(0.98,0.16,0.34),enemyTrimMat.clone());
+      pad.castShadow=true;
+      pad.receiveShadow=true;
+      trackGroup.add(pad);
+      pads.push({mesh:pad,baseT:i/20});
+    }
+
+    tracks.push({group:trackGroup,pads,phase:variant*0.17});
+
+    let trackGuard=new THREE.Mesh(new THREE.BoxGeometry(0.62,0.42,6.38),buggyArmorMat.clone());
+    trackGuard.position.set(side*2.46,1.5,-0.1);
+    trackGuard.rotation.z=side*0.08;
+    addPart(trackGuard);
 
     let nerfBar=new THREE.Mesh(new THREE.CylinderGeometry(0.08,0.08,6.4,8),enemyTrimMat.clone());
     nerfBar.position.set(side*2.92,1.38,-0.08);
@@ -9025,7 +9259,8 @@ function makeEnemyBuggyModel(seed=0){
     buggy.add(light);
   }
 
-  buggy.userData.wheels=wheels;
+  buggy.userData.tracks=tracks;
+  buggy.userData.trackOffset=0;
   buggy.userData.launcher=launcher;
   return buggy;
 }
@@ -9239,7 +9474,7 @@ function createEnemyState(index,x,z,type="mech"){
     blocksTradingOutpostFootprint:isGiant,
     active:true,
     group,
-    shadow:(isDrone || isBoat) ? null : createCarShadow(scene),
+    shadow:(isDrone || isBoat) ? null : createCarShadow(scene,isBuggy ? {width:7.2,length:8.8,opacity:0.56,minOpacity:0.3} : {}),
     mechModel:mech,
     droneModel:drone,
     spiderModel:spider,
@@ -10854,6 +11089,10 @@ function updateCameras(){
   if(gameMode==="double") updateCameraForCar(secondCar);
   applyStartSequenceCameraForCar(playerCar);
   if(gameMode==="double") applyStartSequenceCameraForCar(secondCar);
+  if(terraformFinale && terraformFinale.active && !startSequence){
+    applyTerraformFinaleCameraForCar(playerCar,1);
+    if(gameMode==="double") applyTerraformFinaleCameraForCar(secondCar,-1);
+  }
 
   if(gameMode==="single"){
     px=playerCar.x;
@@ -10908,6 +11147,15 @@ function renderGame(){
   let width=innerWidth;
   let height=innerHeight;
 
+  if(terraformFinale && terraformFinale.active){
+    setAimCrossForRender(null);
+    positionSkyForCamera(playerCamera);
+    renderer.setViewport(0,0,width,height);
+    renderer.setScissor(0,0,width,height);
+    renderer.render(scene,playerCamera);
+    return;
+  }
+
   if(gameMode==="single"){
     setAimCrossForRender(playerCar);
     positionSkyForCamera(playerCamera);
@@ -10935,6 +11183,321 @@ function renderGame(){
   renderer.setScissor(halfWidth,0,width-halfWidth,height);
   renderer.render(scene,rightCar.camera);
   setAimCrossForRender(null);
+}
+
+function clearTerraformFinale(){
+  if(!terraformFinale) return;
+  if(terraformFinale.group){
+    scene.remove(terraformFinale.group);
+    terraformFinale.group.traverse(child=>{
+      if(child && child.isInstancedMesh) child.dispose();
+      if(child && child.geometry && child.userData.disposeGeometry) child.geometry.dispose();
+      if(child && child.material && child.userData.disposeMaterial) child.material.dispose();
+    });
+  }
+  document.body.classList.remove("terraform-finale");
+  if(terraformFadeOverlay) terraformFadeOverlay.style.opacity="0";
+  if(terraformCompleteText) terraformCompleteText.style.opacity="0";
+  if(world && world.setTerraformBloomAmount) world.setTerraformBloomAmount(0);
+  terraformFinale=null;
+}
+
+function makeTerraformEntries(centerX,centerZ,count,minRadius,maxRadius,seed,options={}){
+  let entries=[];
+  let attempts=0;
+  let maxAttempts=count*8;
+  while(entries.length<count && attempts<maxAttempts){
+    let i=attempts++;
+    let angle=hash01(seed+i*3.17,centerX*0.01-centerZ*0.02)*Math.PI*2;
+    let radius=minRadius+Math.pow(hash01(seed-i*5.31,centerZ*0.013+i),0.62)*(maxRadius-minRadius);
+    let x=centerX+Math.sin(angle)*radius;
+    let z=centerZ+Math.cos(angle)*radius;
+    let y=drivingSurfaceHeight(x,z);
+    if(y<waterLevel+1.8 || roadDistance(x,z)<(options.roadClearance || 42)) continue;
+    entries.push({
+      x,
+      y,
+      z,
+      yaw:hash01(seed+i*9.1,centerX-centerZ)*Math.PI*2,
+      finalScale:(options.minScale || 1)+(options.maxScale || 1)*hash01(seed-i*11.7,centerX+z),
+      delay:Math.floor((radius/maxRadius)*(options.spreadFrames || 520)+hash01(seed+i*13.2,z)*70),
+      growFrames:options.growFrames || 110,
+      sway:0.75+hash01(seed+i*17.9,x-z)*0.5
+    });
+  }
+  return entries;
+}
+
+function setTerraformInstance(mesh,index,entry,progress,kind){
+  let grow=smoothStep(progress);
+  let minGrow=0.001;
+  let scale=Math.max(minGrow,grow)*entry.finalScale;
+  terraformMatrixDummy.rotation.set(0,entry.yaw,0);
+
+  if(kind==="treeTrunk"){
+    let height=3.4*scale;
+    terraformMatrixDummy.position.set(entry.x,entry.y+height*0.5,entry.z);
+    terraformMatrixDummy.scale.set(0.9*scale,height,0.9*scale);
+  }else if(kind==="treeCrown"){
+    let trunkHeight=3.4*entry.finalScale*Math.max(minGrow,grow);
+    terraformMatrixDummy.position.set(entry.x,entry.y+trunkHeight+1.1*scale,entry.z);
+    terraformMatrixDummy.scale.set(1.25*scale,1.05*scale,1.25*scale);
+  }else if(kind==="coniferTrunk"){
+    let height=4.1*scale;
+    terraformMatrixDummy.position.set(entry.x,entry.y+height*0.5,entry.z);
+    terraformMatrixDummy.scale.set(0.72*scale,height,0.72*scale);
+  }else if(kind==="coniferCrown"){
+    let trunkHeight=2.15*entry.finalScale*Math.max(minGrow,grow);
+    let tier=entry.tier || 0;
+    let tierScale=1-tier*0.15;
+    terraformMatrixDummy.position.set(entry.x,entry.y+trunkHeight+(0.95+tier*0.72)*scale,entry.z);
+    terraformMatrixDummy.scale.set(1.22*scale*tierScale,0.72*scale,1.08*scale*tierScale);
+  }else if(kind==="broadTreeTrunk"){
+    let height=2.8*scale;
+    terraformMatrixDummy.position.set(entry.x,entry.y+height*0.5,entry.z);
+    terraformMatrixDummy.scale.set(1.05*scale,height,1.05*scale);
+  }else if(kind==="broadTreeCrown"){
+    let trunkHeight=2.8*entry.finalScale*Math.max(minGrow,grow);
+    terraformMatrixDummy.position.set(entry.x,entry.y+trunkHeight+0.85*scale,entry.z);
+    terraformMatrixDummy.scale.set(2.15*scale,0.78*scale,1.85*scale);
+  }else if(kind==="columnTreeTrunk"){
+    let height=5.2*scale;
+    terraformMatrixDummy.position.set(entry.x,entry.y+height*0.5,entry.z);
+    terraformMatrixDummy.scale.set(0.58*scale,height,0.58*scale);
+  }else if(kind==="columnTreeCrown"){
+    let trunkHeight=3.7*entry.finalScale*Math.max(minGrow,grow);
+    terraformMatrixDummy.position.set(entry.x,entry.y+trunkHeight+1.55*scale,entry.z);
+    terraformMatrixDummy.scale.set(0.72*scale,1.72*scale,0.72*scale);
+  }else if(kind==="bush"){
+    terraformMatrixDummy.position.set(entry.x,entry.y+0.55*scale,entry.z);
+    terraformMatrixDummy.scale.set(1.35*scale,0.78*scale,1.12*scale);
+  }else if(kind==="fern"){
+    let lean=Math.sin(entry.yaw*2.1)*0.18;
+    let height=1.35*scale;
+    terraformMatrixDummy.rotation.set(lean,entry.yaw,-lean*0.6);
+    terraformMatrixDummy.position.set(entry.x,entry.y+height*0.48,entry.z);
+    terraformMatrixDummy.scale.set(0.54*scale,height,0.32*scale);
+  }else if(kind==="flowerStem"){
+    let height=1.55*scale;
+    terraformMatrixDummy.position.set(entry.x,entry.y+height*0.5,entry.z);
+    terraformMatrixDummy.scale.set(1.0*scale,height,1.0*scale);
+  }else if(kind==="flowerHead"){
+    let stemHeight=1.55*entry.finalScale*Math.max(minGrow,grow);
+    terraformMatrixDummy.position.set(entry.x,entry.y+stemHeight+0.16*scale,entry.z);
+    terraformMatrixDummy.scale.set(1.18*scale,1.0*scale,1.18*scale);
+  }else if(kind==="flower"){
+    terraformMatrixDummy.position.set(entry.x,entry.y+0.18+0.2*grow,entry.z);
+    terraformMatrixDummy.scale.set(0.8*scale,0.8*scale,0.8*scale);
+  }else{
+    let height=1.2*scale;
+    terraformMatrixDummy.position.set(entry.x,entry.y+height*0.5,entry.z);
+    terraformMatrixDummy.scale.set(0.75*scale,height,0.75*scale);
+  }
+
+  terraformMatrixDummy.updateMatrix();
+  mesh.setMatrixAt(index,terraformMatrixDummy.matrix);
+}
+
+function updateTerraformEntryMesh(mesh,entries,age,kind){
+  if(!mesh || !entries) return;
+  for(let i=0;i<entries.length;i++){
+    let entry=entries[i];
+    let progress=(age-entry.delay)/Math.max(1,entry.growFrames);
+    setTerraformInstance(mesh,i,entry,progress,kind);
+  }
+  mesh.instanceMatrix.needsUpdate=true;
+}
+
+function startTerraformFinale(car=playerCar){
+  if(terraformFinale && terraformFinale.active) return;
+  clearTerraformFinale();
+  clearRockets();
+  clearEnemies();
+  if(terraformFadeOverlay) terraformFadeOverlay.style.opacity="0";
+  if(terraformCompleteText) terraformCompleteText.style.opacity="0";
+  if(world && world.setTerraformBloomAmount) world.setTerraformBloomAmount(0);
+
+  let centerX=car.x;
+  let centerZ=car.z;
+  let centerY=drivingSurfaceHeight(centerX,centerZ);
+  let group=new THREE.Group();
+  group.name="TerraformFinale";
+  scene.add(group);
+
+  let grassEntries=makeTerraformEntries(centerX,centerZ,2600,12,760,41,{minScale:0.5,maxScale:1.5,spreadFrames:1180,growFrames:78,roadClearance:34});
+  let fernEntries=makeTerraformEntries(centerX,centerZ,1180,20,790,63,{minScale:0.4,maxScale:1.35,spreadFrames:1260,growFrames:98,roadClearance:36});
+  let bushEntries=makeTerraformEntries(centerX,centerZ,520,28,820,79,{minScale:0.5,maxScale:1.55,spreadFrames:1340,growFrames:138,roadClearance:44});
+  let treeEntries=makeTerraformEntries(centerX,centerZ,1120,36,900,97,{minScale:0.52,maxScale:1.78,spreadFrames:1420,growFrames:162,roadClearance:50});
+  let coniferEntries=makeTerraformEntries(centerX,centerZ,760,54,940,109,{minScale:0.5,maxScale:1.55,spreadFrames:1480,growFrames:176,roadClearance:52});
+  let coniferTierEntries=[
+    ...coniferEntries.map(entry=>({...entry,tier:0})),
+    ...coniferEntries.map(entry=>({...entry,tier:1,delay:entry.delay+18})),
+    ...coniferEntries.map(entry=>({...entry,tier:2,delay:entry.delay+34}))
+  ];
+  let broadTreeEntries=makeTerraformEntries(centerX,centerZ,520,44,880,127,{minScale:0.48,maxScale:1.52,spreadFrames:1360,growFrames:150,roadClearance:50});
+  let columnTreeEntries=makeTerraformEntries(centerX,centerZ,420,60,920,139,{minScale:0.45,maxScale:1.4,spreadFrames:1500,growFrames:188,roadClearance:54});
+  let flowerEntries=makeTerraformEntries(centerX,centerZ,980,16,720,151,{minScale:0.62,maxScale:1.28,spreadFrames:1120,growFrames:66,roadClearance:30});
+  let pinkFlowerEntries=makeTerraformEntries(centerX,centerZ,820,18,750,173,{minScale:0.52,maxScale:1.24,spreadFrames:1200,growFrames:72,roadClearance:30});
+  let blueFlowerEntries=makeTerraformEntries(centerX,centerZ,680,22,780,197,{minScale:0.48,maxScale:1.18,spreadFrames:1280,growFrames:76,roadClearance:32});
+  let orangeFlowerEntries=makeTerraformEntries(centerX,centerZ,620,18,710,223,{minScale:0.56,maxScale:1.16,spreadFrames:1160,growFrames:70,roadClearance:30});
+  let tallFlowerEntries=makeTerraformEntries(centerX,centerZ,420,24,680,251,{minScale:0.48,maxScale:1.38,spreadFrames:1240,growFrames:96,roadClearance:34});
+
+  let grasses=new THREE.InstancedMesh(terraformGrassGeo,terraformGrassMat,grassEntries.length);
+  let ferns=new THREE.InstancedMesh(terraformFernGeo,terraformFernMat,fernEntries.length);
+  let bushes=new THREE.InstancedMesh(terraformBushGeo,terraformBushMat,bushEntries.length);
+  let trunks=new THREE.InstancedMesh(terraformTrunkGeo,terraformTrunkMat,treeEntries.length);
+  let crowns=new THREE.InstancedMesh(terraformCrownGeo,terraformCrownMat,treeEntries.length);
+  let coniferTrunks=new THREE.InstancedMesh(terraformTrunkGeo,terraformTrunkMat,coniferEntries.length);
+  let coniferCrowns=new THREE.InstancedMesh(terraformConiferCrownGeo,terraformDarkCrownMat,coniferTierEntries.length);
+  let broadTreeTrunks=new THREE.InstancedMesh(terraformTrunkGeo,terraformTrunkMat,broadTreeEntries.length);
+  let broadTreeCrowns=new THREE.InstancedMesh(terraformBroadCrownGeo,terraformPaleCrownMat,broadTreeEntries.length);
+  let columnTreeTrunks=new THREE.InstancedMesh(terraformTrunkGeo,terraformTrunkMat,columnTreeEntries.length);
+  let columnTreeCrowns=new THREE.InstancedMesh(terraformColumnCrownGeo,terraformDarkCrownMat,columnTreeEntries.length);
+  let flowers=new THREE.InstancedMesh(terraformFlowerGeo,terraformFlowerMat,flowerEntries.length);
+  let pinkFlowers=new THREE.InstancedMesh(terraformFlowerGeo,terraformPinkFlowerMat,pinkFlowerEntries.length);
+  let blueFlowers=new THREE.InstancedMesh(terraformFlowerGeo,terraformBlueFlowerMat,blueFlowerEntries.length);
+  let orangeFlowers=new THREE.InstancedMesh(terraformFlowerGeo,terraformOrangeFlowerMat,orangeFlowerEntries.length);
+  let tallFlowerStems=new THREE.InstancedMesh(terraformFlowerStemGeo,terraformStemMat,tallFlowerEntries.length);
+  let tallFlowerHeads=new THREE.InstancedMesh(terraformFlowerGeo,terraformPinkFlowerMat,tallFlowerEntries.length);
+  for(let mesh of [grasses,ferns,bushes,trunks,crowns,coniferTrunks,coniferCrowns,broadTreeTrunks,broadTreeCrowns,columnTreeTrunks,columnTreeCrowns,flowers,pinkFlowers,blueFlowers,orangeFlowers,tallFlowerStems,tallFlowerHeads]){
+    mesh.frustumCulled=false;
+    group.add(mesh);
+  }
+
+  let rings=[];
+  for(let i=0;i<3;i++){
+    let ring=new THREE.Mesh(new THREE.RingGeometry(0.82,1,96),terraformRingMat.clone());
+    ring.userData.disposeGeometry=true;
+    ring.userData.disposeMaterial=true;
+    ring.rotation.x=-Math.PI*0.5;
+    ring.position.set(centerX,centerY+0.28+i*0.03,centerZ);
+    ring.renderOrder=3;
+    rings.push(ring);
+    group.add(ring);
+  }
+
+  terraformFinale={
+    active:true,
+    age:0,
+    centerX,
+    centerY,
+    centerZ,
+    heading:car.cameraYaw || car.angle || 0,
+    group,
+    grasses,
+    ferns,
+    bushes,
+    trunks,
+    crowns,
+    coniferTrunks,
+    coniferCrowns,
+    broadTreeTrunks,
+    broadTreeCrowns,
+    columnTreeTrunks,
+    columnTreeCrowns,
+    flowers,
+    pinkFlowers,
+    blueFlowers,
+    orangeFlowers,
+    tallFlowerStems,
+    tallFlowerHeads,
+    grassEntries,
+    fernEntries,
+    bushEntries,
+    treeEntries,
+    coniferEntries,
+    coniferTierEntries,
+    broadTreeEntries,
+    columnTreeEntries,
+    flowerEntries,
+    pinkFlowerEntries,
+    blueFlowerEntries,
+    orangeFlowerEntries,
+    tallFlowerEntries,
+    rings
+  };
+  document.body.classList.add("terraform-finale");
+}
+
+function maybeStartTestingTerraformFinale(){
+  if(!testingTerraformFinaleAfterSpawn || terraformFinaleTriggered || !startSequence) return;
+  let spawnStartFrames=startSequence.spawnStartFrames || startSequence.beamStartFrames || 0;
+  if((startSequence.age || 0)<spawnStartFrames+testingTerraformFinaleDelayFrames) return;
+  terraformFinaleTriggered=true;
+  startTerraformFinale(playerCar);
+}
+
+function updateTerraformFinale(){
+  if(!terraformFinale || !terraformFinale.active) return;
+  terraformFinale.age++;
+  let age=terraformFinale.age;
+  let greenAmount=smoothStep(clamp(age/1160,0,1));
+  let fadeAmount=smoothStep(clamp((age-1280)/260,0,1));
+  let titleAmount=smoothStep(clamp((age-1180)/180,0,1));
+  if(world && world.setTerraformBloomAmount) world.setTerraformBloomAmount(greenAmount);
+  if(terraformFadeOverlay) terraformFadeOverlay.style.opacity=String(fadeAmount);
+  if(terraformCompleteText) terraformCompleteText.style.opacity=String(titleAmount);
+
+  if(age<=1540){
+    updateTerraformEntryMesh(terraformFinale.grasses,terraformFinale.grassEntries,age,"grass");
+    updateTerraformEntryMesh(terraformFinale.ferns,terraformFinale.fernEntries,age,"fern");
+    updateTerraformEntryMesh(terraformFinale.bushes,terraformFinale.bushEntries,age,"bush");
+    updateTerraformEntryMesh(terraformFinale.trunks,terraformFinale.treeEntries,age,"treeTrunk");
+    updateTerraformEntryMesh(terraformFinale.crowns,terraformFinale.treeEntries,age,"treeCrown");
+    updateTerraformEntryMesh(terraformFinale.coniferTrunks,terraformFinale.coniferEntries,age,"coniferTrunk");
+    updateTerraformEntryMesh(terraformFinale.coniferCrowns,terraformFinale.coniferTierEntries,age,"coniferCrown");
+    updateTerraformEntryMesh(terraformFinale.broadTreeTrunks,terraformFinale.broadTreeEntries,age,"broadTreeTrunk");
+    updateTerraformEntryMesh(terraformFinale.broadTreeCrowns,terraformFinale.broadTreeEntries,age,"broadTreeCrown");
+    updateTerraformEntryMesh(terraformFinale.columnTreeTrunks,terraformFinale.columnTreeEntries,age,"columnTreeTrunk");
+    updateTerraformEntryMesh(terraformFinale.columnTreeCrowns,terraformFinale.columnTreeEntries,age,"columnTreeCrown");
+    updateTerraformEntryMesh(terraformFinale.flowers,terraformFinale.flowerEntries,age,"flower");
+    updateTerraformEntryMesh(terraformFinale.pinkFlowers,terraformFinale.pinkFlowerEntries,age,"flower");
+    updateTerraformEntryMesh(terraformFinale.blueFlowers,terraformFinale.blueFlowerEntries,age,"flower");
+    updateTerraformEntryMesh(terraformFinale.orangeFlowers,terraformFinale.orangeFlowerEntries,age,"flower");
+    updateTerraformEntryMesh(terraformFinale.tallFlowerStems,terraformFinale.tallFlowerEntries,age,"flowerStem");
+    updateTerraformEntryMesh(terraformFinale.tallFlowerHeads,terraformFinale.tallFlowerEntries,age,"flowerHead");
+  }
+
+  for(let i=0;i<terraformFinale.rings.length;i++){
+    let ring=terraformFinale.rings[i];
+    let t=clamp((age-i*42)/540,0,1);
+    let eased=smoothStep(t);
+    ring.scale.setScalar(18+eased*920);
+    ring.material.opacity=(1-t)*0.28;
+  }
+
+  for(let car of activeCars()){
+    car.speed=0;
+    car.vy=0;
+    car.throttleEase=0;
+    car.turnInputEase=0;
+    car.turnVelocity=0;
+  }
+}
+
+function applyTerraformFinaleCameraForCar(car,side=1){
+  if(!terraformFinale || !terraformFinale.active || !car) return;
+  let age=terraformFinale.age;
+  let zoom=smoothStep(clamp(age/1280,0,1));
+  let bloom=smoothStep(clamp(age/960,0,1));
+  let orbit=terraformFinale.heading+0.24+zoom*0.72;
+  let dist=36+zoom*760;
+  let height=14+zoom*320;
+  let centerX=terraformFinale.centerX;
+  let centerZ=terraformFinale.centerZ;
+  let centerY=terraformFinale.centerY;
+  let rightX=Math.cos(orbit);
+  let rightZ=-Math.sin(orbit);
+  car.camera.position.set(
+    centerX-Math.sin(orbit)*dist+rightX*side*10*(1-zoom),
+    centerY+height,
+    centerZ-Math.cos(orbit)*dist+rightZ*side*10*(1-zoom)
+  );
+  car.camera.lookAt(
+    centerX,
+    centerY+5+bloom*36,
+    centerZ
+  );
 }
 
 let lastChunkSignature="";
@@ -11411,22 +11974,27 @@ function fixedUpdateGame(){
   updateUnlockedRandomPortals();
   updateScannerMode();
   updateStartSequence();
+  updateTerraformFinale();
+  let finaleActive=!!(terraformFinale && terraformFinale.active);
   for(let car of activeCars()){
     if(isCarInStartSequence(car)) continue;
+    if(finaleActive) continue;
     updateCar(car);
   }
-  updateTreasurePickups();
-  updateAmbientSpaceships();
-  updateMothership();
-  updateEnemies();
-  updateVillageTurrets();
-  updateBossBaseDefenses();
-  updateSupplyBoxes();
-  updateRockets();
-  updateTradingOutpostRepair();
-  updateCannonBolts();
-  updateClusterBombs();
-  updateGiantFireballs();
+  if(!finaleActive){
+    updateTreasurePickups();
+    updateAmbientSpaceships();
+    updateMothership();
+    updateEnemies();
+    updateVillageTurrets();
+    updateBossBaseDefenses();
+    updateSupplyBoxes();
+    updateRockets();
+    updateTradingOutpostRepair();
+    updateCannonBolts();
+    updateClusterBombs();
+    updateGiantFireballs();
+  }
   if(healthDamageCooldown>0) healthDamageCooldown--;
 
   dust.update();
@@ -11533,6 +12101,7 @@ function loop(timestamp=performance.now()){
 
 renderer.domElement.addEventListener("click",event=>{
   if(handleTradingTerminalClick(event)) return;
+  requestBrowserFullscreen();
   if(gameStarted && !gamePaused && !terminalOverlayOpen() && !gameOver) input.requestPointerLock(renderer.domElement);
 });
 
@@ -11809,6 +12378,8 @@ function startGame(mode,difficulty="medium",savedStatus=null){
   clearTestingTradingOutpost();
   clearTestingRadarOutpost();
   clearStartSequence();
+  clearTerraformFinale();
+  terraformFinaleTriggered=false;
   if(world.clearBossBases) world.clearBossBases();
   if(savedStatus) applySavedWorldSettings(savedStatus);
   jetUnlocked=false;
@@ -11905,6 +12476,7 @@ if(startScreen){
 
     let loadButton=event.target.closest("[data-load-game]");
     if(loadButton && !gameStarted){
+      requestBrowserFullscreen();
       let status=readSavedGameStatus();
       if(status) startGame(status.mode,status.difficulty,status);
       else updateLoadGameButton();
@@ -11913,6 +12485,7 @@ if(startScreen){
 
     let button=event.target.closest("[data-mode]");
     if(!button || gameStarted) return;
+    requestBrowserFullscreen();
     let difficulty=startScreen.dataset.difficulty || "medium";
     startGame(button.dataset.mode==="double" ? "double" : "single",difficulty);
   });
@@ -12413,6 +12986,8 @@ function updateStartSequence(){
       entry.beam.ringMat.opacity=beamStarted ? 0.82*beamFade*beamIn : 0;
     }
   }
+
+  maybeStartTestingTerraformFinale();
 
   if(age>=duration){
     clearStartSequence();

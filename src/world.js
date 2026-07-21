@@ -1,7 +1,7 @@
 import { THREE } from "./three.js";
 import { carRadius, chunkSize, segments, viewDistance } from "./constants.js";
-import { groundHeight, rand, roadCenterX, roadDistance } from "./terrain.js?v=mountain-detail";
-import { makeGroundTexture } from "./textures.js?v=alien-planet";
+import { groundHeight, rand, roadCenterX, roadDistance } from "./terrain.js?v=terrain-structure";
+import { makeCarShadowTexture, makeGroundTexture } from "./textures.js?v=building-shadows";
 import { makeMissionOutpostTerminal } from "./models.js?v=radar-performance-fix";
 
 export function createWorld(scene,options={}){
@@ -151,6 +151,12 @@ landMat.onBeforeCompile=shader=>{
     ].join("\n")
   );
 };
+
+function setTerraformBloomAmount(amount=0){
+  let t=Math.max(0,Math.min(1,amount));
+  landMat.color.set(0xffffff).lerp(new THREE.Color(0x7dff71),t*0.78);
+  landMat.emissive.set(0x102a0c).multiplyScalar(t*0.28);
+}
 
 let waterMat=new THREE.MeshStandardMaterial({
   color:0x20ffd4,
@@ -343,6 +349,17 @@ let brickWallMat=new THREE.MeshStandardMaterial({color:0x714060,roughness:0.95,m
 let cityStreetMat=new THREE.MeshStandardMaterial({color:0x1d1f25,roughness:0.86,metalness:0.08});
 let cityDetailMat=new THREE.MeshStandardMaterial({color:0xa78fbd,emissive:0x241438,emissiveIntensity:0.18,roughness:0.72,metalness:0.1});
 let cityGlowMat=new THREE.MeshBasicMaterial({color:0x8dfff2,transparent:true,opacity:0.82,depthWrite:false,depthTest:true});
+let buildingShadowMat=new THREE.MeshBasicMaterial({
+  map:makeCarShadowTexture(),
+  color:0x000000,
+  transparent:true,
+  opacity:0.26,
+  depthWrite:false,
+  depthTest:true,
+  polygonOffset:true,
+  polygonOffsetFactor:-1,
+  polygonOffsetUnits:-1
+});
 let radarOutpostBaseMat=new THREE.MeshStandardMaterial({color:0x363f4a,roughness:0.74,metalness:0.48});
 let radarOutpostDishMat=new THREE.MeshStandardMaterial({color:0x9fb1bd,roughness:0.48,metalness:0.62,side:THREE.DoubleSide});
 let radarOutpostGlowMat=new THREE.MeshBasicMaterial({color:0x8dfff2,transparent:true,opacity:0.9,depthWrite:false,depthTest:true});
@@ -365,6 +382,7 @@ let trimGeo=new THREE.BoxGeometry(1,1,1);
 let porchGeo=new THREE.BoxGeometry(1,1,1);
 let brickWallGeo=new THREE.BoxGeometry(1,1,1);
 let cityStreetGeo=new THREE.BoxGeometry(1,1,1);
+let buildingShadowGeo=new THREE.PlaneGeometry(1,1);
 let radarOutpostBaseGeo=new THREE.CylinderGeometry(1,1.18,1,10);
 let radarOutpostMastGeo=new THREE.CylinderGeometry(0.18,0.28,1,10);
 let radarOutpostDishGeo=new THREE.SphereGeometry(1,24,12,0,Math.PI*2,0,Math.PI*0.55);
@@ -386,11 +404,13 @@ let turretBaseMat=new THREE.MeshStandardMaterial({color:0x312a3e,roughness:0.82,
 let turretHeadMat=new THREE.MeshStandardMaterial({color:0x554163,emissive:0x16091f,emissiveIntensity:0.22,roughness:0.72,metalness:0.48});
 let turretBarrelMat=new THREE.MeshStandardMaterial({color:0x151923,emissive:0x06162d,emissiveIntensity:0.32,roughness:0.56,metalness:0.7});
 let chunkSharedMaterials=new Set([
+  buildingShadowMat,
   radarOutpostBaseMat,
   radarOutpostDishMat,
   radarOutpostGlowMat
 ]);
 let chunkSharedGeometries=new Set([
+  buildingShadowGeo,
   radarOutpostBaseGeo,
   radarOutpostMastGeo,
   radarOutpostDishGeo,
@@ -579,7 +599,7 @@ function createChunkWorker(){
   if(options.disableChunkWorker || typeof Worker==="undefined") return null;
 
   try{
-    let worker=new Worker(new URL("./chunkWorker.js?v=mountain-detail",import.meta.url),{type:"module"});
+    let worker=new Worker(new URL("./chunkWorker.js?v=terrain-structure",import.meta.url),{type:"module"});
     let template=makeTerrainVertexTemplate();
     worker.postMessage({
       type:"setTerrainTemplate",
@@ -2098,6 +2118,8 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   let villageSpawnChance=!buildChunkFeatures ? 0 : cityMode ? 1 : Math.max(0,Math.min(1,(settlements.villageSpawnChance ?? 0.45)*featureDensity));
   let maxBuildings=Math.max(1,Math.floor((cityMode ? 92 : 120*villagesPerChunk)*Math.max(0.08,featureDensity)));
   let maxWindowInstances=maxBuildings*(cityMode ? 84 : 8);
+  let buildingShadows=new THREE.InstancedMesh(buildingShadowGeo,buildingShadowMat,maxBuildings);
+  buildingShadows.renderOrder=1;
   let buildingBodies=new THREE.InstancedMesh(buildingGeo,buildingWallMat,maxBuildings);
   let maxRoofInstances=cityMode ? maxBuildings*2 : maxBuildings;
   let maxTrimInstances=maxBuildings*(cityMode ? 9 : 2);
@@ -2112,6 +2134,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   let cityStreets=new THREE.InstancedMesh(cityStreetGeo,cityStreetMat,cityMode ? villagesPerChunk*8 : 1);
   let cityStreetDetails=new THREE.InstancedMesh(cityStreetGeo,cityDetailMat,cityMode ? villagesPerChunk*96 : 1);
   let cityTechDetails=new THREE.InstancedMesh(cityStreetGeo,cityGlowMat,cityMode ? maxBuildings*12+villagesPerChunk*32 : 1);
+  let buildingShadowUsed=0;
   let buildingUsed=0;
   let windowUsed=0;
   let doorUsed=0;
@@ -2385,6 +2408,22 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
       buildingBodies.setMatrixAt(buildingUsed,dummy.matrix);
       buildingCollider.instances.push({mesh:buildingBodies,index:buildingIndex});
 
+      if(buildingShadowUsed<maxBuildings){
+        let shadowAngle=-0.72;
+        let shadowDirX=Math.sin(shadowAngle);
+        let shadowDirZ=Math.cos(shadowAngle);
+        let tallShadow=Math.max(0,height-(cityMode ? 18 : 8));
+        let shadowLength=depth*1.18+Math.min(cityMode ? 112 : 48,height*(cityMode ? 0.5 : 0.34)+tallShadow*(cityMode ? 0.34 : 0.16));
+        let shadowWidth=width*1.18+Math.min(cityMode ? 20 : 10,height*0.08);
+        let shadowOffset=Math.min(cityMode ? 52 : 22,height*(cityMode ? 0.22 : 0.13)+tallShadow*(cityMode ? 0.12 : 0.05));
+        dummy.position.set(wx+shadowDirX*shadowOffset,wy+0.16,wz+shadowDirZ*shadowOffset);
+        dummy.rotation.set(-Math.PI*0.5,0,shadowAngle);
+        dummy.scale.set(shadowWidth,shadowLength,1);
+        dummy.updateMatrix();
+        buildingShadows.setMatrixAt(buildingShadowUsed,dummy.matrix);
+        buildingShadowUsed++;
+      }
+
       let roofScale=Math.max(width,depth)*(cityMode ? 0.82 : 0.72);
       dummy.position.set(wx+rightX*crownOffset,wy+height+roofHeight*0.5,wz+rightZ*crownOffset);
       dummy.rotation.set(0,yaw+Math.PI*0.25,0);
@@ -2631,6 +2670,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
     }
   }
 
+  buildingShadows.count=buildingShadowUsed;
   buildingBodies.count=buildingUsed;
   buildingRoofs.count=buildingUsed;
   buildingWindows.count=windowUsed;
@@ -2642,6 +2682,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   cityStreets.count=streetUsed;
   cityStreetDetails.count=streetDetailUsed;
   cityTechDetails.count=techDetailUsed;
+  buildingShadows.instanceMatrix.needsUpdate=true;
   buildingBodies.instanceMatrix.needsUpdate=true;
   buildingRoofs.instanceMatrix.needsUpdate=true;
   buildingWindows.instanceMatrix.needsUpdate=true;
@@ -2653,6 +2694,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   cityStreets.instanceMatrix.needsUpdate=true;
   cityStreetDetails.instanceMatrix.needsUpdate=true;
   cityTechDetails.instanceMatrix.needsUpdate=true;
+  freezeStaticObject(buildingShadows);
   freezeStaticObject(buildingBodies);
   freezeStaticObject(buildingRoofs);
   freezeStaticObject(buildingWindows);
@@ -2664,7 +2706,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   freezeStaticObject(cityStreets);
   freezeStaticObject(cityStreetDetails);
   freezeStaticObject(cityTechDetails);
-  chunkRoot.add(buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,cityStreets,cityStreetDetails,cityTechDetails);
+  chunkRoot.add(buildingShadows,buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,cityStreets,cityStreetDetails,cityTechDetails);
   yield;
 
   function colliderNear(x,z,radius){
@@ -2730,7 +2772,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
 
   scene.add(chunkRoot);
 
-  return {cx,cz,root:chunkRoot,land,road,water,trunks,crowns,pods,grasses,rocks,gravel,holeMeshes,treasureChests,radarOutposts,buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,cityStreets,cityStreetDetails,cityTechDetails,landingSpaces,landingSurfaces,landingRings,villageCenters,colliders,holes:localHoles};
+  return {cx,cz,root:chunkRoot,land,road,water,trunks,crowns,pods,grasses,rocks,gravel,holeMeshes,treasureChests,radarOutposts,buildingShadows,buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,cityStreets,cityStreetDetails,cityTechDetails,landingSpaces,landingSurfaces,landingRings,villageCenters,colliders,holes:localHoles};
 }
 
 function updateChunksForCenters(centers){
@@ -2846,6 +2888,7 @@ function disposeChunk(chunk){
     ...(chunk.holeMeshes || []),
     ...(chunk.treasureChests || []),
     ...(chunk.radarOutposts || []),
+    chunk.buildingShadows,
     chunk.buildingBodies,
     chunk.buildingRoofs,
     chunk.buildingWindows,
@@ -2871,6 +2914,7 @@ function disposeChunk(chunk){
   chunk.grasses.dispose();
   chunk.rocks.dispose();
   if(chunk.gravel) chunk.gravel.dispose();
+  if(chunk.buildingShadows) chunk.buildingShadows.dispose();
   chunk.buildingBodies.dispose();
   chunk.buildingRoofs.dispose();
   chunk.buildingWindows.dispose();
@@ -3307,6 +3351,7 @@ function holeSurfaceHeightAt(x,z){
     updateChunks,
     updateChunksForCenters,
     updateWind,
+    setTerraformBloomAmount,
     processChunkQueue,
     setEnvironment:applyEnvironment,
     setWorkerTerrain,
