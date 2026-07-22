@@ -3,7 +3,7 @@ import { carRadius, gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize, v
 import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=live-fps-smoothing";
 import { createInput } from "./input.js?v=scanner-bumper";
 import { createHud } from "./hud.js?v=grey-display-bars-compass";
-import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=tracked-enemy-shadows";
+import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=stronger-directed-rain";
 import { createWorld } from "./world.js?v=treasure-pickup-beam";
 import { createMotorAudio } from "./audio.js?v=intro-beam-sizzle";
 import { worldEnvironments } from "./environments.js?v=neon-city-terrain-color";
@@ -1766,7 +1766,26 @@ let stars=createStars(scene,()=>{
   return {x:x/active.length,y:y/active.length,z:z/active.length};
 },()=>dayNightState().nightAmount,()=>rainIntensity);
 let birds=createBirds(scene,()=>({carX:playerCar.x,carZ:playerCar.z}));
-let rain=createRain(scene,()=>({carX:px,carY:py,carZ:pz}),()=>rainRenderingSuppressed() ? 0 : rainIntensity,()=>rainQualityScale());
+function playerRainDirection(){
+  let x=0;
+  let z=0;
+  let speedSum=0;
+  let count=0;
+  for(let car of activeCars()){
+    if(!car || !car.group.visible || car.health<=0) continue;
+    let speed=car.speed || 0;
+    let speedAbs=Math.abs(speed);
+    if(speedAbs<0.025) continue;
+    let travelAngle=speed>=0 ? car.velAngle : car.velAngle+Math.PI;
+    x+=Math.sin(travelAngle)*speedAbs;
+    z+=Math.cos(travelAngle)*speedAbs;
+    speedSum+=speedAbs;
+    count++;
+  }
+  if(!count || speedSum<=0.001) return {x:0,z:0,speed:0};
+  return {x:x/speedSum,z:z/speedSum,speed:speedSum/count};
+}
+let rain=createRain(scene,()=>({carX:px,carY:py,carZ:pz}),()=>rainRenderingSuppressed() ? 0 : rainIntensity,()=>rainQualityScale(),playerRainDirection);
 let ambientMotes=createAmbientMotes(scene,()=>({carX:px,carY:py,carZ:pz}),()=>rainIntensity);
 let dust=createDust(scene);
 let wheelTracks=createWheelTracks(scene);

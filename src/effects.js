@@ -406,7 +406,7 @@ export function createBirds(scene,getCarPosition){
   return {makeBirds,update};
 }
 
-export function createRain(scene,getCarPosition,getRainIntensity=()=>0,getRainQuality=()=>1){
+export function createRain(scene,getCarPosition,getRainIntensity=()=>0,getRainQuality=()=>1,getRainDirection=()=>({x:0,z:0,speed:0})){
   let maxDrops=850;
   let range=420;
   let height=190;
@@ -414,6 +414,8 @@ export function createRain(scene,getCarPosition,getRainIntensity=()=>0,getRainQu
   let speeds=new Float32Array(maxDrops);
   let offsets=new Float32Array(maxDrops*3);
   let rainTime=0;
+  let rainDirX=-0.18;
+  let rainDirZ=0.08;
 
   for(let i=0;i<maxDrops;i++){
     offsets[i*3]=(Math.random()-0.5)*range;
@@ -454,6 +456,21 @@ export function createRain(scene,getCarPosition,getRainIntensity=()=>0,getRainQu
     material.opacity=0.18+intensity*0.42;
     let activeDrops=Math.max(28,Math.floor(maxDrops*intensity*quality));
     let {carX,carY=20,carZ}=getCarPosition();
+    let direction=getRainDirection() || {};
+    let targetDirX=Number.isFinite(direction.x) ? direction.x : 0;
+    let targetDirZ=Number.isFinite(direction.z) ? direction.z : 0;
+    let targetSpeed=Number.isFinite(direction.speed) ? Math.abs(direction.speed) : 0;
+    let targetLen=Math.hypot(targetDirX,targetDirZ);
+    if(targetLen>0.001 && targetSpeed>0.04){
+      targetDirX/=targetLen;
+      targetDirZ/=targetLen;
+      let movementInfluence=Math.min(1,targetSpeed/0.62);
+      rainDirX+=((-targetDirX)-rainDirX)*(0.055+movementInfluence*0.1);
+      rainDirZ+=((-targetDirZ)-rainDirZ)*(0.055+movementInfluence*0.1);
+    }else{
+      rainDirX+=(-0.18-rainDirX)*0.018;
+      rainDirZ+=(0.08-rainDirZ)*0.018;
+    }
     let lowerY=Math.min(8,carY-130);
     let upperY=Math.max(150,carY+70);
     let rainHeight=upperY-lowerY;
@@ -472,9 +489,10 @@ export function createRain(scene,getCarPosition,getRainIntensity=()=>0,getRainQu
       positions[base]=x;
       positions[base+1]=y;
       positions[base+2]=z;
-      positions[base+3]=x-1.5;
+      let slant=4.2+intensity*9.2+Math.min(10.5,targetSpeed*6.2);
+      positions[base+3]=x+rainDirX*slant;
       positions[base+4]=y-10-intensity*8;
-      positions[base+5]=z+0.65;
+      positions[base+5]=z+rainDirZ*slant;
     }
 
     geometry.setDrawRange(0,activeDrops*2);
