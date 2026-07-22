@@ -2,7 +2,7 @@ import { THREE } from "./three.js";
 import { carRadius, gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize, viewDistance, mothershipDropCount, mothershipDropInterval, mothershipDropLineSpacing, mothershipHoverDistance, mothershipHoverFrames, mothershipMinDelay, mothershipRandomDelay, mothershipRocketHits } from "./constants.js";
 import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=live-fps-smoothing";
 import { createInput } from "./input.js?v=scanner-bumper";
-import { createHud } from "./hud.js?v=labeled-boost-fuel";
+import { createHud } from "./hud.js?v=grey-display-bars-compass";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=tracked-enemy-shadows";
 import { createWorld } from "./world.js?v=render-stress-lod";
 import { createMotorAudio } from "./audio.js?v=intro-beam-sizzle";
@@ -315,6 +315,8 @@ let playerCamera=new THREE.PerspectiveCamera(45,innerWidth/innerHeight,.1,1e6);
 let secondCamera=new THREE.PerspectiveCamera(45,innerWidth/innerHeight,.1,1e6);
 let renderer=new THREE.WebGLRenderer({antialias:false,powerPreference:"high-performance"});
 let fullscreenRequestBlocked=false;
+let fullscreenTransitionOverlay=null;
+let fullscreenTransitionTimer=null;
 
 function currentFullscreenElement(){
   return document.fullscreenElement || document.webkitFullscreenElement || null;
@@ -325,23 +327,28 @@ function requestBrowserFullscreen(){
   let target=document.documentElement || document.body;
   let request=target.requestFullscreen || target.webkitRequestFullscreen;
   if(!target || !request) return;
+  showFullscreenTransitionOverlay();
   try{
     let result=request.call(target);
     if(result && result.catch){
       result.catch(()=>{
         fullscreenRequestBlocked=true;
+        hideFullscreenTransitionOverlay(180);
       });
     }
   }catch(error){
     fullscreenRequestBlocked=true;
+    hideFullscreenTransitionOverlay(180);
   }
 }
 
 document.addEventListener("fullscreenchange",()=>{
   if(currentFullscreenElement()) fullscreenRequestBlocked=false;
+  scheduleRendererViewportRefresh();
 });
 document.addEventListener("webkitfullscreenchange",()=>{
   if(currentFullscreenElement()) fullscreenRequestBlocked=false;
+  scheduleRendererViewportRefresh();
 });
 let distantMoonDirection=new THREE.Vector3(-0.34,0.42,-0.84).normalize();
 let distantPlanetScale=56000;
@@ -437,9 +444,121 @@ function updateRendererPixelRatio(){
 }
 currentPixelRatio=Math.min(window.devicePixelRatio || 1,1.5);
 renderer.setPixelRatio(currentPixelRatio);
-renderer.setSize(innerWidth,innerHeight);
+renderer.setSize(rendererViewportWidth(),rendererViewportHeight(),false);
 renderer.setScissorTest(true);
+applyRendererViewportStyle();
 document.body.appendChild(renderer.domElement);
+
+function ensureFullscreenTransitionOverlay(){
+  if(fullscreenTransitionOverlay) return fullscreenTransitionOverlay;
+  fullscreenTransitionOverlay=document.createElement("div");
+  fullscreenTransitionOverlay.style.cssText=[
+    "position:fixed",
+    "inset:0",
+    "z-index:1000",
+    "display:none",
+    "background:#000",
+    "opacity:1",
+    "transition:none",
+    "pointer-events:none"
+  ].join(";");
+  document.body.appendChild(fullscreenTransitionOverlay);
+  return fullscreenTransitionOverlay;
+}
+
+function showFullscreenTransitionOverlay(duration=1500){
+  let startScreen=document.getElementById("startScreen");
+  document.body.classList.add("start-fullscreen-transition");
+  if(startScreen) startScreen.classList.add("is-fullscreen-transition");
+  let overlay=ensureFullscreenTransitionOverlay();
+  overlay.style.display="block";
+  overlay.style.transition="none";
+  overlay.style.opacity="1";
+  if(fullscreenTransitionTimer) clearTimeout(fullscreenTransitionTimer);
+  fullscreenTransitionTimer=setTimeout(()=>{
+    hideFullscreenTransitionOverlay();
+  },duration);
+}
+
+function hideFullscreenTransitionOverlay(delay=0,fadeMs=620){
+  if(fullscreenTransitionTimer) clearTimeout(fullscreenTransitionTimer);
+  fullscreenTransitionTimer=setTimeout(()=>{
+    if(!fullscreenTransitionOverlay) return;
+    fullscreenTransitionOverlay.style.transition=`opacity ${fadeMs}ms ease`;
+    fullscreenTransitionOverlay.style.opacity="0";
+    document.body.classList.remove("start-fullscreen-transition");
+    let startScreen=document.getElementById("startScreen");
+    if(startScreen) startScreen.classList.remove("is-fullscreen-transition");
+    fullscreenTransitionTimer=setTimeout(()=>{
+      if(fullscreenTransitionOverlay) fullscreenTransitionOverlay.style.display="none";
+    },fadeMs);
+  },delay);
+}
+
+function rendererViewportWidth(){
+  let visual=window.visualViewport && window.visualViewport.width;
+  return Math.ceil(Math.max(window.innerWidth || 1,document.documentElement.clientWidth || 1,visual || 1));
+}
+
+function rendererViewportHeight(){
+  let visual=window.visualViewport && window.visualViewport.height;
+  return Math.ceil(Math.max(window.innerHeight || 1,document.documentElement.clientHeight || 1,visual || 1));
+}
+
+function applyRendererViewportStyle(){
+  renderer.domElement.style.position="fixed";
+  renderer.domElement.style.left="0";
+  renderer.domElement.style.right="0";
+  renderer.domElement.style.top="0";
+  renderer.domElement.style.bottom="0";
+  renderer.domElement.style.display="block";
+  renderer.domElement.style.width="100dvw";
+  renderer.domElement.style.height="100dvh";
+  renderer.domElement.style.minHeight="100dvh";
+  renderer.domElement.style.background="#000";
+}
+
+function resizeRendererToViewport(){
+  updateRendererPixelRatio();
+  updateCameraProjection();
+  renderer.setSize(rendererViewportWidth(),rendererViewportHeight(),false);
+  applyRendererViewportStyle();
+}
+
+function scheduleRendererViewportRefresh(){
+  requestAnimationFrame(resizeRendererToViewport);
+  setTimeout(resizeRendererToViewport,80);
+  setTimeout(resizeRendererToViewport,260);
+  setTimeout(resizeRendererToViewport,900);
+}
+
+function showMissionStartTitle(delay=160){
+  missionStartTitleAt=performance.now()+delay;
+  if(!missionStartText) return;
+  missionStartText.style.display="block";
+  missionStartText.style.opacity="0";
+  missionStartText.style.transform="translate(-50%,-50%) scale(0.96)";
+}
+
+function updateMissionStartTitle(timestamp){
+  if(!missionStartText || missionStartTitleAt<0) return;
+  let age=timestamp-missionStartTitleAt;
+  if(age<0){
+    missionStartText.style.opacity="0";
+    return;
+  }
+  let fadeIn=smoothStep(age/680);
+  let fadeOut=1-smoothStep((age-1850)/780);
+  let opacity=clamp(fadeIn*fadeOut,0,1);
+  let scale=0.96+0.04*smoothStep(clamp(age/980,0,1));
+  missionStartText.style.opacity=String(opacity);
+  missionStartText.style.transform=`translate(-50%,-50%) scale(${scale.toFixed(3)})`;
+  if(age>2820){
+    missionStartText.style.opacity="0";
+    missionStartText.style.display="none";
+    missionStartTitleAt=-1;
+  }
+}
 
 let fpsDisplay=document.createElement("div");
 fpsDisplay.style.cssText=[
@@ -494,6 +613,29 @@ terraformCompleteText.style.cssText=[
   "white-space:nowrap"
 ].join(";");
 document.body.appendChild(terraformCompleteText);
+let missionStartText=document.createElement("div");
+missionStartText.textContent="Mission Start";
+missionStartText.style.cssText=[
+  "position:fixed",
+  "left:50%",
+  "top:50%",
+  "transform:translate(-50%,-50%) scale(0.96)",
+  "z-index:1001",
+  `font-family:${gameFontFamily}`,
+  "font-size:clamp(36px,6.4vw,86px)",
+  "font-weight:900",
+  "letter-spacing:0.06em",
+  "color:rgba(232,255,247,0.96)",
+  "text-align:center",
+  "text-shadow:0 0 20px rgba(103,244,255,0.5),0 4px 0 rgba(0,0,0,0.86)",
+  "opacity:0",
+  "display:none",
+  "pointer-events:none",
+  "user-select:none",
+  "white-space:nowrap"
+].join(";");
+document.body.appendChild(missionStartText);
+let missionStartTitleAt=-1;
 let fpsSampleStart=0;
 let fpsSampleFrames=0;
 let lastMeasuredFps=60;
@@ -1285,7 +1427,9 @@ function roadYawAt(z){
 }
 
 function updateCameraProjection(){
-  let splitAspect=Math.max(0.1,(gameMode==="single" ? innerWidth : innerWidth*0.5)/innerHeight);
+  let width=rendererViewportWidth();
+  let height=rendererViewportHeight();
+  let splitAspect=Math.max(0.1,(gameMode==="single" ? width : width*0.5)/height);
 
   let defaultVerticalFov=50;
   let minVerticalFov=38;
@@ -6708,27 +6852,84 @@ function playerDistanceSqForEnemy(enemy){
   return best;
 }
 
-function updateBoatEnemy(enemy,target,distance,targetAngle,settings){
-  let preferredDistance=230;
-  let minDistance=120;
-  let maxDistance=390;
-  let desiredAngle=targetAngle+enemy.aiStrafe*(0.72+Math.sin(performance.now()*0.0012+enemy.guardPhase)*0.18);
-  let desiredSpeed=0.11;
+function boatWaterPointValid(x,z){
+  return waterDepthAt(x,z)>1.8
+    && roadDistance(x,z)>54
+    && !world.collidesWithObstacles(x,z);
+}
 
-  if(distance>maxDistance){
-    desiredAngle=targetAngle;
-    desiredSpeed=0.32;
-  }else if(distance<minDistance){
-    desiredAngle=targetAngle+Math.PI+enemy.aiStrafe*0.36;
+function chooseBoatRoamPoint(enemy){
+  let homeX=Number.isFinite(enemy.boatHomeX) ? enemy.boatHomeX : enemy.x;
+  let homeZ=Number.isFinite(enemy.boatHomeZ) ? enemy.boatHomeZ : enemy.z;
+  let baseAngle=Number.isFinite(enemy.boatRoamAngle) ? enemy.boatRoamAngle : enemy.angle;
+
+  for(let attempt=0;attempt<30;attempt++){
+    let sweep=attempt<14 ? enemy.aiStrafe*(0.35+attempt*0.24) : Math.random()*Math.PI*2;
+    let angle=baseAngle+sweep+(Math.random()-0.5)*0.42;
+    let radius=68+Math.random()*190;
+    let x=homeX+Math.sin(angle)*radius;
+    let z=homeZ+Math.cos(angle)*radius;
+    if(boatWaterPointValid(x,z)){
+      enemy.boatRoamX=x;
+      enemy.boatRoamZ=z;
+      enemy.boatRoamAngle=angle;
+      enemy.boatRoamCooldown=90+Math.floor(Math.random()*120);
+      return true;
+    }
+  }
+
+  for(let attempt=0;attempt<18;attempt++){
+    let angle=Math.random()*Math.PI*2;
+    let radius=42+Math.random()*130;
+    let x=enemy.x+Math.sin(angle)*radius;
+    let z=enemy.z+Math.cos(angle)*radius;
+    if(boatWaterPointValid(x,z)){
+      enemy.boatRoamX=x;
+      enemy.boatRoamZ=z;
+      enemy.boatRoamAngle=angle;
+      enemy.boatRoamCooldown=70+Math.floor(Math.random()*110);
+      return true;
+    }
+  }
+
+  enemy.boatRoamX=enemy.x+Math.sin(enemy.angle+enemy.aiStrafe*0.7)*90;
+  enemy.boatRoamZ=enemy.z+Math.cos(enemy.angle+enemy.aiStrafe*0.7)*90;
+  enemy.boatRoamCooldown=45;
+  return false;
+}
+
+function updateBoatEnemy(enemy,target,distance,targetAngle,settings){
+  if(!Number.isFinite(enemy.boatHomeX)){
+    enemy.boatHomeX=enemy.x;
+    enemy.boatHomeZ=enemy.z;
+  }
+
+  enemy.boatRoamCooldown=Math.max(0,(enemy.boatRoamCooldown || 0)-1);
+  let roamDx=(enemy.boatRoamX ?? enemy.x)-enemy.x;
+  let roamDz=(enemy.boatRoamZ ?? enemy.z)-enemy.z;
+  let roamDistance=Math.hypot(roamDx,roamDz);
+  if(!Number.isFinite(enemy.boatRoamX) || roamDistance<38 || enemy.boatRoamCooldown<=0 || !boatWaterPointValid(enemy.boatRoamX,enemy.boatRoamZ)){
+    chooseBoatRoamPoint(enemy);
+    roamDx=(enemy.boatRoamX ?? enemy.x)-enemy.x;
+    roamDz=(enemy.boatRoamZ ?? enemy.z)-enemy.z;
+    roamDistance=Math.hypot(roamDx,roamDz);
+  }
+
+  let desiredAngle=roamDistance>1
+    ? Math.atan2(roamDx,roamDz)+Math.sin(performance.now()*0.00085+enemy.guardPhase)*0.08
+    : enemy.angle+enemy.aiStrafe*0.18;
+  let desiredSpeed=roamDistance>85 ? 0.2 : 0.12;
+
+  let homeDistance=Math.hypot(enemy.x-enemy.boatHomeX,enemy.z-enemy.boatHomeZ);
+  if(homeDistance>310 && boatWaterPointValid(enemy.boatHomeX,enemy.boatHomeZ)){
+    desiredAngle=Math.atan2(enemy.boatHomeX-enemy.x,enemy.boatHomeZ-enemy.z);
     desiredSpeed=0.24;
-  }else if(distance>preferredDistance){
-    desiredSpeed=0.18;
   }
 
   let turn=clamp(normalizeAngle(desiredAngle-enemy.angle),-0.038,0.038);
   enemy.angle=normalizeAngle(enemy.angle+turn);
   enemy.speed+=clamp(desiredSpeed*settings.speed-enemy.speed,-0.009*settings.speed,0.009*settings.speed);
-  enemy.speed=clamp(enemy.speed,0,0.34*settings.speed);
+  enemy.speed=clamp(enemy.speed,0.04*settings.speed,0.26*settings.speed);
 
   let prevX=enemy.x;
   let prevZ=enemy.z;
@@ -6741,8 +6942,10 @@ function updateBoatEnemy(enemy,target,distance,targetAngle,settings){
     enemy.x=prevX;
     enemy.z=prevZ;
     enemy.speed*=0.25;
-    enemy.angle=normalizeAngle(targetAngle+enemy.aiStrafe*(0.95+Math.random()*0.55));
+    enemy.angle=normalizeAngle(enemy.angle+enemy.aiStrafe*(0.8+Math.random()*0.45));
     enemy.aiStrafe*=-1;
+    enemy.boatRoamCooldown=0;
+    chooseBoatRoamPoint(enemy);
   }
 
   enemy.y=waterLevel+0.5+Math.sin(performance.now()*0.003+enemy.guardPhase)*0.12;
@@ -6759,8 +6962,8 @@ function updateBoatEnemy(enemy,target,distance,targetAngle,settings){
     enemy.boatModel.userData.core.scale.setScalar(1+Math.sin(performance.now()*0.018+enemy.guardPhase)*0.12);
   }
 
-  let aimError=Math.abs(normalizeAngle(targetAngle-enemy.angle));
-  if(distance>130 && distance<430 && aimError<0.72){
+  let aimError=target ? Math.abs(normalizeAngle(targetAngle-enemy.angle)) : Infinity;
+  if(target && distance>130 && distance<430 && aimError<0.72){
     fireBoatMissile(enemy,target);
   }
 }
@@ -7524,23 +7727,23 @@ function updateEnemy(enemy){
   let desiredSpeed;
 
   if(enemy.isBuggy){
-    let minDistance=68;
-    let preferredDistance=118;
-    let farDistance=176;
+    let minDistance=76;
+    let preferredDistance=138;
+    let farDistance=210;
     if(distance<minDistance){
       let escapeStrength=clamp((minDistance-distance)/minDistance,0,1);
-      desiredAngle=targetAngle+Math.PI+enemy.aiStrafe*(0.28+escapeStrength*0.46);
-      desiredSpeed=0.22+escapeStrength*0.18;
+      desiredAngle=targetAngle+Math.PI+enemy.aiStrafe*(0.12+escapeStrength*0.22);
+      desiredSpeed=0.16+escapeStrength*0.12;
     }else if(distance>farDistance){
-      desiredAngle=targetAngle+enemy.aiStrafe*0.16;
-      desiredSpeed=0.48;
+      desiredAngle=targetAngle+enemy.aiStrafe*0.045;
+      desiredSpeed=0.42;
     }else{
-      let orbit=0.34+Math.sin(performance.now()*0.0014+enemy.guardPhase)*0.12;
+      let orbit=0.12+Math.sin(performance.now()*0.00065+enemy.guardPhase)*0.035;
       desiredAngle=targetAngle+enemy.aiStrafe*orbit;
-      desiredSpeed=distance>preferredDistance ? 0.32 : 0.16;
+      desiredSpeed=distance>preferredDistance ? 0.26 : 0.12;
     }
     if(distance>78 && distance<186 && enemy.cannonCooldown<20){
-      desiredAngle=targetAngle+enemy.aiStrafe*0.08;
+      desiredAngle=targetAngle+enemy.aiStrafe*0.025;
     }
   }else if(enemy.isSpider){
     if(distance<22){
@@ -7607,14 +7810,22 @@ function updateEnemy(enemy){
     desiredSpeed=distance>58 ? 0.38 : distance>30 ? 0.18 : -0.08;
   }
 
-  let turnLimit=enemy.isGiant ? 0.026 : enemy.isBuggy ? 0.055 : enemy.isDrone || enemy.isSpider ? 0.075 : 0.045;
+  if(enemy.isBuggy){
+    if(!Number.isFinite(enemy.steadyDesiredAngle)) enemy.steadyDesiredAngle=enemy.angle;
+    let steadyDelta=normalizeAngle(desiredAngle-enemy.steadyDesiredAngle);
+    enemy.steadyDesiredAngle=normalizeAngle(enemy.steadyDesiredAngle+clamp(steadyDelta,-0.035,0.035));
+    desiredAngle=enemy.steadyDesiredAngle;
+  }
+
+  let turnLimit=enemy.isGiant ? 0.026 : enemy.isBuggy ? 0.028 : enemy.isDrone || enemy.isSpider ? 0.075 : 0.045;
   let turn=clamp(normalizeAngle(desiredAngle-enemy.angle),-turnLimit,turnLimit);
   enemy.angle=normalizeAngle(enemy.angle+turn);
 
   desiredSpeed*=settings.speed;
-  enemy.speed+=clamp(desiredSpeed-enemy.speed,-0.012*settings.speed,0.012*settings.speed);
-  let maxEnemySpeed=(enemy.isSpider ? 0.32 : enemy.isDrone ? 0.48 : enemy.isBuggy ? 0.56 : enemy.isGiant ? 0.22 : enemy.isGuard ? 0.32 : enemy.isBoss ? 0.15 : enemy.spawnVillage && !enemy.isPatrol ? 0.18 : 0.42)*settings.speed;
-  enemy.speed=clamp(enemy.speed,-0.14*settings.speed,maxEnemySpeed);
+  let speedStep=(enemy.isBuggy ? 0.0075 : 0.012)*settings.speed;
+  enemy.speed+=clamp(desiredSpeed-enemy.speed,-speedStep,speedStep);
+  let maxEnemySpeed=(enemy.isSpider ? 0.32 : enemy.isDrone ? 0.48 : enemy.isBuggy ? 0.46 : enemy.isGiant ? 0.22 : enemy.isGuard ? 0.32 : enemy.isBoss ? 0.15 : enemy.spawnVillage && !enemy.isPatrol ? 0.18 : 0.42)*settings.speed;
+  enemy.speed=clamp(enemy.speed,-(enemy.isBuggy ? 0.08 : 0.14)*settings.speed,maxEnemySpeed);
 
   let prevX=enemy.x;
   let prevZ=enemy.z;
@@ -7627,8 +7838,9 @@ function updateEnemy(enemy){
   if(collision.hit){
     enemy.x=collision.safeX;
     enemy.z=collision.safeZ;
-    enemy.speed*=-0.25;
-    enemy.angle=normalizeAngle(enemy.angle+(Math.random()<0.5 ? -1 : 1)*0.55);
+    enemy.speed*=enemy.isBuggy ? -0.08 : -0.25;
+    enemy.angle=normalizeAngle(enemy.angle+(Math.random()<0.5 ? -1 : 1)*(enemy.isBuggy ? 0.22 : 0.55));
+    if(enemy.isBuggy) enemy.steadyDesiredAngle=enemy.angle;
     enemy.aiStrafe*=-1;
     if((enemy.isSpider || enemy.isGiant) && collision.otherCar && enemy.contactCooldown<=0){
       damageCar(collision.otherCar,enemy.isGiant ? 8 : 4);
@@ -7662,8 +7874,9 @@ function updateEnemy(enemy){
       enemy.flightTimer=150+Math.floor(Math.random()*130);
       enemy.flightCooldown=260+Math.floor(Math.random()*220);
     }
-    enemy.y+=(surfaceY-enemy.y)*0.22;
-    if(Math.abs(enemy.y-surfaceY)<0.05) enemy.y=surfaceY;
+    let yFollow=enemy.isBuggy ? 0.14 : 0.22;
+    enemy.y+=(surfaceY-enemy.y)*yFollow;
+    if(Math.abs(enemy.y-surfaceY)<(enemy.isBuggy ? 0.08 : 0.05)) enemy.y=surfaceY;
     enemy.onGround=true;
     enemy.airborne=false;
   }
@@ -9192,38 +9405,46 @@ function makeEnemyBuggyModel(seed=0){
     return mesh;
   }
 
-  let chassis=new THREE.Mesh(new THREE.BoxGeometry(5.45,0.86,7.15),buggyHullMat.clone());
-  chassis.position.y=1.02;
+  let chassis=new THREE.Mesh(new THREE.BoxGeometry(5.65,1.08,7.35),buggyHullMat.clone());
+  chassis.position.y=1.15;
   chassis.scale.x=0.96+variant*0.12;
   addPart(chassis);
 
-  let skidPlate=new THREE.Mesh(new THREE.BoxGeometry(4.75,0.24,6.9),enemyTrimMat.clone());
-  skidPlate.position.set(0,0.64,0.02);
+  let skidPlate=new THREE.Mesh(new THREE.BoxGeometry(5.18,0.28,7.25),enemyTrimMat.clone());
+  skidPlate.position.set(0,0.62,0.02);
   skidPlate.rotation.x=0.02;
   addPart(skidPlate);
 
-  let nose=new THREE.Mesh(new THREE.BoxGeometry(4.35,0.74,2.85),buggyArmorMat.clone());
-  nose.position.set(0,1.44,2.12);
-  nose.rotation.x=-0.12;
+  let lowerArmor=new THREE.Mesh(new THREE.BoxGeometry(5.2,0.72,4.2),buggyArmorMat.clone());
+  lowerArmor.position.set(0,1.64,0.82);
+  addPart(lowerArmor);
+
+  let nose=new THREE.Mesh(new THREE.BoxGeometry(4.62,0.98,2.95),buggyArmorMat.clone());
+  nose.position.set(0,1.82,2.26);
+  nose.rotation.x=-0.08;
   addPart(nose);
 
-  let cabin=new THREE.Mesh(new THREE.BoxGeometry(2.65,1.18,2.05),buggyArmorMat.clone());
-  cabin.position.set(0,2.12,-0.45);
-  cabin.rotation.x=0.07;
+  let cabin=new THREE.Mesh(new THREE.BoxGeometry(3.05,1.78,2.22),buggyArmorMat.clone());
+  cabin.position.set(0,2.55,-0.52);
+  cabin.rotation.x=0.035;
   addPart(cabin);
 
-  let windshield=new THREE.Mesh(new THREE.BoxGeometry(1.86,0.5,0.08),enemyEyeMat.clone());
-  windshield.position.set(0,2.34,0.64);
-  windshield.rotation.x=-0.2;
+  let turretDeck=new THREE.Mesh(new THREE.BoxGeometry(2.72,0.42,2.48),buggyHullMat.clone());
+  turretDeck.position.set(0,3.42,-0.98);
+  addPart(turretDeck);
+
+  let windshield=new THREE.Mesh(new THREE.BoxGeometry(1.92,0.58,0.1),enemyEyeMat.clone());
+  windshield.position.set(0,2.74,0.66);
+  windshield.rotation.x=-0.16;
   addPart(windshield);
 
   let launcherBase=new THREE.Mesh(new THREE.CylinderGeometry(0.68,0.84,0.42,14),buggyLauncherMat.clone());
-  launcherBase.position.set(0,2.98,-1.08);
+  launcherBase.position.set(0,3.68,-1.08);
   addPart(launcherBase);
 
   let launcher=new THREE.Group();
   launcher.name="buggy-roof-rocket-launcher";
-  launcher.position.set(0,3.3,-1.08);
+  launcher.position.set(0,4.0,-1.08);
   buggy.add(launcher);
 
   for(let side of [-1,1]){
@@ -9249,17 +9470,17 @@ function makeEnemyBuggyModel(seed=0){
   let tracks=[];
   for(let side of [-1,1]){
     let trackGroup=new THREE.Group();
-    trackGroup.position.set(side*2.82,0.76,-0.1);
+    trackGroup.position.set(side*2.92,0.82,-0.1);
     buggy.add(trackGroup);
 
-    let belt=new THREE.Mesh(new THREE.BoxGeometry(0.82,1.02,6.35),buggyWheelMat.clone());
+    let belt=new THREE.Mesh(new THREE.BoxGeometry(0.96,1.22,6.55),buggyWheelMat.clone());
     belt.position.set(0,0,0);
     belt.castShadow=true;
     belt.receiveShadow=true;
     trackGroup.add(belt);
 
-    let sideArmor=new THREE.Mesh(new THREE.BoxGeometry(0.92,0.62,5.55),buggyHullMat.clone());
-    sideArmor.position.set(-side*0.02,0.15,0);
+    let sideArmor=new THREE.Mesh(new THREE.BoxGeometry(1.02,0.86,5.85),buggyHullMat.clone());
+    sideArmor.position.set(-side*0.02,0.18,0);
     sideArmor.castShadow=true;
     sideArmor.receiveShadow=true;
     trackGroup.add(sideArmor);
@@ -9282,7 +9503,7 @@ function makeEnemyBuggyModel(seed=0){
 
     let pads=[];
     for(let i=0;i<20;i++){
-      let pad=new THREE.Mesh(new THREE.BoxGeometry(0.98,0.16,0.34),enemyTrimMat.clone());
+      let pad=new THREE.Mesh(new THREE.BoxGeometry(1.12,0.18,0.36),enemyTrimMat.clone());
       pad.castShadow=true;
       pad.receiveShadow=true;
       trackGroup.add(pad);
@@ -9291,20 +9512,25 @@ function makeEnemyBuggyModel(seed=0){
 
     tracks.push({group:trackGroup,pads,phase:variant*0.17});
 
-    let trackGuard=new THREE.Mesh(new THREE.BoxGeometry(0.62,0.42,6.38),buggyArmorMat.clone());
-    trackGuard.position.set(side*2.46,1.5,-0.1);
-    trackGuard.rotation.z=side*0.08;
+    let trackGuard=new THREE.Mesh(new THREE.BoxGeometry(0.78,0.58,6.58),buggyArmorMat.clone());
+    trackGuard.position.set(side*2.5,1.74,-0.1);
+    trackGuard.rotation.z=side*0.045;
     addPart(trackGuard);
 
+    let flankPlate=new THREE.Mesh(new THREE.BoxGeometry(0.32,1.42,3.85),buggyArmorMat.clone());
+    flankPlate.position.set(side*2.26,2.08,0.28);
+    flankPlate.rotation.z=side*0.035;
+    addPart(flankPlate);
+
     let nerfBar=new THREE.Mesh(new THREE.CylinderGeometry(0.08,0.08,6.4,8),enemyTrimMat.clone());
-    nerfBar.position.set(side*2.92,1.38,-0.08);
+    nerfBar.position.set(side*3.08,1.46,-0.08);
     nerfBar.rotation.x=Math.PI*0.5;
     nerfBar.rotation.z=side*0.03;
     addPart(nerfBar);
   }
 
   let rollCage=new THREE.Group();
-  rollCage.position.set(0,2.68,-0.46);
+  rollCage.position.set(0,3.14,-0.46);
   buggy.add(rollCage);
   for(let side of [-1,1]){
     let upright=new THREE.Mesh(new THREE.CylinderGeometry(0.07,0.07,1.42,8),enemyTrimMat.clone());
@@ -9323,18 +9549,23 @@ function makeEnemyBuggyModel(seed=0){
     rollCage.add(frontPost);
   }
   let roofBar=new THREE.Mesh(new THREE.BoxGeometry(2.9,0.1,1.55),enemyTrimMat.clone());
-  roofBar.position.set(0,0.62,-0.12);
+  roofBar.position.set(0,0.72,-0.12);
   roofBar.castShadow=true;
   roofBar.receiveShadow=true;
   rollCage.add(roofBar);
 
   let bumper=new THREE.Mesh(new THREE.BoxGeometry(5.2,0.42,0.46),enemyTrimMat.clone());
-  bumper.position.set(0,1.18,3.82);
+  bumper.position.set(0,1.36,3.9);
   addPart(bumper);
+
+  let rearArmor=new THREE.Mesh(new THREE.BoxGeometry(4.62,1.12,1.35),buggyArmorMat.clone());
+  rearArmor.position.set(0,1.92,-3.12);
+  rearArmor.rotation.x=0.06;
+  addPart(rearArmor);
 
   for(let side of [-1,1]){
     let light=new THREE.Mesh(new THREE.SphereGeometry(0.18,12,8),droneCoreMat.clone());
-    light.position.set(side*1.1,1.42,3.62);
+    light.position.set(side*1.1,1.66,3.7);
     buggy.add(light);
   }
 
@@ -9610,6 +9841,12 @@ function createEnemyState(index,x,z,type="mech"){
     aiStrafe:Math.random()<0.5 ? -1 : 1,
     aiThink:0,
     guardPhase:Math.random()*Math.PI*2,
+    boatHomeX:isBoat ? x : 0,
+    boatHomeZ:isBoat ? z : 0,
+    boatRoamX:isBoat ? x+Math.sin(Math.random()*Math.PI*2)*120 : 0,
+    boatRoamZ:isBoat ? z+Math.cos(Math.random()*Math.PI*2)*120 : 0,
+    boatRoamAngle:Math.random()*Math.PI*2,
+    boatRoamCooldown:isBoat ? 1 : 0,
     lateralOffset:0,
     walkProfile:(isDrone || isSpider || isBoat || isBuggy) ? null : makeEnemyWalkProfile(index,type),
     walkMaxSpeed
@@ -11223,8 +11460,8 @@ function positionSkyForCamera(camera){
 }
 
 function renderGame(){
-  let width=innerWidth;
-  let height=innerHeight;
+  let width=rendererViewportWidth();
+  let height=rendererViewportHeight();
 
   if(terraformFinale && terraformFinale.active){
     setAimCrossForRender(null);
@@ -12140,6 +12377,7 @@ function loop(timestamp=performance.now()){
   let frameMs=Math.min(250,Math.max(0,timestamp-lastLoopTime));
   lastLoopTime=timestamp;
   updateFpsDisplay(timestamp);
+  updateMissionStartTitle(timestamp);
 
   if(!gameStarted){
     fixedAccumulator=0;
@@ -12240,10 +12478,11 @@ renderer.domElement.addEventListener("click",event=>{
 });
 
 window.addEventListener("resize",()=>{
-  updateRendererPixelRatio();
-  updateCameraProjection();
-  renderer.setSize(innerWidth,innerHeight);
+  resizeRendererToViewport();
 });
+if(window.visualViewport){
+  window.visualViewport.addEventListener("resize",scheduleRendererViewportRefresh);
+}
 
 function setCarActive(car,active){
   let hiddenForStart=startSequence
@@ -12586,6 +12825,7 @@ function startGame(mode,difficulty="medium",savedStatus=null){
 
   let startScreen=document.getElementById("startScreen");
   if(startScreen) startScreen.style.display="none";
+  showMissionStartTitle();
 
   hud.init();
   lastChunkSignature=chunkSignatureForCars();
@@ -12605,11 +12845,23 @@ let startScreen=document.getElementById("startScreen");
 if(startScreen){
   updateStartupLoadingState();
   updateLoadGameButton();
+  function startActionForTarget(target){
+    let loadButton=target && target.closest("[data-load-game]");
+    if(loadButton && !loadButton.disabled) return "load";
+    let modeButton=target && target.closest("[data-mode]");
+    if(modeButton && !modeButton.disabled) return "mode";
+    return null;
+  }
+  startScreen.addEventListener("pointerdown",event=>{
+    if(!startupAssetsReady || gameStarted) return;
+    if(startActionForTarget(event.target)) showFullscreenTransitionOverlay();
+  },true);
   startScreen.addEventListener("click",event=>{
     if(!startupAssetsReady) return;
 
     let loadButton=event.target.closest("[data-load-game]");
-    if(loadButton && !gameStarted){
+    if(loadButton && !loadButton.disabled && !gameStarted){
+      showFullscreenTransitionOverlay();
       requestBrowserFullscreen();
       let status=readSavedGameStatus();
       if(status) startGame(status.mode,status.difficulty,status);
@@ -12618,7 +12870,8 @@ if(startScreen){
     }
 
     let button=event.target.closest("[data-mode]");
-    if(!button || gameStarted) return;
+    if(!button || button.disabled || gameStarted) return;
+    showFullscreenTransitionOverlay();
     requestBrowserFullscreen();
     let difficulty=startScreen.dataset.difficulty || "medium";
     startGame(button.dataset.mode==="double" ? "double" : "single",difficulty);
