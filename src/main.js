@@ -605,6 +605,139 @@ function updatePlanetNameDisplay(){
   planetNameDisplay.textContent=(currentEnvironment && currentEnvironment.name) || "";
 }
 updatePlanetNameDisplay();
+let firstPersonVisorOverlay=document.createElement("div");
+firstPersonVisorOverlay.style.cssText=[
+  "position:fixed",
+  "inset:0",
+  "z-index:72",
+  "display:none",
+  "pointer-events:none",
+  "user-select:none",
+  "overflow:hidden"
+].join(";");
+document.body.appendChild(firstPersonVisorOverlay);
+
+function addVisorPart(parent,styles){
+  let part=document.createElement("div");
+  part.style.cssText=styles.join(";");
+  parent.appendChild(part);
+  return part;
+}
+
+function createFirstPersonVisorPane(left,width){
+  let pane=document.createElement("div");
+  pane.style.cssText=[
+    "position:absolute",
+    `left:${left}`,
+    "top:0",
+    `width:${width}`,
+    "height:100%",
+    "overflow:hidden",
+    "display:block"
+  ].join(";");
+
+  addVisorPart(pane,[
+    "position:absolute",
+    "inset:0",
+    "background:radial-gradient(ellipse at center, rgba(0,0,0,0) 44%, rgba(7,22,28,0.14) 70%, rgba(0,0,0,0.62) 100%)"
+  ]);
+  addVisorPart(pane,[
+    "position:absolute",
+    "left:8%",
+    "right:8%",
+    "top:5%",
+    "height:14%",
+    "background:linear-gradient(180deg, rgba(0,0,0,0.68), rgba(0,0,0,0.08))",
+    "clip-path:polygon(5% 0, 95% 0, 100% 100%, 0 100%)"
+  ]);
+  addVisorPart(pane,[
+    "position:absolute",
+    "left:7%",
+    "right:7%",
+    "bottom:5%",
+    "height:17%",
+    "background:linear-gradient(0deg, rgba(0,0,0,0.72), rgba(0,0,0,0.08))",
+    "clip-path:polygon(0 0, 100% 0, 92% 100%, 8% 100%)"
+  ]);
+  addVisorPart(pane,[
+    "position:absolute",
+    "left:0",
+    "top:0",
+    "bottom:0",
+    "width:11%",
+    "background:linear-gradient(90deg, rgba(0,0,0,0.76), rgba(0,0,0,0.08), rgba(0,0,0,0))"
+  ]);
+  addVisorPart(pane,[
+    "position:absolute",
+    "right:0",
+    "top:0",
+    "bottom:0",
+    "width:11%",
+    "background:linear-gradient(270deg, rgba(0,0,0,0.76), rgba(0,0,0,0.08), rgba(0,0,0,0))"
+  ]);
+  addVisorPart(pane,[
+    "position:absolute",
+    "left:9%",
+    "right:9%",
+    "top:7%",
+    "bottom:8%",
+    "border:1px solid rgba(141,255,242,0.24)",
+    "box-shadow:inset 0 0 22px rgba(103,244,255,0.08), 0 0 18px rgba(103,244,255,0.08)",
+    "clip-path:polygon(7% 0, 93% 0, 100% 8%, 100% 92%, 93% 100%, 7% 100%, 0 92%, 0 8%)"
+  ]);
+
+  let cornerStyle=[
+    "position:absolute",
+    "width:8.5%",
+    "height:7%",
+    "color:rgba(141,255,242,0.52)",
+    "border-color:rgba(141,255,242,0.52)",
+    "filter:drop-shadow(0 0 7px rgba(103,244,255,0.32))"
+  ];
+  addVisorPart(pane,[...cornerStyle,"left:7.5%","top:6.5%","border-left:2px solid","border-top:2px solid"]);
+  addVisorPart(pane,[...cornerStyle,"right:7.5%","top:6.5%","border-right:2px solid","border-top:2px solid"]);
+  addVisorPart(pane,[...cornerStyle,"left:7.5%","bottom:7%","border-left:2px solid","border-bottom:2px solid"]);
+  addVisorPart(pane,[...cornerStyle,"right:7.5%","bottom:7%","border-right:2px solid","border-bottom:2px solid"]);
+  addVisorPart(pane,[
+    "position:absolute",
+    "left:14%",
+    "right:14%",
+    "top:50%",
+    "height:1px",
+    "background:linear-gradient(90deg, rgba(141,255,242,0), rgba(141,255,242,0.22), rgba(141,255,242,0))",
+    "opacity:0.44"
+  ]);
+
+  firstPersonVisorOverlay.appendChild(pane);
+  return pane;
+}
+
+let firstPersonVisorPanes=[
+  createFirstPersonVisorPane("0","100%"),
+  createFirstPersonVisorPane("0","50%"),
+  createFirstPersonVisorPane("50%","50%")
+];
+
+function firstPersonViewActive(){
+  return firstPersonPerspective
+    && gameStarted
+    && !gameOver
+    && !gamePaused
+    && !terminalOverlayOpen()
+    && !startSequence
+    && !(terraformFinale && terraformFinale.active);
+}
+
+function updateFirstPersonVisorOverlay(){
+  if(!firstPersonVisorOverlay) return;
+  let visible=firstPersonViewActive();
+  firstPersonVisorOverlay.style.display=visible ? "block" : "none";
+  if(!visible) return;
+  let split=gameMode==="double";
+  firstPersonVisorPanes[0].style.display=split ? "none" : "block";
+  firstPersonVisorPanes[1].style.display=split ? "block" : "none";
+  firstPersonVisorPanes[2].style.display=split ? "block" : "none";
+}
 let terraformFadeOverlay=document.createElement("div");
 terraformFadeOverlay.style.cssText=[
   "position:fixed",
@@ -753,6 +886,7 @@ let cameraDownhillSampleDistance=30;
 let cameraDownhillExtraHeight=9.5;
 let cameraDownhillPullIn=4.5;
 let cameraTerrainClearance=5.8;
+let firstPersonPerspective=false;
 let screenShakeAmount=0;
 let screenShakeSeed=0;
 let screenShakeOffset=new THREE.Vector3();
@@ -3081,6 +3215,16 @@ function closeMissionScreen(){
 }
 
 window.addEventListener("keydown",event=>{
+  let key=(event.key || "").toLowerCase();
+  if(key==="p" && !event.repeat){
+    if(gameStarted && !gameOver && !terminalOverlayOpen()){
+      firstPersonPerspective=!firstPersonPerspective;
+      updateFirstPersonVisorOverlay();
+      event.preventDefault();
+    }
+    return;
+  }
+
   if(event.key!=="Escape") return;
   event.preventDefault();
   if(missionScreenOpen){
@@ -11750,8 +11894,107 @@ function updateCar(car){
   car.shadow.update({carX:car.x,carZ:car.z,carY:car.y,surfaceY,carVelAngle:car.angle});
 }
 
+function cameraPitchTargetFromAim(car){
+  let canPitchToAim=car.aimCross
+    && car.health>0
+    && car.group.visible
+    && car.jetProgress<0.35
+    && car.morphProgress<0.72
+    && (car.hasMouseAimPoint || car.hasGamepadAimPoint);
+
+  if(!canPitchToAim) return 0;
+
+  if(gameMode==="single" && car===playerCar && car.hasMouseAimPoint && input.mouse.hasPosition){
+    let normalized=((innerHeight*0.5)-input.mouse.y)/Math.max(1,innerHeight*0.5);
+    let deadZone=0.12;
+    let amount=Math.max(0,(Math.abs(normalized)-deadZone)/(1-deadZone));
+    return normalized>0 ? amount*cameraAimPitchMax : -amount*Math.abs(cameraAimPitchMin);
+  }
+
+  return clamp((car.controllerAimOffsetY || 0)*0.42,cameraAimPitchMin,cameraAimPitchMax);
+}
+
+function firstPersonPitchTargetForCar(car){
+  if(gameMode==="single" && car===playerCar && input.mouse.hasPosition){
+    let normalized=((innerHeight*0.5)-input.mouse.y)/Math.max(1,innerHeight*0.5);
+    let deadZone=0.08;
+    let amount=Math.max(0,(Math.abs(normalized)-deadZone)/(1-deadZone));
+    return normalized>0 ? amount*cameraAimPitchMax : -amount*Math.abs(cameraAimPitchMin);
+  }
+
+  return clamp((car.controllerAimOffsetY || 0)*0.42,cameraAimPitchMin,cameraAimPitchMax);
+}
+
+function updateCameraPitchOffset(car,targetPitchOffset){
+  if(!Number.isFinite(car.cameraPitchOffset)) car.cameraPitchOffset=0;
+  car.cameraPitchOffset+=(targetPitchOffset-car.cameraPitchOffset)*0.035;
+  return car.cameraPitchOffset;
+}
+
 function updateCameraForCar(car){
   car.cameraYaw+=normalizeAngle(car.velAngle-car.cameraYaw)*0.075;
+
+  if(firstPersonViewActive()){
+    car.cameraYaw+=normalizeAngle(car.angle-car.cameraYaw)*0.28;
+    let forwardX=Math.sin(car.cameraYaw);
+    let forwardZ=Math.cos(car.cameraYaw);
+    let rightX=Math.cos(car.cameraYaw);
+    let rightZ=-Math.sin(car.cameraYaw);
+    let robotMode=car.jetProgress<0.45 && car.morphProgress<0.72;
+    let jetMode=car.jetProgress>=0.45;
+    let desiredNear=robotMode ? 0.32 : 0.1;
+    if(Math.abs(car.camera.near-desiredNear)>0.001){
+      car.camera.near=desiredNear;
+      car.camera.updateProjectionMatrix();
+    }
+    let eyeHeight=jetMode ? 2.2 : robotMode ? 5.16 : 2.65;
+    let forwardOffset=jetMode ? 2.8 : robotMode ? 2.35 : 2.05;
+    let sideOffset=gameMode==="double" ? (car===playerCar ? -0.24 : 0.24) : 0;
+    let camX=car.x+forwardX*forwardOffset+rightX*sideOffset+rightX*screenShakeOffset.x*0.32;
+    let camZ=car.z+forwardZ*forwardOffset+rightZ*sideOffset+rightZ*screenShakeOffset.x*0.32;
+    let camY=car.y+eyeHeight+screenShakeOffset.y*0.35;
+    let walkingFirstPerson=robotMode && car.onGround && car.health>0 && Math.abs(car.speed || 0)>0.018;
+    let targetWalkMotion=walkingFirstPerson ? clamp(Math.abs(car.speed || 0)/Math.max(0.001,mechGroundMaxSpeed),0,1) : 0;
+    if(!Number.isFinite(car.firstPersonWalkMotion)) car.firstPersonWalkMotion=0;
+    car.firstPersonWalkMotion+=(targetWalkMotion-car.firstPersonWalkMotion)*0.07;
+    let walkMotion=car.firstPersonWalkMotion;
+    let walkPhase=(car.walkCycle || 0)*0.62;
+    if(robotMode && walkMotion>0.001){
+      let step=Math.sin(walkPhase);
+      let doubleStep=Math.sin(walkPhase*2);
+      let sideBob=step*0.028*walkMotion;
+      let verticalBob=(Math.abs(step)-0.5)*0.052*walkMotion+doubleStep*0.007*walkMotion;
+      let forwardBob=Math.cos(walkPhase*2)*0.015*walkMotion;
+      camX+=rightX*sideBob+forwardX*forwardBob;
+      camZ+=rightZ*sideBob+forwardZ*forwardBob;
+      camY+=verticalBob;
+    }
+    camY=Math.max(camY,drivingSurfaceHeight(camX,camZ)+1.6);
+
+    let lookAhead=36;
+    let lookPitch=updateCameraPitchOffset(car,firstPersonPitchTargetForCar(car));
+    let pitchLift=jetMode
+      ? clamp(-(car.pitch || 0)*18-(car.jetBank || 0)*2+lookPitch*1.15,-11,11)
+      : clamp(lookPitch*1.15, -9, 10);
+    if(robotMode && walkMotion>0.001){
+      pitchLift+=Math.sin(walkPhase*2)*0.085*walkMotion;
+    }
+    car.camera.position.set(camX,camY,camZ);
+    car.camera.lookAt(
+      camX+forwardX*lookAhead,
+      camY+1.2+pitchLift,
+      camZ+forwardZ*lookAhead
+    );
+    if(robotMode && walkMotion>0.001){
+      car.camera.rotateZ(Math.sin(walkPhase)*0.007*walkMotion);
+    }
+    return;
+  }
+
+  if(Math.abs(car.camera.near-0.1)>0.001){
+    car.camera.near=0.1;
+    car.camera.updateProjectionMatrix();
+  }
 
   let downhillAmount=0;
   let groundMovement=Math.abs(car.speed || 0)>0.035 && car.jetProgress<0.45;
@@ -11797,28 +12040,7 @@ function updateCameraForCar(car){
   let lookX=car.x+Math.sin(car.cameraYaw)*lookAhead;
   let lookY=car.y+3.8;
   let lookZ=car.z+Math.cos(car.cameraYaw)*lookAhead;
-  let canPitchToAim=car.aimCross
-    && car.health>0
-    && car.group.visible
-    && car.jetProgress<0.35
-    && car.morphProgress<0.72
-    && (car.hasMouseAimPoint || car.hasGamepadAimPoint);
-  let targetPitchOffset=0;
-
-  if(canPitchToAim){
-    if(gameMode==="single" && car===playerCar && car.hasMouseAimPoint && input.mouse.hasPosition){
-      let normalized=((innerHeight*0.5)-input.mouse.y)/Math.max(1,innerHeight*0.5);
-      let deadZone=0.12;
-      let amount=Math.max(0,(Math.abs(normalized)-deadZone)/(1-deadZone));
-      targetPitchOffset=normalized>0 ? amount*cameraAimPitchMax : -amount*Math.abs(cameraAimPitchMin);
-    }else{
-      targetPitchOffset=clamp((car.controllerAimOffsetY || 0)*0.42,cameraAimPitchMin,cameraAimPitchMax);
-    }
-  }
-
-  if(!Number.isFinite(car.cameraPitchOffset)) car.cameraPitchOffset=0;
-  car.cameraPitchOffset+=(targetPitchOffset-car.cameraPitchOffset)*0.035;
-  lookY+=car.cameraPitchOffset;
+  lookY+=updateCameraPitchOffset(car,cameraPitchTargetFromAim(car));
 
   if(!Number.isFinite(car.cameraLookY)){
     car.cameraLookY=lookY;
@@ -12816,6 +13038,7 @@ function loop(timestamp=performance.now()){
   lastLoopTime=timestamp;
   updateFpsDisplay(timestamp);
   updateMissionStartTitle(timestamp);
+  updateFirstPersonVisorOverlay();
 
   if(!gameStarted){
     fixedAccumulator=0;
