@@ -11940,21 +11940,32 @@ function updateCameraForCar(car){
     let forwardZ=Math.cos(car.cameraYaw);
     let rightX=Math.cos(car.cameraYaw);
     let rightZ=-Math.sin(car.cameraYaw);
-    let robotMode=car.jetProgress<0.45 && car.morphProgress<0.72;
-    let jetMode=car.jetProgress>=0.45;
-    let desiredNear=robotMode ? 0.32 : 0.1;
+    let morphBlend=smoothStep(clamp((car.morphProgress-0.12)/0.78,0,1));
+    let jetBlend=smoothStep(clamp((car.jetProgress-0.35)/0.38,0,1));
+    let robotViewAmount=(1-morphBlend)*(1-jetBlend);
+    let robotMode=robotViewAmount>0.42;
+    let jetMode=jetBlend>0.5;
+    let desiredNear=0.1+0.22*robotViewAmount;
     if(Math.abs(car.camera.near-desiredNear)>0.001){
       car.camera.near=desiredNear;
       car.camera.updateProjectionMatrix();
     }
-    let eyeHeight=jetMode ? 2.2 : robotMode ? 5.16 : 2.65;
-    let forwardOffset=jetMode ? 2.8 : robotMode ? 2.35 : 2.05;
+    let groundEyeHeight=5.16+(2.65-5.16)*morphBlend;
+    let groundForwardOffset=2.35+(2.05-2.35)*morphBlend;
+    let targetEyeHeight=groundEyeHeight+(2.2-groundEyeHeight)*jetBlend;
+    let targetForwardOffset=groundForwardOffset+(2.8-groundForwardOffset)*jetBlend;
+    if(!Number.isFinite(car.firstPersonEyeHeight)) car.firstPersonEyeHeight=targetEyeHeight;
+    if(!Number.isFinite(car.firstPersonForwardOffset)) car.firstPersonForwardOffset=targetForwardOffset;
+    car.firstPersonEyeHeight+=(targetEyeHeight-car.firstPersonEyeHeight)*0.13;
+    car.firstPersonForwardOffset+=(targetForwardOffset-car.firstPersonForwardOffset)*0.13;
+    let eyeHeight=car.firstPersonEyeHeight;
+    let forwardOffset=car.firstPersonForwardOffset;
     let sideOffset=gameMode==="double" ? (car===playerCar ? -0.24 : 0.24) : 0;
     let camX=car.x+forwardX*forwardOffset+rightX*sideOffset+rightX*screenShakeOffset.x*0.32;
     let camZ=car.z+forwardZ*forwardOffset+rightZ*sideOffset+rightZ*screenShakeOffset.x*0.32;
     let camY=car.y+eyeHeight+screenShakeOffset.y*0.35;
     let walkingFirstPerson=robotMode && car.onGround && car.health>0 && Math.abs(car.speed || 0)>0.018;
-    let targetWalkMotion=walkingFirstPerson ? clamp(Math.abs(car.speed || 0)/Math.max(0.001,mechGroundMaxSpeed),0,1) : 0;
+    let targetWalkMotion=walkingFirstPerson ? clamp(Math.abs(car.speed || 0)/Math.max(0.001,mechGroundMaxSpeed),0,1)*robotViewAmount : 0;
     if(!Number.isFinite(car.firstPersonWalkMotion)) car.firstPersonWalkMotion=0;
     car.firstPersonWalkMotion+=(targetWalkMotion-car.firstPersonWalkMotion)*0.07;
     let walkMotion=car.firstPersonWalkMotion;
@@ -11991,6 +12002,9 @@ function updateCameraForCar(car){
     return;
   }
 
+  car.firstPersonEyeHeight=NaN;
+  car.firstPersonForwardOffset=NaN;
+  car.firstPersonWalkMotion=0;
   if(Math.abs(car.camera.near-0.1)>0.001){
     car.camera.near=0.1;
     car.camera.updateProjectionMatrix();
