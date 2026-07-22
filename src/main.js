@@ -2,7 +2,7 @@ import { THREE } from "./three.js";
 import { carRadius, gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize, viewDistance, mothershipDropCount, mothershipDropInterval, mothershipDropLineSpacing, mothershipHoverDistance, mothershipHoverFrames, mothershipMinDelay, mothershipRandomDelay, mothershipRocketHits } from "./constants.js";
 import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=live-fps-smoothing";
 import { createInput } from "./input.js?v=scanner-bumper";
-import { createHud } from "./hud.js?v=minimap-terrain-sync";
+import { createHud } from "./hud.js?v=split-hud-clean-left";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=tracked-enemy-shadows";
 import { createWorld } from "./world.js?v=pond-size-depth";
 import { createMotorAudio } from "./audio.js?v=intro-beam-sizzle";
@@ -410,11 +410,17 @@ let lastPixelRatioUpdate=0;
 function rendererQualityState(){
   let jetView=gameStarted && cars.some(car=>car.group.visible && car.health>0 && chunkViewDistanceForCar(car)>viewDistance);
   let rainy=rainIntensity>0.18;
+  let severeDrop=gameStarted && lastMeasuredFps<24;
+  let moderateDrop=gameStarted && lastMeasuredFps<36;
   if(gameMode==="double"){
+    if(severeDrop) return 0.55;
+    if(moderateDrop) return 0.68;
     if(jetView && rainy) return 0.75;
     if(jetView || rainy) return 0.85;
     return 0.95;
   }
+  if(severeDrop) return 0.7;
+  if(moderateDrop) return 0.9;
   if(jetView && rainy) return 1.05;
   if(jetView || rainy) return 1.2;
   return 1.5;
@@ -1299,6 +1305,22 @@ function activeEnemies(){
 
 function combatActors(){
   return [...activeCars(),...activeEnemies()];
+}
+
+function cosmeticFrameInterval(base=1){
+  let interval=Math.max(1,Math.floor(base));
+  if(lastMeasuredFps<24) return interval*4;
+  if(lastMeasuredFps<34) return interval*2;
+  if(gameMode==="double") return Math.max(interval,Math.ceil(interval*1.5));
+  return interval;
+}
+
+function cosmeticBurstCount(count){
+  if(count<=1) return count;
+  if(lastMeasuredFps<24) return 1;
+  if(lastMeasuredFps<34) return Math.max(1,Math.ceil(count*0.5));
+  if(gameMode==="double") return Math.max(1,Math.ceil(count*0.72));
+  return count;
 }
 
 function currentDifficulty(){
@@ -6266,6 +6288,8 @@ function clearRockets(){
 }
 
 function updateRockets(){
+  let actors=combatActors();
+
   for(let i=rockets.length-1;i>=0;i--){
     let rocket=rockets[i];
     rocket.age++;
@@ -6321,10 +6345,10 @@ function updateRockets(){
     rocket.mesh.rotation.x=-Math.asin(clamp(rocket.vy/rocketVelocity,-1,1));
     rocket.mesh.rotation.z=Math.sin(rocket.age*0.45)*0.05;
 
-    let trailEvery=rocket.trailEvery || 2;
+    let trailEvery=cosmeticFrameInterval(rocket.trailEvery || 2);
     if(rocket.age%trailEvery===0){
       let trailScale=rocket.trailScale || 1;
-      let trailCount=rocket.boatMissile ? 4 : rocket.longRange ? 2 : 1;
+      let trailCount=cosmeticBurstCount(rocket.boatMissile ? 4 : rocket.longRange ? 2 : 1);
       let speedLen=Math.max(0.001,Math.hypot(rocket.vx,rocket.vy,rocket.vz));
       let backX=-rocket.vx/speedLen;
       let backY=-rocket.vy/speedLen;
@@ -6346,7 +6370,7 @@ function updateRockets(){
           rocket.boatMissile ? 0.14+Math.random()*0.08+t*0.012 : 0.07+Math.random()*0.04+rocket.longRange*0.035
         );
       }
-      if(rocket.boatMissile && rocket.age%2===0){
+      if(rocket.boatMissile && rocket.age%cosmeticFrameInterval(2)===0 && lastMeasuredFps>=24){
         dust.spawnThrusterParticle(
           rocket.x+backX*2.4,
           rocket.y+backY*2.4,
@@ -6364,8 +6388,9 @@ function updateRockets(){
     let hitActor=null;
     let mothershipHit=null;
     if(rocket.age>4){
-      for(let actor of combatActors()){
+      for(let actor of actors){
         if(actor===rocket.owner) continue;
+        if(actor.health<=0 || (actor.active===false && actor.isEnemy)) continue;
         if(rocket.owner.isEnemy && actor.isEnemy) continue;
         if(rocket.owner.isEnemy && playerInvisibleToEnemies(actor)) continue;
         if(playerDamageSuppressed) continue;
@@ -6428,8 +6453,9 @@ function updateRockets(){
             rattleActor(hitActor,1);
           }
           if(rocket.blastRadius){
-            for(let actor of combatActors()){
+            for(let actor of actors){
               if(actor===rocket.owner || actor===hitActor) continue;
+              if(actor.health<=0 || (actor.active===false && actor.isEnemy)) continue;
               if(rocket.owner.isEnemy && actor.isEnemy) continue;
               if(rocket.owner.isEnemy && playerInvisibleToEnemies(actor)) continue;
               let dx=actor.x-explosionX;
@@ -6448,6 +6474,8 @@ function updateRockets(){
 }
 
 function updateCannonBolts(){
+  let actors=combatActors();
+
   for(let i=cannonBolts.length-1;i>=0;i--){
     let bolt=cannonBolts[i];
     bolt.age++;
@@ -6466,7 +6494,7 @@ function updateCannonBolts(){
     bolt.mesh.rotation.x=-Math.asin(clamp(bolt.vy/cannonSpeed,-1,1));
     bolt.mesh.scale.setScalar(1+Math.sin(bolt.age*0.7)*0.08);
 
-    if(bolt.age%2===0){
+    if(bolt.age%cosmeticFrameInterval(2)===0){
       dust.spawnThrusterParticle(
         bolt.x-bolt.vx*0.18,
         bolt.y,
@@ -6483,8 +6511,9 @@ function updateCannonBolts(){
     let hitActor=null;
     let mothershipHit=null;
     if(bolt.age>2){
-      for(let actor of combatActors()){
+      for(let actor of actors){
         if(actor===bolt.owner) continue;
+        if(actor.health<=0 || (actor.active===false && actor.isEnemy)) continue;
         if(bolt.owner.isStationDefense && !actor.isEnemy) continue;
         if(bolt.owner.isEnemy && actor.isEnemy) continue;
         if(bolt.owner.isEnemy && playerInvisibleToEnemies(actor)) continue;
@@ -6567,19 +6596,19 @@ function updateClusterBombs(){
       bomb.mesh.userData.glow.material.opacity=0.28+Math.sin(bomb.age*0.42)*0.08;
     }
 
-    if(bomb.age%2===0){
-      let trailCount=3;
+    if(bomb.age%cosmeticFrameInterval(2)===0){
+      let trailCount=cosmeticBurstCount(3);
       for(let t=0;t<trailCount;t++){
-      dust.spawnThrusterParticle(
-        bomb.x+(Math.random()-0.5)*0.8,
-        bomb.y+0.35,
-        bomb.z+(Math.random()-0.5)*0.8,
-        (Math.random()-0.5)*1.4,
-        (Math.random()-0.5)*1.4,
-        1.2+Math.random()*1.4,
-        0.18,
-        0.11+Math.random()*0.05
-      );
+        dust.spawnThrusterParticle(
+          bomb.x+(Math.random()-0.5)*0.8,
+          bomb.y+0.35,
+          bomb.z+(Math.random()-0.5)*0.8,
+          (Math.random()-0.5)*1.4,
+          (Math.random()-0.5)*1.4,
+          1.2+Math.random()*1.4,
+          0.18,
+          0.11+Math.random()*0.05
+        );
       }
     }
 
@@ -11507,6 +11536,24 @@ let fixedStepMs=1000/60;
 let maxFixedStepsPerFrame=5;
 let fixedAccumulator=0;
 let lastLoopTime=null;
+let renderFrameIndex=0;
+
+function performanceStressLevel(frameMs=0){
+  let instantaneousFps=frameMs>0 ? 1000/Math.max(1,frameMs) : lastMeasuredFps;
+  let fps=Math.min(lastMeasuredFps,instantaneousFps);
+  if(fps<22 || frameMs>62) return 3;
+  if(fps<32 || frameMs>42) return 2;
+  if(fps<44 || frameMs>28 || gameMode==="double") return 1;
+  return 0;
+}
+
+function fixedStepLimitForFrame(frameMs){
+  let stress=performanceStressLevel(frameMs);
+  if(stress>=3) return 1;
+  if(stress>=2) return 2;
+  if(stress>=1) return 3;
+  return maxFixedStepsPerFrame;
+}
 
 function chunkViewDistanceForCar(car){
   let altitude=car.y-surfaceHeightForActor(car,car.x,car.z);
@@ -11933,6 +11980,7 @@ function updateScannerMode(){
 
 function chunkBuildBudget(){
   let expandedView=activeCars().some(car=>chunkViewDistanceForCar(car)>viewDistance);
+  if(lastMeasuredFps<24) return {items:0,frameMs:0};
   if(!expandedView){
     if(lastMeasuredFps<32) return {items:1,frameMs:0.75};
     if(lastMeasuredFps<46) return {items:1,frameMs:1.15};
@@ -12029,6 +12077,7 @@ function fixedUpdateGame(){
 
 function loop(timestamp=performance.now()){
   requestAnimationFrame(loop);
+  renderFrameIndex++;
 
   if(lastLoopTime==null) lastLoopTime=timestamp;
   let frameMs=Math.min(250,Math.max(0,timestamp-lastLoopTime));
@@ -12076,13 +12125,14 @@ function loop(timestamp=performance.now()){
   fixedAccumulator+=frameMs;
 
   let steps=0;
-  while(fixedAccumulator>=fixedStepMs && steps<maxFixedStepsPerFrame){
+  let fixedStepLimit=fixedStepLimitForFrame(frameMs);
+  while(fixedAccumulator>=fixedStepMs && steps<fixedStepLimit){
     fixedUpdateGame();
     fixedAccumulator-=fixedStepMs;
     steps++;
   }
 
-  if(steps>=maxFixedStepsPerFrame && fixedAccumulator>=fixedStepMs){
+  if(steps>=fixedStepLimit && fixedAccumulator>=fixedStepMs){
     fixedAccumulator=fixedStepMs-0.001;
   }
 
@@ -12091,17 +12141,22 @@ function loop(timestamp=performance.now()){
     updateRendererPixelRatio();
   }
 
-  clouds.update();
-  stars.update();
-  birds.update();
-  ambientMotes.update();
-  rain.update();
-  updateSurfaceScanPulses(frameMs/1000);
-  hud.updateSpeedHud();
+  let stressLevel=performanceStressLevel(frameMs);
+  let visualInterval=stressLevel>=3 ? 4 : stressLevel>=2 ? 2 : 1;
+  let updateVisuals=renderFrameIndex%visualInterval===0;
+  if(updateVisuals){
+    clouds.update();
+    stars.update();
+    birds.update();
+    ambientMotes.update();
+    rain.update();
+    updateSurfaceScanPulses((frameMs/1000)*visualInterval);
+  }
+  if(stressLevel<3 || renderFrameIndex%2===0) hud.updateSpeedHud();
   hud.updateMapHud();
-  hud.updateCompassHud();
+  if(stressLevel<2 || renderFrameIndex%2===0) hud.updateCompassHud();
   let chunkBudget=chunkBuildBudget();
-  world.processChunkQueue(chunkBudget.items,false,chunkBudget.frameMs);
+  if(chunkBudget.items>0) world.processChunkQueue(chunkBudget.items,false,chunkBudget.frameMs);
   pauseMenu.update(timestamp);
   renderGame();
 }

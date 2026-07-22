@@ -2,12 +2,15 @@ import { chunkSize } from "./constants.js";
 
 const gameFontFamily="\"Astor\", Arial, sans-serif";
 const mapHudSize=259;
+const mapHudSplitCssSize="min(224px,calc(50vw - 42px))";
 const healthHudFullWidth="min(430px,58vw)";
 const healthHudSplitWidth="min(300px,40vw)";
 const compassFullCanvasWidth=430;
 const compassSplitCanvasWidth=300;
 const speedHudScale=1.2;
+const speedHudSplitScale=1;
 const speedHudWidth=236;
+const speedHudSplitWidth="min(200px,calc(50vw - 72px))";
 const laserHudFrames=300;
 const hudIconColor="#b9f4ff";
 
@@ -22,20 +25,57 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     return panel.side==="left" ? 0 : "50%";
   }
 
+  function speedHudWidthFor(panel){
+    return panel.side==="full" ? `${speedHudWidth}px` : speedHudSplitWidth;
+  }
+
+  function speedHudScaleFor(panel){
+    return panel.side==="full" ? speedHudScale : speedHudSplitScale;
+  }
+
+  function speedHudInset(panel){
+    return panel.side==="full" ? "20px" : panel.side==="left" ? "58px" : "28px";
+  }
+
+  function mapHudCssSizeFor(panel){
+    return panel.side==="full" ? `${mapHudSize}px` : mapHudSplitCssSize;
+  }
+
+  function mapHudMarginFor(panel){
+    return panel.side==="full" ? "22px" : "18px";
+  }
+
   function sideTilt(panel){
-    if(panel.side==="left" || panel.side==="right" || panel.side==="full") return "rotateY(20deg) rotateX(1.5deg) rotateZ(-0.4deg)";
+    if(panel.side==="full") return "rotateY(20deg) rotateX(1.5deg) rotateZ(-0.4deg)";
+    if(panel.side==="left" || panel.side==="right") return "rotateX(1deg)";
     return "rotateX(7deg)";
   }
 
   function sideTransformOrigin(panel){
-    if(panel.side==="left" || panel.side==="right" || panel.side==="full") return "left center";
+    if(panel.side==="full") return "left center";
+    if(panel.side==="left" || panel.side==="right") return "top left";
     return "top center";
   }
 
   function sidePanelClip(panel){
-    if(panel.side==="left" || panel.side==="full") return "polygon(0 0,100% 5%,100% 95%,0 100%)";
-    if(panel.side==="right") return "polygon(0 12%,100% 0,100% 100%,0 88%)";
+    if(panel.side==="full") return "polygon(0 0,100% 5%,100% 95%,0 100%)";
+    if(panel.side==="left" || panel.side==="right") return "polygon(0 0,100% 0,100% 100%,0 100%)";
     return "polygon(0 0,calc(100% - 22px) 0,100% 22px,100% 100%,18px 100%,0 calc(100% - 18px))";
+  }
+
+  function removeNode(node){
+    if(node && node.parentNode) node.parentNode.removeChild(node);
+  }
+
+  function clearHudNodes(){
+    for(let panel of panels){
+      removeNode(panel.speedHud);
+      removeNode(panel.mapHud);
+      removeNode(panel.compassHud);
+    }
+    panels=[];
+    removeNode(gameOverOverlay);
+    gameOverOverlay=null;
   }
 
   function makeHealthHud(panel){
@@ -109,10 +149,10 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     speedHud.style.cssText=[
       "position:fixed",
       "top:58px",
-      `left:calc(${panelOffset(panel)} + 20px)`,
-      `transform:perspective(430px) ${sideTilt(panel)} scale(${speedHudScale})`,
+      `left:calc(${panelOffset(panel)} + ${speedHudInset(panel)})`,
+      `transform:perspective(430px) ${sideTilt(panel)} scale(${speedHudScaleFor(panel)})`,
       `transform-origin:${sideTransformOrigin(panel)}`,
-      `width:${speedHudWidth}px`,
+      `width:${speedHudWidthFor(panel)}`,
       "height:268px",
       "z-index:10",
       "overflow:hidden",
@@ -307,6 +347,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     speedHud.appendChild(boostTrack);
     speedHud.appendChild(fuelTrack);
     document.body.appendChild(speedHud);
+    panel.speedHud=speedHud;
     panel.ammoLabel=ammoLabel;
     panel.unitsLabel=unitsLabel;
     panel.healthFill=healthFill;
@@ -416,9 +457,10 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     mapHud.style.cssText=[
       "position:fixed",
       "top:56px",
-      `right:${panel.side==="left" ? "calc(50% + 22px)" : "22px"}`,
-      `width:${mapHudSize}px`,
-      `height:${mapHudSize}px`,
+      `--map-size:${mapHudCssSizeFor(panel)}`,
+      `right:${panel.side==="left" ? `calc(50% + ${mapHudMarginFor(panel)})` : mapHudMarginFor(panel)}`,
+      "width:var(--map-size)",
+      "height:var(--map-size)",
       "border-radius:50%",
       "background:transparent",
       "border:1px solid rgba(141,255,242,0.09)",
@@ -456,12 +498,13 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     let mapCanvas=document.createElement("canvas");
     mapCanvas.width=mapHudSize;
     mapCanvas.height=mapHudSize;
-    mapCanvas.style.cssText=`position:absolute;inset:14px;display:block;width:${mapHudSize-28}px;height:${mapHudSize-28}px;border-radius:50%;opacity:0.78;filter:saturate(1.2) contrast(1.08) drop-shadow(0 0 10px rgba(103,244,255,0.22))`;
+    mapCanvas.style.cssText="position:absolute;inset:14px;display:block;width:calc(var(--map-size) - 28px);height:calc(var(--map-size) - 28px);border-radius:50%;opacity:0.78;filter:saturate(1.2) contrast(1.08) drop-shadow(0 0 10px rgba(103,244,255,0.22))";
     let mapCtx=mapCanvas.getContext("2d");
     mapHud.appendChild(mapRing);
     mapHud.appendChild(mapCanvas);
     mapHud.appendChild(mapGlass);
     document.body.appendChild(mapHud);
+    panel.mapHud=mapHud;
     panel.mapCanvas=mapCanvas;
     panel.mapCtx=mapCtx;
   }
@@ -489,6 +532,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     compassHud.appendChild(compassCanvas);
     document.body.appendChild(compassHud);
 
+    panel.compassHud=compassHud;
     panel.compassCanvas=compassCanvas;
     panel.compassCtx=compassCtx;
   }
@@ -1335,6 +1379,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
   }
 
   function init(){
+    clearHudNodes();
     let states=getCarStates();
     panels=states.map((state,index)=>({
       side:states.length<=1 ? "full" : index===0 ? "left" : "right",
