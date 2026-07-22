@@ -760,19 +760,19 @@ function createFirstPersonVisorPane(left,width){
   ]);
   addVisorPart(carLayer,[
     "position:absolute",
-    "left:9%",
-    "right:9%",
+    "left:10%",
+    "right:10%",
     "bottom:0",
-    "height:25%",
-    "background:linear-gradient(0deg, rgba(0,0,0,0.96), rgba(6,13,15,0.9) 48%, rgba(6,13,15,0.22) 100%)",
-    "clip-path:polygon(0 38%, 100% 28%, 100% 100%, 0 100%)"
+    "height:9%",
+    "background:linear-gradient(0deg, rgba(0,0,0,0.62), rgba(6,13,15,0.34) 58%, rgba(6,13,15,0) 100%)",
+    "clip-path:polygon(0 55%, 100% 40%, 100% 100%, 0 100%)"
   ]);
   addVisorPart(carLayer,[
     "position:absolute",
     "left:12%",
     "right:12%",
     "top:9%",
-    "bottom:20%",
+    "bottom:8%",
     "border-top:1px solid rgba(183,231,225,0.22)",
     "border-left:1px solid rgba(183,231,225,0.16)",
     "border-right:1px solid rgba(183,231,225,0.16)",
@@ -782,7 +782,7 @@ function createFirstPersonVisorPane(left,width){
     "position:absolute",
     "left:16%",
     "right:16%",
-    "bottom:20.5%",
+    "bottom:8.5%",
     "height:1px",
     "background:linear-gradient(90deg, rgba(183,231,225,0), rgba(183,231,225,0.25), rgba(183,231,225,0))",
     "opacity:0.55"
@@ -1147,8 +1147,7 @@ let currentGameFromSave=false;
 let jetUnlocked=false;
 let initialUnits=500;
 let testingScannerAvailableFromStart=false;
-let jetAvailableFromStart=false;
-let testingLaserAvailableFromStart=false;
+let jetAvailableFromStart=true;
 let testingRocketBuggiesAtStart=true;
 let testingRocketBuggyStartCount=5;
 let units=initialUnits;
@@ -1799,9 +1798,10 @@ function tradingItemOwned(id){
   return purchasedTradingItems.has(id);
 }
 
-function applyTestingStartItems(){
+function applyDefaultStartItems(){
+  purchasedTradingItems.add("rocket-launcher");
+  purchasedTradingItems.add("laser-gun");
   if(testingScannerAvailableFromStart) purchasedTradingItems.add("scanner");
-  if(testingLaserAvailableFromStart) purchasedTradingItems.add("laser-gun");
   if(jetAvailableFromStart){
     purchasedTradingItems.add("jet");
     jetUnlocked=true;
@@ -3234,7 +3234,7 @@ function selectStartEnvironment(index){
 function restoreSavedRuntimeStatus(status){
   units=Math.max(0,Math.floor(finiteOr(status.units,status.score ?? 0)));
   purchasedTradingItems=new Set(Array.isArray(status.purchasedTradingItems) ? status.purchasedTradingItems : []);
-  applyTestingStartItems();
+  applyDefaultStartItems();
   jetUnlocked=!!status.jetUnlocked || purchasedTradingItems.has("jet");
   if(jetUnlocked) purchasedTradingItems.add("jet");
   enemyWaveDelay=Math.max(0,Math.floor(finiteOr(status.enemyWaveDelay,enemyWaveDelay)));
@@ -11640,20 +11640,50 @@ function updateCar(car){
       car.velAngle+=normalizeAngle(car.angle-car.velAngle)*(0.16+0.1*(1-movingSteer));
     }else{
       car.turnInputEase=turn;
-      car.turnVelocity=0;
       let highSpeedCalm=1-clamp((speedAbs-0.32)/0.32,0,0.18);
       let robotTurnBoost=1+0.42*(1-smoothStep(car.morphProgress/0.65));
       let steeringResponse=(0.52+movingSteer*0.54)*highSpeedCalm*robotTurnBoost;
       let jetYawScale=jetMovement ? 0.38 : 1;
-      car.angle+=turn*reverseSteer*0.031*steeringResponse*jetYawScale;
-      car.velAngle=car.angle;
+      let carModeSteering=carGroundMovement && car.morphProgress>0.72;
+      let jetModeSteering=jetMovement && !car.jetAutoLandToRobot;
+      let driftSpeed=clamp((speedAbs-0.32)/0.82,0,1);
+      let driftTurn=Math.min(1,Math.abs(turn));
+      let driftAmount=carModeSteering ? smoothStep(driftSpeed)*driftTurn : 0;
+      let yawRate=turn*reverseSteer*0.031*steeringResponse*jetYawScale;
+      if(carModeSteering){
+        yawRate*=1-driftAmount*0.28;
+        car.turnVelocity+=(yawRate-car.turnVelocity)*0.24;
+        car.turnVelocity*=turn===0 ? 0.84 : 0.975;
+        car.turnVelocity=clamp(car.turnVelocity,-0.048,0.048);
+        car.angle=normalizeAngle(car.angle+car.turnVelocity);
+        let alignRate=0.16-driftAmount*0.125;
+        alignRate*=turn===0 ? 1.32 : 1;
+        car.velAngle+=normalizeAngle(car.angle-car.velAngle)*clamp(alignRate,0.028,0.22);
+        car.slipAmount=clamp(Math.abs(normalizeAngle(car.angle-car.velAngle))*3.05+driftAmount*0.95,0,1.45);
+      }else if(jetModeSteering){
+        let jetSpeedDrift=smoothStep(clamp((speedAbs-0.32)/1.12,0,1));
+        yawRate*=1-jetSpeedDrift*0.48;
+        car.turnVelocity+=(yawRate-car.turnVelocity)*0.12;
+        car.turnVelocity*=turn===0 ? 0.86 : 0.988;
+        car.turnVelocity=clamp(car.turnVelocity,-0.022,0.022);
+        car.angle=normalizeAngle(car.angle+car.turnVelocity);
+        let alignRate=0.1-jetSpeedDrift*0.065;
+        alignRate*=turn===0 ? 1.28 : 1;
+        car.velAngle+=normalizeAngle(car.angle-car.velAngle)*clamp(alignRate,0.026,0.15);
+        car.slipAmount=0;
+      }else{
+        car.turnVelocity=0;
+        car.angle=normalizeAngle(car.angle+yawRate);
+        car.velAngle=car.angle;
+        car.slipAmount=0;
+      }
     }
 
-    car.slipAmount=0;
+    if(!carGroundMovement) car.slipAmount=0;
   }
 
   if(!gameOver && !carDisabled){
-    let moveAngle=weightedMechMovement ? car.velAngle : car.angle;
+    let moveAngle=(weightedMechMovement || carGroundMovement || jetMovement) ? car.velAngle : car.angle;
     car.x+=Math.sin(moveAngle)*car.speed;
     car.z+=Math.cos(moveAngle)*car.speed;
     if(carGroundMovement && Math.abs(car.speed)>0.01){
@@ -12093,6 +12123,9 @@ function updateCameraForCar(car){
       camY+1.2+pitchLift,
       camZ+forwardZ*lookAhead
     );
+    if(jetMode){
+      car.camera.rotateZ(-(car.jetBank || 0)*0.72);
+    }
     if(robotMode && walkMotion>0.001){
       car.camera.rotateZ(Math.sin(walkPhase)*0.007*walkMotion);
     }
@@ -13544,7 +13577,7 @@ function startGame(mode,difficulty="medium",savedStatus=null){
   lastLoopTime=null;
   units=initialUnits;
   purchasedTradingItems=new Set();
-  applyTestingStartItems();
+  applyDefaultStartItems();
   scoredVillages=new WeakSet();
   scannedBossBases=new Set();
   scannedRadarOutposts=new Map();
