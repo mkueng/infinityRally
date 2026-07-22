@@ -636,12 +636,30 @@ function createFirstPersonVisorPane(left,width){
     "display:block"
   ].join(";");
 
-  addVisorPart(pane,[
+  let robotLayer=document.createElement("div");
+  robotLayer.style.cssText=[
+    "position:absolute",
+    "inset:0"
+  ].join(";");
+  pane.appendChild(robotLayer);
+  pane._robotLayer=robotLayer;
+
+  let carLayer=document.createElement("div");
+  carLayer.style.cssText=[
+    "position:absolute",
+    "inset:0",
+    "opacity:0",
+    "transition:opacity 160ms linear"
+  ].join(";");
+  pane.appendChild(carLayer);
+  pane._carLayer=carLayer;
+
+  addVisorPart(robotLayer,[
     "position:absolute",
     "inset:0",
     "background:radial-gradient(ellipse at center, rgba(0,0,0,0) 44%, rgba(7,22,28,0.14) 70%, rgba(0,0,0,0.62) 100%)"
   ]);
-  addVisorPart(pane,[
+  addVisorPart(robotLayer,[
     "position:absolute",
     "left:8%",
     "right:8%",
@@ -650,7 +668,7 @@ function createFirstPersonVisorPane(left,width){
     "background:linear-gradient(180deg, rgba(0,0,0,0.68), rgba(0,0,0,0.08))",
     "clip-path:polygon(5% 0, 95% 0, 100% 100%, 0 100%)"
   ]);
-  addVisorPart(pane,[
+  addVisorPart(robotLayer,[
     "position:absolute",
     "left:7%",
     "right:7%",
@@ -659,7 +677,7 @@ function createFirstPersonVisorPane(left,width){
     "background:linear-gradient(0deg, rgba(0,0,0,0.72), rgba(0,0,0,0.08))",
     "clip-path:polygon(0 0, 100% 0, 92% 100%, 8% 100%)"
   ]);
-  addVisorPart(pane,[
+  addVisorPart(robotLayer,[
     "position:absolute",
     "left:0",
     "top:0",
@@ -667,7 +685,7 @@ function createFirstPersonVisorPane(left,width){
     "width:11%",
     "background:linear-gradient(90deg, rgba(0,0,0,0.76), rgba(0,0,0,0.08), rgba(0,0,0,0))"
   ]);
-  addVisorPart(pane,[
+  addVisorPart(robotLayer,[
     "position:absolute",
     "right:0",
     "top:0",
@@ -675,7 +693,7 @@ function createFirstPersonVisorPane(left,width){
     "width:11%",
     "background:linear-gradient(270deg, rgba(0,0,0,0.76), rgba(0,0,0,0.08), rgba(0,0,0,0))"
   ]);
-  addVisorPart(pane,[
+  addVisorPart(robotLayer,[
     "position:absolute",
     "left:9%",
     "right:9%",
@@ -694,11 +712,11 @@ function createFirstPersonVisorPane(left,width){
     "border-color:rgba(141,255,242,0.52)",
     "filter:drop-shadow(0 0 7px rgba(103,244,255,0.32))"
   ];
-  addVisorPart(pane,[...cornerStyle,"left:7.5%","top:6.5%","border-left:2px solid","border-top:2px solid"]);
-  addVisorPart(pane,[...cornerStyle,"right:7.5%","top:6.5%","border-right:2px solid","border-top:2px solid"]);
-  addVisorPart(pane,[...cornerStyle,"left:7.5%","bottom:7%","border-left:2px solid","border-bottom:2px solid"]);
-  addVisorPart(pane,[...cornerStyle,"right:7.5%","bottom:7%","border-right:2px solid","border-bottom:2px solid"]);
-  addVisorPart(pane,[
+  addVisorPart(robotLayer,[...cornerStyle,"left:7.5%","top:6.5%","border-left:2px solid","border-top:2px solid"]);
+  addVisorPart(robotLayer,[...cornerStyle,"right:7.5%","top:6.5%","border-right:2px solid","border-top:2px solid"]);
+  addVisorPart(robotLayer,[...cornerStyle,"left:7.5%","bottom:7%","border-left:2px solid","border-bottom:2px solid"]);
+  addVisorPart(robotLayer,[...cornerStyle,"right:7.5%","bottom:7%","border-right:2px solid","border-bottom:2px solid"]);
+  addVisorPart(robotLayer,[
     "position:absolute",
     "left:14%",
     "right:14%",
@@ -706,6 +724,68 @@ function createFirstPersonVisorPane(left,width){
     "height:1px",
     "background:linear-gradient(90deg, rgba(141,255,242,0), rgba(141,255,242,0.22), rgba(141,255,242,0))",
     "opacity:0.44"
+  ]);
+
+  addVisorPart(carLayer,[
+    "position:absolute",
+    "inset:0",
+    "background:radial-gradient(ellipse at 50% 47%, rgba(0,0,0,0) 58%, rgba(0,0,0,0.18) 83%, rgba(0,0,0,0.54) 100%)"
+  ]);
+  addVisorPart(carLayer,[
+    "position:absolute",
+    "left:5%",
+    "right:5%",
+    "top:6%",
+    "height:4%",
+    "background:linear-gradient(180deg, rgba(0,0,0,0.7), rgba(0,0,0,0.18))",
+    "clip-path:polygon(3% 0, 97% 0, 100% 100%, 0 100%)"
+  ]);
+  addVisorPart(carLayer,[
+    "position:absolute",
+    "left:4.5%",
+    "top:8%",
+    "bottom:21%",
+    "width:9%",
+    "background:linear-gradient(100deg, rgba(0,0,0,0.8), rgba(0,0,0,0.42) 48%, rgba(0,0,0,0))",
+    "clip-path:polygon(0 0, 70% 0, 100% 100%, 0 100%)"
+  ]);
+  addVisorPart(carLayer,[
+    "position:absolute",
+    "right:4.5%",
+    "top:8%",
+    "bottom:21%",
+    "width:9%",
+    "background:linear-gradient(260deg, rgba(0,0,0,0.8), rgba(0,0,0,0.42) 48%, rgba(0,0,0,0))",
+    "clip-path:polygon(30% 0, 100% 0, 100% 100%, 0 100%)"
+  ]);
+  addVisorPart(carLayer,[
+    "position:absolute",
+    "left:9%",
+    "right:9%",
+    "bottom:0",
+    "height:25%",
+    "background:linear-gradient(0deg, rgba(0,0,0,0.96), rgba(6,13,15,0.9) 48%, rgba(6,13,15,0.22) 100%)",
+    "clip-path:polygon(0 38%, 100% 28%, 100% 100%, 0 100%)"
+  ]);
+  addVisorPart(carLayer,[
+    "position:absolute",
+    "left:12%",
+    "right:12%",
+    "top:9%",
+    "bottom:20%",
+    "border-top:1px solid rgba(183,231,225,0.22)",
+    "border-left:1px solid rgba(183,231,225,0.16)",
+    "border-right:1px solid rgba(183,231,225,0.16)",
+    "clip-path:polygon(4% 0, 96% 0, 100% 100%, 0 100%)"
+  ]);
+  addVisorPart(carLayer,[
+    "position:absolute",
+    "left:16%",
+    "right:16%",
+    "bottom:20.5%",
+    "height:1px",
+    "background:linear-gradient(90deg, rgba(183,231,225,0), rgba(183,231,225,0.25), rgba(183,231,225,0))",
+    "opacity:0.55"
   ]);
 
   firstPersonVisorOverlay.appendChild(pane);
@@ -728,6 +808,17 @@ function firstPersonViewActive(){
     && !(terraformFinale && terraformFinale.active);
 }
 
+function firstPersonPaneCarAmount(paneIndex){
+  let car=paneIndex===0
+    ? playerCar
+    : displayCars()[paneIndex-1];
+  if(!car) return 0;
+
+  let morphAmount=smoothStep(clamp((car.morphProgress-0.38)/0.36,0,1));
+  let jetAmount=smoothStep(clamp((car.jetProgress-0.32)/0.36,0,1));
+  return morphAmount*(1-jetAmount);
+}
+
 function updateFirstPersonVisorOverlay(){
   if(!firstPersonVisorOverlay) return;
   let visible=firstPersonViewActive();
@@ -737,6 +828,12 @@ function updateFirstPersonVisorOverlay(){
   firstPersonVisorPanes[0].style.display=split ? "none" : "block";
   firstPersonVisorPanes[1].style.display=split ? "block" : "none";
   firstPersonVisorPanes[2].style.display=split ? "block" : "none";
+  for(let i=0;i<firstPersonVisorPanes.length;i++){
+    let pane=firstPersonVisorPanes[i];
+    let carAmount=firstPersonPaneCarAmount(i);
+    if(pane._robotLayer) pane._robotLayer.style.opacity=String(1-carAmount*0.82);
+    if(pane._carLayer) pane._carLayer.style.opacity=String(carAmount);
+  }
 }
 let terraformFadeOverlay=document.createElement("div");
 terraformFadeOverlay.style.cssText=[
