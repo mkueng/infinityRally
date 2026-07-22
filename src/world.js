@@ -1,6 +1,6 @@
 import { THREE } from "./three.js";
 import { carRadius, chunkSize, segments, viewDistance } from "./constants.js";
-import { groundHeight, rand, roadCenterX, roadDistance } from "./terrain.js?v=terrain-structure";
+import { groundHeight, rand, roadCenterX, roadDistance } from "./terrain.js?v=live-fps-smoothing";
 import { makeCarShadowTexture, makeGroundTexture } from "./textures.js?v=building-shadows";
 import { makeMissionOutpostTerminal } from "./models.js?v=radar-performance-fix";
 
@@ -167,6 +167,75 @@ let waterMat=new THREE.MeshStandardMaterial({
   depthWrite:false
 });
 let waterLevel=-20;
+let underwaterVisualDropBase=1.55;
+let underwaterVisualDropScale=0.62;
+let underwaterVisualDropMax=10.5;
+let underwaterLargePondDropMax=16;
+
+function waterSmoothstep01(value){
+  value=Math.max(0,Math.min(1,value));
+  return value*value*(3-2*value);
+}
+
+function underwaterVisualHeight(baseHeight,shoreDistance=0){
+  if(baseHeight>=waterLevel) return baseHeight;
+  let depth=waterLevel-baseHeight;
+  let pondScale=waterSmoothstep01((shoreDistance-24)/210);
+  let visualDrop=underwaterVisualDropBase
+    +Math.min(underwaterVisualDropMax,depth*underwaterVisualDropScale)
+    +pondScale*Math.min(underwaterLargePondDropMax,2.2+depth*0.74);
+  return Math.min(baseHeight,waterLevel-visualDrop);
+}
+
+function waterShoreDistances(waterMask){
+  let gridSize=segments+1;
+  let vertexCount=waterMask.length;
+  let distances=new Float32Array(vertexCount);
+  let large=1000000;
+  let straight=chunkSize/segments;
+  let diagonal=straight*Math.SQRT2;
+  let hasDry=false;
+
+  for(let i=0;i<vertexCount;i++){
+    if(waterMask[i]){
+      distances[i]=large;
+    }else{
+      distances[i]=0;
+      hasDry=true;
+    }
+  }
+
+  if(!hasDry){
+    distances.fill(chunkSize*0.75);
+    return distances;
+  }
+
+  for(let z=0;z<gridSize;z++){
+    for(let x=0;x<gridSize;x++){
+      let i=z*gridSize+x;
+      let d=distances[i];
+      if(x>0) d=Math.min(d,distances[i-1]+straight);
+      if(z>0) d=Math.min(d,distances[i-gridSize]+straight);
+      if(x>0 && z>0) d=Math.min(d,distances[i-gridSize-1]+diagonal);
+      if(x<gridSize-1 && z>0) d=Math.min(d,distances[i-gridSize+1]+diagonal);
+      distances[i]=d;
+    }
+  }
+
+  for(let z=gridSize-1;z>=0;z--){
+    for(let x=gridSize-1;x>=0;x--){
+      let i=z*gridSize+x;
+      let d=distances[i];
+      if(x<gridSize-1) d=Math.min(d,distances[i+1]+straight);
+      if(z<gridSize-1) d=Math.min(d,distances[i+gridSize]+straight);
+      if(x<gridSize-1 && z<gridSize-1) d=Math.min(d,distances[i+gridSize+1]+diagonal);
+      if(x>0 && z<gridSize-1) d=Math.min(d,distances[i+gridSize-1]+diagonal);
+      distances[i]=d;
+    }
+  }
+
+  return distances;
+}
 
 let barkMat=new THREE.MeshStandardMaterial({color:0x24133a,emissive:0x12061f,emissiveIntensity:0.2,roughness:0.88});
 let leafMat=new THREE.MeshStandardMaterial({color:0xb66cff,emissive:0x5a22c9,emissiveIntensity:0.48,roughness:0.64});
@@ -599,7 +668,7 @@ function createChunkWorker(){
   if(options.disableChunkWorker || typeof Worker==="undefined") return null;
 
   try{
-    let worker=new Worker(new URL("./chunkWorker.js?v=terrain-structure",import.meta.url),{type:"module"});
+    let worker=new Worker(new URL("./chunkWorker.js?v=pond-size-depth",import.meta.url),{type:"module"});
     let template=makeTerrainVertexTemplate();
     worker.postMessage({
       type:"setTerrainTemplate",
@@ -1769,6 +1838,10 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
     }
     colors=precomputedTerrain.colors;
   }else{
+    let vertexCount=pos.count;
+    let holeAmounts=new Float32Array(vertexCount);
+    let waterMask=new Uint8Array(vertexCount);
+
     for(let i=0;i<pos.count;i++){
       let wx=pos.getX(i)+cx*chunkSize;
       let wz=pos.getZ(i)+cz*chunkSize;
@@ -1786,11 +1859,23 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
 
       if(baseH<waterLevel){
         chunkHasWater=true;
-        h=Math.min(h,waterLevel-0.55);
+        waterMask[i]=1;
       }
 
       pos.setY(i,h);
+      holeAmounts[i]=holeAmount;
+    }
 
+    let shoreDistances=chunkHasWater ? waterShoreDistances(waterMask) : null;
+    if(shoreDistances){
+      for(let i=0;i<vertexCount;i++){
+        if(waterMask[i]) pos.setY(i,underwaterVisualHeight(pos.getY(i),shoreDistances[i]));
+      }
+    }
+
+    for(let i=0;i<vertexCount;i++){
+      let h=pos.getY(i);
+      let holeAmount=holeAmounts[i];
       if(holeAmount>0){
         let wallShade=0.18+Math.min(0.82,holeAmount)*0.22;
         vertexColor.set(holeColor).lerp(lowColor,wallShade);
@@ -1958,6 +2043,8 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
 
       treeUsed++;
     }
+
+    if(c<clusterCount-1) yield;
   }
 
   trunks.count=treeUsed;
@@ -2013,6 +2100,8 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
       grasses.setMatrixAt(grassUsed,dummy.matrix);
       grassUsed++;
     }
+
+    if(c<grassClusterCount-1 && c%3===2) yield;
   }
 
   grasses.count=grassUsed;
@@ -2316,6 +2405,8 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
     }
 
     for(let i=0;i<housesInVillage && buildingUsed<maxBuildings;i++){
+      if(i>0 && i%12===0) yield;
+
       let angle=(i/housesInVillage)*Math.PI*2 + r01(i+v*31,cx-cz)*0.9;
       let dist=(0.2+r01(i+cx*3,cz+v)*0.8)*villageRadius;
       let wx=centerX+Math.cos(angle)*dist;

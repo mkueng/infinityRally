@@ -1,10 +1,10 @@
 import { THREE } from "./three.js";
 import { carRadius, gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize, viewDistance, mothershipDropCount, mothershipDropInterval, mothershipDropLineSpacing, mothershipHoverDistance, mothershipHoverFrames, mothershipMinDelay, mothershipRandomDelay, mothershipRocketHits } from "./constants.js";
-import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=terrain-structure";
+import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=live-fps-smoothing";
 import { createInput } from "./input.js?v=scanner-bumper";
 import { createHud } from "./hud.js?v=minimap-terrain-sync";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=tracked-enemy-shadows";
-import { createWorld } from "./world.js?v=terraform-green-fade";
+import { createWorld } from "./world.js?v=pond-size-depth";
 import { createMotorAudio } from "./audio.js?v=intro-beam-sizzle";
 import { worldEnvironments } from "./environments.js?v=broad-mountains";
 import { difficultySettings } from "./gameConfig.js?v=ammo-caps";
@@ -11931,9 +11931,14 @@ function updateScannerMode(){
 
 function chunkBuildBudget(){
   let expandedView=activeCars().some(car=>chunkViewDistanceForCar(car)>viewDistance);
-  if(!expandedView) return {items:1,frameMs:2};
-  if(gameMode==="double") return {items:2,frameMs:2.5};
-  if(lastMeasuredFps<46) return {items:3,frameMs:3};
+  if(!expandedView){
+    if(lastMeasuredFps<32) return {items:1,frameMs:0.75};
+    if(lastMeasuredFps<46) return {items:1,frameMs:1.15};
+    return {items:1,frameMs:1.8};
+  }
+  if(gameMode==="double") return {items:1,frameMs:lastMeasuredFps<40 ? 0.9 : 1.8};
+  if(lastMeasuredFps<36) return {items:1,frameMs:0.9};
+  if(lastMeasuredFps<46) return {items:2,frameMs:1.6};
   return {items:5,frameMs:4.5};
 }
 

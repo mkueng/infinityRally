@@ -1,9 +1,78 @@
-import { chunkSize } from "./constants.js";
-import { groundHeight, rand, roadDistance, setWorldSeed } from "./terrain.js?v=terrain-structure";
+import { chunkSize, segments } from "./constants.js";
+import { groundHeight, rand, roadDistance, setWorldSeed } from "./terrain.js?v=live-fps-smoothing";
 
 const waterLevel=-20;
+const underwaterVisualDropBase=1.55;
+const underwaterVisualDropScale=0.62;
+const underwaterVisualDropMax=10.5;
+const underwaterLargePondDropMax=16;
 let terrainLocalX=null;
 let terrainLocalZ=null;
+
+function waterSmoothstep01(value){
+  value=Math.max(0,Math.min(1,value));
+  return value*value*(3-2*value);
+}
+
+function underwaterVisualHeight(baseHeight,shoreDistance=0){
+  if(baseHeight>=waterLevel) return baseHeight;
+  let depth=waterLevel-baseHeight;
+  let pondScale=waterSmoothstep01((shoreDistance-24)/210);
+  let visualDrop=underwaterVisualDropBase
+    +Math.min(underwaterVisualDropMax,depth*underwaterVisualDropScale)
+    +pondScale*Math.min(underwaterLargePondDropMax,2.2+depth*0.74);
+  return Math.min(baseHeight,waterLevel-visualDrop);
+}
+
+function waterShoreDistances(waterMask){
+  let gridSize=segments+1;
+  let vertexCount=waterMask.length;
+  let distances=new Float32Array(vertexCount);
+  let large=1000000;
+  let straight=chunkSize/segments;
+  let diagonal=straight*Math.SQRT2;
+  let hasDry=false;
+
+  for(let i=0;i<vertexCount;i++){
+    if(waterMask[i]){
+      distances[i]=large;
+    }else{
+      distances[i]=0;
+      hasDry=true;
+    }
+  }
+
+  if(!hasDry){
+    distances.fill(chunkSize*0.75);
+    return distances;
+  }
+
+  for(let z=0;z<gridSize;z++){
+    for(let x=0;x<gridSize;x++){
+      let i=z*gridSize+x;
+      let d=distances[i];
+      if(x>0) d=Math.min(d,distances[i-1]+straight);
+      if(z>0) d=Math.min(d,distances[i-gridSize]+straight);
+      if(x>0 && z>0) d=Math.min(d,distances[i-gridSize-1]+diagonal);
+      if(x<gridSize-1 && z>0) d=Math.min(d,distances[i-gridSize+1]+diagonal);
+      distances[i]=d;
+    }
+  }
+
+  for(let z=gridSize-1;z>=0;z--){
+    for(let x=gridSize-1;x>=0;x--){
+      let i=z*gridSize+x;
+      let d=distances[i];
+      if(x<gridSize-1) d=Math.min(d,distances[i+1]+straight);
+      if(z<gridSize-1) d=Math.min(d,distances[i+gridSize]+straight);
+      if(x<gridSize-1 && z<gridSize-1) d=Math.min(d,distances[i+gridSize+1]+diagonal);
+      if(x>0 && z<gridSize-1) d=Math.min(d,distances[i+gridSize-1]+diagonal);
+      distances[i]=d;
+    }
+  }
+
+  return distances;
+}
 
 function r01(a,b){
   return rand(a,b)*0.5+0.5;
@@ -160,6 +229,8 @@ function buildTerrainChunk(message){
   let terrainHoles=terrainHolesForChunk(cx,cz,cityDistrictChance);
   let vertexCount=terrainLocalX.length;
   let heights=new Float32Array(vertexCount);
+  let holeAmounts=new Float32Array(vertexCount);
+  let waterMask=new Uint8Array(vertexCount);
   let colors=new Float32Array(vertexCount*3);
   let chunkHasWater=false;
 
@@ -180,11 +251,23 @@ function buildTerrainChunk(message){
 
     if(baseH<waterLevel){
       chunkHasWater=true;
-      h=Math.min(h,waterLevel-0.55);
+      waterMask[index]=1;
     }
 
     heights[index]=h;
+    holeAmounts[index]=holeAmount;
+  }
 
+  let shoreDistances=chunkHasWater ? waterShoreDistances(waterMask) : null;
+  if(shoreDistances){
+    for(let index=0;index<vertexCount;index++){
+      if(waterMask[index]) heights[index]=underwaterVisualHeight(heights[index],shoreDistances[index]);
+    }
+  }
+
+  for(let index=0;index<vertexCount;index++){
+    let h=heights[index];
+    let holeAmount=holeAmounts[index];
     if(holeAmount>0){
       let wallShade=0.18+Math.min(0.82,holeAmount)*0.22;
       writeColor(colors,index,holeColor,lowColor,wallShade);
