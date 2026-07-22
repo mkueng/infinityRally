@@ -749,7 +749,15 @@
       margin-bottom: 14px;
     }
 
-    .difficulty-actions button {
+    .planet-actions {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 7px;
+      margin: 0 0 14px;
+    }
+
+    .difficulty-actions button,
+    .planet-actions button {
       height: 42px;
       border: 1px solid rgba(141,255,242,0.34);
       background: rgba(20,28,34,0.58);
@@ -760,13 +768,29 @@
       text-transform: uppercase;
     }
 
-    .difficulty-actions button.is-selected {
+    .planet-actions button {
+      height: 34px;
+      font-size: 10px;
+      line-height: 1.05;
+      padding: 0 6px;
+    }
+
+    .difficulty-actions button.is-selected,
+    .planet-actions button.is-selected {
       background: #d6b25a;
       border-color: #efcf72;
       color: #1c211f;
     }
 
-    .asset-loading {
+    .planet-actions button.is-loading {
+      background: #67f4ff;
+      border-color: #b9f7ff;
+      color: #07131d;
+      box-shadow: 0 0 14px rgba(103,244,255,0.34);
+    }
+
+    .asset-loading,
+    .planet-loading {
       display: flex;
       align-items: center;
       justify-content: center;
@@ -784,7 +808,25 @@
       transition: opacity 180ms ease, transform 180ms ease, max-height 180ms ease, min-height 180ms ease, margin 180ms ease;
     }
 
-    .asset-loading::before {
+    .planet-loading {
+      min-height: 0;
+      max-height: 0;
+      margin: 0;
+      opacity: 0;
+      transform: translateY(-4px);
+      pointer-events: none;
+    }
+
+    .start-screen.is-planet-loading .planet-loading {
+      min-height: 32px;
+      max-height: 32px;
+      margin: -4px 0 14px;
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .asset-loading::before,
+    .planet-loading::before {
       content: "";
       width: 18px;
       height: 18px;
@@ -1016,8 +1058,10 @@
       <button type="button" data-difficulty="medium" class="is-selected">Not so easy</button>
       <button type="button" data-difficulty="hard">Hard</button>
     </div>
+    <div class="planet-actions" data-planet-options aria-label="Planet"></div>
+    <div class="planet-loading" data-planet-loading>Loading planet</div>
     <div class="start-actions">
-      <button type="button" data-load-game disabled>Load Last Game</button>
+      <button type="button" data-load-game disabled>Load Last Save</button>
       <div class="saved-game-date" data-load-game-date></div>
       <button type="button" data-mode="single" disabled>Single Player</button>
       <button type="button" data-mode="double" disabled>Double Player</button>
@@ -1177,7 +1221,7 @@
     }
   }
 </script>
-<script type="module" src="./src/main.js?v=boat-water-roam"></script>
+<script type="module" src="./src/main.js?v=load-last-save-runtime-label"></script>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js";
   import { getAnalytics, isSupported } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-analytics.js";

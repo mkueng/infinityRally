@@ -136,12 +136,12 @@ export const worldEnvironments=[
     sky:["#050812","#101a2c","#203858","#57728a","#d6c2a2"],
     fog:0x26384c,
     colors:{
-      underwater:0x111a24,shore:0x58606a,low:0x303842,mid:0x3e4650,high:0x555d66,
+      underwater:0x0b1422,shore:0x354b62,low:0x182233,mid:0x26304c,high:0x3f6674,
       water:0x4dc7ff,waterEmissive:0x0a5270,bark:0x1c2025,barkEmissive:0x05070a,
       leaf:0x607060,leafEmissive:0x121c10,pod:0x86dfff,podEmissive:0x1d8fb8,
       grass:0x5f705e,grassEmissive:0x101b12,rock:0x343a42,wall:0x4b5563,roof:0x202733,trim:0x8aa0b8,brick:0x333b45,street:0x171b20
     },
-    groundTexture:{base:"#343b43",dark:[25,30,36],bright:[88,96,104],streak:"90,185,255"},
+    groundTexture:{base:"#202a3e",dark:[14,20,34],bright:[60,104,118],streak:"92,225,255"},
     rainChance:0.52,
     rainIntensity:[0.18,0.58],
     vegetation:{treeClusters:0,treesPerCluster:1,treeClusterRadius:16,crownsPerTree:1,podsPerTree:0,trunkHeightBase:0.8,trunkHeightVariance:0.1,trunkWidthBase:0.5,trunkWidthVariance:0.1,leanAmount:0.04,crownBaseScale:0.8,crownScaleStep:0.02,crownSpreadBase:0.4,crownSpreadVariance:0.5,crownLiftBase:5.2,crownLiftStep:0.1,crownWidthScale:0.65,crownFlatness:1.2,crownDepthScale:0.65,podScaleBase:0.2,podScaleVariance:0.1,podLiftBase:4.5,podLiftVariance:0.8,podElongation:1,grassClusters:2,grassPerCluster:60,grassClusterRadius:7}

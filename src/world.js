@@ -1646,6 +1646,7 @@ function makeTreasureChestForHole(hole,cx,cz,index){
 
   treasure.add(chest);
   treasure.userData.x=hole.x;
+  treasure.userData.y=chest.position.y;
   treasure.userData.z=hole.z;
   treasure.userData.r=Math.max(3.2,Math.min(8,hole.innerR*0.42));
   treasure.userData.treasureType=source.userData.treasureType || "common";
@@ -3408,13 +3409,17 @@ function collectTreasureAt(x,z,radius=3.2){
         if(ddx*ddx+ddz*ddz>reach*reach) continue;
 
         treasure.userData.collected=true;
+        let pickupVisual=treasure.clone(true);
         if(treasure.parent) treasure.parent.remove(treasure);
         else scene.remove(treasure);
         chunk.treasureChests.splice(i,1);
         return {
           type:treasure.userData.treasureType || "common",
           x:tx,
-          z:tz
+          y:treasure.userData.y,
+          z:tz,
+          r:treasure.userData.r || 3.2,
+          visual:pickupVisual
         };
       }
     }

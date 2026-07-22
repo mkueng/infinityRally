@@ -4,9 +4,9 @@ import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed
 import { createInput } from "./input.js?v=scanner-bumper";
 import { createHud } from "./hud.js?v=grey-display-bars-compass";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=tracked-enemy-shadows";
-import { createWorld } from "./world.js?v=render-stress-lod";
+import { createWorld } from "./world.js?v=treasure-pickup-beam";
 import { createMotorAudio } from "./audio.js?v=intro-beam-sizzle";
-import { worldEnvironments } from "./environments.js?v=broad-mountains";
+import { worldEnvironments } from "./environments.js?v=neon-city-terrain-color";
 import { difficultySettings } from "./gameConfig.js?v=ammo-caps";
 import { loadBackPackModel, loadBaseStationModel, loadCarModel, loadEnemyBattleShipModel, loadJetModel, loadLandingSpaceModel, loadTradingOutpostModel, loadTreasureChestModels, makeMechModel } from "./models.js?v=radar-performance-fix";
 import { makeDistantPlanetHazeTexture, makeDistantPlanetLightTexture, makeDistantPlanetVeilTexture, makeSkyTexture } from "./textures.js?v=stronger-sky-gradient-2";
@@ -420,21 +420,21 @@ function rendererQualityState(){
   let severeDrop=gameStarted && lastMeasuredFps<24;
   let moderateDrop=gameStarted && lastMeasuredFps<36;
   if(gameMode==="double"){
-    if(currentFrameStressLevel>=3) return 0.45;
-    if(currentFrameStressLevel>=2) return 0.6;
-    if(severeDrop) return 0.55;
-    if(moderateDrop) return 0.68;
-    if(jetView && rainy) return 0.75;
-    if(jetView || rainy) return 0.85;
-    return 0.95;
+    if(currentFrameStressLevel>=3) return 0.38;
+    if(currentFrameStressLevel>=2) return 0.48;
+    if(severeDrop) return 0.44;
+    if(moderateDrop) return 0.54;
+    if(jetView && rainy) return 0.58;
+    if(jetView || rainy) return 0.64;
+    return 0.72;
   }
-  if(currentFrameStressLevel>=3) return 0.58;
-  if(currentFrameStressLevel>=2) return 0.75;
-  if(severeDrop) return 0.7;
-  if(moderateDrop) return 0.9;
-  if(jetView && rainy) return 1.05;
-  if(jetView || rainy) return 1.2;
-  return 1.5;
+  if(currentFrameStressLevel>=3) return 0.48;
+  if(currentFrameStressLevel>=2) return 0.62;
+  if(severeDrop) return 0.58;
+  if(moderateDrop) return 0.72;
+  if(jetView && rainy) return 0.8;
+  if(jetView || rainy) return 0.88;
+  return 0.95;
 }
 function updateRendererPixelRatio(){
   let target=Math.min(window.devicePixelRatio || 1,rendererQualityState());
@@ -442,7 +442,7 @@ function updateRendererPixelRatio(){
   currentPixelRatio=target;
   renderer.setPixelRatio(target);
 }
-currentPixelRatio=Math.min(window.devicePixelRatio || 1,1.5);
+currentPixelRatio=Math.min(window.devicePixelRatio || 1,0.95);
 renderer.setPixelRatio(currentPixelRatio);
 renderer.setSize(rendererViewportWidth(),rendererViewportHeight(),false);
 renderer.setScissorTest(true);
@@ -580,6 +580,31 @@ fpsDisplay.style.cssText=[
 ].join(";");
 fpsDisplay.textContent="-- FPS";
 document.body.appendChild(fpsDisplay);
+let planetNameDisplay=document.createElement("div");
+planetNameDisplay.textContent="";
+planetNameDisplay.style.cssText=[
+  "position:fixed",
+  "right:18px",
+  "top:14px",
+  "z-index:12",
+  `font-family:${gameFontFamily}`,
+  "font-size:clamp(18px,2.1vw,28px)",
+  "font-weight:900",
+  "line-height:1",
+  "letter-spacing:0.08em",
+  "color:rgba(232,255,247,0.9)",
+  "text-align:right",
+  "text-transform:uppercase",
+  "text-shadow:0 0 10px rgba(103,244,255,0.32),0 2px 0 rgba(0,0,0,0.72)",
+  "pointer-events:none",
+  "user-select:none"
+].join(";");
+document.body.appendChild(planetNameDisplay);
+function updatePlanetNameDisplay(){
+  if(!planetNameDisplay) return;
+  planetNameDisplay.textContent=(currentEnvironment && currentEnvironment.name) || "";
+}
+updatePlanetNameDisplay();
 let terraformFadeOverlay=document.createElement("div");
 terraformFadeOverlay.style.cssText=[
   "position:fixed",
@@ -1217,6 +1242,7 @@ let explosionRingMat=new THREE.MeshBasicMaterial({
   blending:THREE.AdditiveBlending
 });
 let teleportEffects=[];
+let treasurePickupEffects=[];
 let teleportBeamGeo=new THREE.CylinderGeometry(1,1,1,96,1,true);
 let teleportRingGeo=new THREE.TorusGeometry(1,0.032,18,128);
 let teleportBeamMat=new THREE.MeshBasicMaterial({
@@ -1242,6 +1268,13 @@ let rockDebrisGeo=new THREE.DodecahedronGeometry(1,0);
 let rockDebrisMat=new THREE.MeshStandardMaterial({color:0x4c3a5b,roughness:0.96,metalness:0.08});
 let buildingDebrisGeo=new THREE.BoxGeometry(1,1,1);
 let buildingDebrisMat=new THREE.MeshStandardMaterial({color:0x5a526d,roughness:0.9,metalness:0.12});
+let radarDebrisMat=new THREE.MeshStandardMaterial({
+  color:0x7e929d,
+  emissive:0x123644,
+  emissiveIntensity:0.28,
+  roughness:0.42,
+  metalness:0.82
+});
 let enemyTrimMat=new THREE.MeshStandardMaterial({color:0x8f7d5c,roughness:0.5,metalness:0.58});
 let enemyEyeMat=new THREE.MeshStandardMaterial({
   color:0xd88a54,
@@ -2779,7 +2812,7 @@ function updateLoadGameButton(){
 
   let status=readSavedGameStatus();
   button.disabled=!startupAssetsReady || !status;
-  button.textContent=!startupAssetsReady ? "Loading Assets" : status ? "Load Last Game" : "No Saved Game";
+  button.textContent=!startupAssetsReady ? "Loading Assets" : status ? "Load Last Save" : "No Saved Game";
   if(dateEl){
     let savedAtText=status ? (status.savedAtText || formatSavedGameDate(status.savedAt)) : "";
     dateEl.textContent=savedAtText ? `Saved ${savedAtText}` : "";
@@ -2872,6 +2905,7 @@ function applySavedWorldSettings(status){
     || worldEnvironments[status.environmentIndex]
     || currentEnvironment;
   currentEnvironment=environment;
+  updatePlanetNameDisplay();
   terrainSeed=Number.isFinite(status.terrainSeed) ? status.terrainSeed : terrainSeed;
   setWorldSeed(terrainSeed,currentEnvironment.terrain || {});
   if(world.setWorkerTerrain) world.setWorkerTerrain(terrainSeed,currentEnvironment.terrain || {});
@@ -2880,6 +2914,71 @@ function applySavedWorldSettings(status){
   if(world.resetChunks) world.resetChunks();
   clouds.makeClouds();
   birds.makeBirds();
+}
+
+function applyWorldEnvironment(environment,{resetChunks=true,refreshNature=true}={}){
+  if(!environment) return;
+  currentEnvironment=environment;
+  updatePlanetNameDisplay();
+  weatherTargetIntensity=chooseWeatherTarget(currentEnvironment);
+  scheduleNextWeatherChange(performance.now());
+  setWorldSeed(terrainSeed,currentEnvironment.terrain || {});
+  if(world.setWorkerTerrain) world.setWorkerTerrain(terrainSeed,currentEnvironment.terrain || {});
+  if(world.setEnvironment) world.setEnvironment(currentEnvironment);
+  refreshSceneEnvironment();
+  if(resetChunks && world.resetChunks) world.resetChunks();
+  if(refreshNature){
+    clouds.makeClouds();
+    birds.makeBirds();
+  }
+}
+
+function clearStartWorldPreview(){
+  clearRockets();
+  clearAmbientSpaceships();
+  clearEnemies();
+  clearSupplyBoxes();
+  clearGiantTestRobot();
+  clearTradingOutpost();
+  clearTestingTradingOutpost();
+  clearTestingRadarOutpost();
+  clearStartSequence();
+  clearTerraformFinale();
+  clearSurfaceScanPulses();
+  clearRareTradingOutposts(true);
+  portalSystem.clearRandomPortals();
+  if(world.clearBossBases) world.clearBossBases();
+}
+
+function setupStartWorldPreview(){
+  currentStartInfo=null;
+  let initialStartInfo=findSafeFieldStart([playerCar.lateralOffset,0,secondCar.lateralOffset]);
+  placeCarOnOpenField(playerCar,initialStartInfo);
+  placeCarOnOpenField(secondCar,initialStartInfo);
+  spawnGiantTestRobot(initialStartInfo);
+  placeTradingOutpostNearStart(initialStartInfo);
+  placeTestingTradingOutpostNearHomeBase();
+  placeStartingCarsAtBaseEntrance("double",false);
+  world.placeTestBossBaseNearStart(playerCar.x,playerCar.z,playerCar.angle);
+  playerCar.cameraYaw=playerCar.angle;
+  secondCar.cameraYaw=secondCar.angle;
+  updateCameras();
+
+  lastChunkSignature=chunkSignatureForCars();
+  world.updateChunksForCenters(chunkCentersForActiveCars());
+  world.processChunkQueue(80,true);
+  updateUnlockedRandomPortals();
+  clouds.makeClouds();
+  birds.makeBirds();
+}
+
+function selectStartEnvironment(index){
+  if(gameStarted) return;
+  let environment=worldEnvironments[index];
+  if(!environment) return;
+  clearStartWorldPreview();
+  applyWorldEnvironment(environment,{resetChunks:true,refreshNature:false});
+  setupStartWorldPreview();
 }
 
 function restoreSavedRuntimeStatus(status){
@@ -3167,6 +3266,7 @@ function updateTreasurePickups(){
     let treasure=world.collectTreasureAt(car.x,car.z,car.collisionRadius || 2.35);
     if(!treasure) continue;
 
+    spawnTreasurePickupEffect(treasure);
     addUnits(treasureUnitAmount(treasure.type));
     hud.updateCompassHud();
   }
@@ -4763,6 +4863,192 @@ function updateTeleportEffects(){
   }
 }
 
+function prepareTreasurePickupVisual(visual){
+  if(!visual) return;
+  visual.traverse(child=>{
+    if(!child.isMesh || !child.material) return;
+    child.material=Array.isArray(child.material)
+      ? child.material.map(material=>material.clone())
+      : child.material.clone();
+    let materials=Array.isArray(child.material) ? child.material : [child.material];
+    for(let material of materials){
+      material.transparent=true;
+      material.opacity=1;
+      if(material.emissive){
+        material.emissive.set(0xffd36a);
+        material.emissiveIntensity=Math.max(material.emissiveIntensity || 0,0.34);
+      }
+    }
+  });
+}
+
+function setTreasureVisualOpacity(visual,opacity){
+  if(!visual) return;
+  visual.traverse(child=>{
+    if(!child.isMesh || !child.material) return;
+    let materials=Array.isArray(child.material) ? child.material : [child.material];
+    for(let material of materials) material.opacity=opacity;
+  });
+}
+
+function disposeTreasureVisualMaterials(visual){
+  if(!visual) return;
+  visual.traverse(child=>{
+    if(!child.isMesh || !child.material) return;
+    let materials=Array.isArray(child.material) ? child.material : [child.material];
+    for(let material of materials) material.dispose();
+  });
+}
+
+function spawnTreasurePickupEffect(treasure){
+  if(!treasure) return;
+  let x=treasure.x || 0;
+  let z=treasure.z || 0;
+  let surfaceY=Number.isFinite(treasure.y) ? treasure.y : drivingSurfaceHeight(x,z)+0.8;
+  let radius=Math.max(2.2,Math.min(5.6,(treasure.r || 3.2)*0.72));
+  let height=8.5;
+
+  let beamMat=teleportBeamMat.clone();
+  beamMat.color.set(0xffd36a);
+  beamMat.opacity=0.28;
+  let beam=new THREE.Mesh(teleportBeamGeo,beamMat);
+  beam.position.set(x,surfaceY+height*0.5,z);
+  beam.scale.set(radius,height,radius);
+  beam.renderOrder=32;
+  scene.add(beam);
+
+  let ringMat=explosionRingMat.clone();
+  ringMat.color.set(0xffe7a8);
+  ringMat.opacity=0.72;
+  let ring=new THREE.Mesh(teleportRingGeo,ringMat);
+  ring.position.set(x,surfaceY+0.12,z);
+  ring.rotation.x=Math.PI/2;
+  ring.scale.setScalar(radius*0.38);
+  ring.renderOrder=33;
+  scene.add(ring);
+
+  let visual=null;
+  if(treasure.visual){
+    visual=new THREE.Group();
+    visual.position.set(x,surfaceY,z);
+    treasure.visual.position.set(-x,-surfaceY,-z);
+    visual.add(treasure.visual);
+    prepareTreasurePickupVisual(visual);
+    scene.add(visual);
+  }
+
+  let sparkCount=42;
+  let sparkPositions=new Float32Array(sparkCount*3);
+  let sparkData=[];
+  for(let i=0;i<sparkCount;i++){
+    let angle=Math.random()*Math.PI*2;
+    let r=radius*(0.18+Math.random()*0.78);
+    sparkPositions[i*3]=Math.cos(angle)*r;
+    sparkPositions[i*3+1]=Math.random()*height-height*0.42;
+    sparkPositions[i*3+2]=Math.sin(angle)*r;
+    sparkData.push({
+      angle,
+      radius:r,
+      phase:Math.random()*Math.PI*2,
+      speed:0.8+Math.random()*1.6
+    });
+  }
+  let sparkGeo=new THREE.BufferGeometry();
+  sparkGeo.setAttribute("position",new THREE.BufferAttribute(sparkPositions,3));
+  let sparkMat=teleportSparkMat.clone();
+  sparkMat.color.set(0xfff1a8);
+  sparkMat.size=0.11;
+  let sparks=new THREE.Points(sparkGeo,sparkMat);
+  sparks.position.set(x,surfaceY+height*0.48,z);
+  sparks.renderOrder=35;
+  scene.add(sparks);
+
+  treasurePickupEffects.push({
+    visual,
+    beam,
+    ring,
+    sparks,
+    sparkPositions,
+    sparkData,
+    x,
+    y:surfaceY,
+    z,
+    visualBaseY:surfaceY,
+    radius,
+    height,
+    age:0,
+    life:0.92
+  });
+}
+
+function disposeTreasurePickupEffect(effect){
+  if(!effect) return;
+  if(effect.visual){
+    scene.remove(effect.visual);
+    disposeTreasureVisualMaterials(effect.visual);
+  }
+  scene.remove(effect.beam,effect.ring,effect.sparks);
+  if(effect.beam && effect.beam.material) effect.beam.material.dispose();
+  if(effect.ring && effect.ring.material) effect.ring.material.dispose();
+  if(effect.sparks){
+    effect.sparks.geometry.dispose();
+    effect.sparks.material.dispose();
+  }
+}
+
+function clearTreasurePickupEffects(){
+  for(let effect of treasurePickupEffects) disposeTreasurePickupEffect(effect);
+  treasurePickupEffects=[];
+}
+
+function updateTreasurePickupEffects(){
+  for(let i=treasurePickupEffects.length-1;i>=0;i--){
+    let effect=treasurePickupEffects[i];
+    effect.age+=0.016;
+    let t=clamp(effect.age/effect.life,0,1);
+    let eased=smoothStep(t);
+    let fade=Math.pow(1-t,1.45);
+    let pulse=1+Math.sin(t*Math.PI*8)*0.035;
+
+    effect.beam.scale.set(
+      effect.radius*(0.9-eased*0.62)*pulse,
+      effect.height*(1+Math.sin(t*Math.PI)*0.18),
+      effect.radius*(0.9-eased*0.62)*pulse
+    );
+    effect.beam.material.opacity=0.28*fade;
+    effect.ring.scale.setScalar(effect.radius*(0.38+eased*1.6));
+    effect.ring.material.opacity=0.72*fade;
+
+    if(effect.visual){
+      effect.visual.position.y=effect.visualBaseY+eased*3.2;
+      effect.visual.rotation.y+=0.035+eased*0.045;
+      let scale=1-eased*0.82;
+      effect.visual.scale.setScalar(Math.max(0.04,scale));
+      setTreasureVisualOpacity(effect.visual,fade);
+    }
+
+    if(effect.sparks && effect.sparkPositions && effect.sparkData){
+      for(let s=0;s<effect.sparkData.length;s++){
+        let data=effect.sparkData[s];
+        let lift=t*effect.height*1.25;
+        let angle=data.angle+t*data.speed*2.8;
+        let r=data.radius*(1-eased*0.55)*(0.82+Math.sin(t*24+data.phase)*0.18);
+        effect.sparkPositions[s*3]=Math.cos(angle)*r;
+        effect.sparkPositions[s*3+1]=((data.phase+lift)%effect.height)-effect.height*0.42;
+        effect.sparkPositions[s*3+2]=Math.sin(angle)*r;
+      }
+      effect.sparks.geometry.attributes.position.needsUpdate=true;
+      effect.sparks.material.opacity=(0.18+Math.sin(t*Math.PI)*0.78)*fade;
+      effect.sparks.material.size=0.09+Math.sin(t*Math.PI)*0.16;
+    }
+
+    if(t>=1){
+      disposeTreasurePickupEffect(effect);
+      treasurePickupEffects.splice(i,1);
+    }
+  }
+}
+
 function updateExplosions(){
   for(let i=explosionBursts.length-1;i>=0;i--){
     let burst=explosionBursts[i];
@@ -4860,6 +5146,142 @@ function spawnRockDebris(x,y,z,obstacle){
       life:(building ? skyscraper ? 3.0 : 2.2 : 1.5)+Math.random()*(building ? skyscraper ? 1.35 : 0.75 : 0.55)
     });
   }
+}
+
+function spawnRadarOutpostExplosion(x,y,z,obstacle){
+  let baseY=Number.isFinite(obstacle.baseY) ? obstacle.baseY : drivingSurfaceHeight(x,z);
+  let height=obstacle.visualHeight || obstacle.height || 22;
+  let radius=obstacle.visualRadius || obstacle.r || 16;
+  let coreY=Math.max(y,baseY+height*0.54);
+
+  let flash=new THREE.Mesh(explosionFlashGeo,explosionFlashMat.clone());
+  flash.position.set(x,coreY,z);
+  flash.scale.setScalar(1.4);
+  flash.material.color.set(0xd8fbff);
+  flash.material.opacity=1;
+  flash.material.depthTest=false;
+  flash.renderOrder=42;
+  scene.add(flash);
+
+  let ring=new THREE.Mesh(explosionRingGeo,explosionRingMat.clone());
+  ring.position.set(x,baseY+height*0.34,z);
+  ring.rotation.x=Math.PI/2;
+  ring.scale.setScalar(Math.max(2.4,radius*0.16));
+  ring.material.color.set(0x8dfff2);
+  ring.material.opacity=0.95;
+  ring.material.depthTest=false;
+  ring.renderOrder=43;
+  scene.add(ring);
+
+  explosionBursts.push({
+    flash,
+    ring,
+    age:0,
+    life:0.68,
+    startFlashScale:1.4,
+    endFlashScale:9.2,
+    startRingScale:Math.max(2.4,radius*0.16),
+    endRingScale:Math.max(22,radius*1.7),
+    flashOpacity:1,
+    ringOpacity:0.95
+  });
+
+  for(let i=0;i<2;i++){
+    let signalRing=new THREE.Mesh(explosionRingGeo,explosionRingMat.clone());
+    signalRing.position.set(x,baseY+height*(0.62+i*0.18),z);
+    signalRing.rotation.set(Math.PI*0.5+(Math.random()-0.5)*0.28,Math.random()*Math.PI,Math.random()*Math.PI);
+    signalRing.scale.setScalar(1.2+i*0.55);
+    signalRing.material.color.set(i===0 ? 0xb9f7ff : 0x6bdcff);
+    signalRing.material.opacity=0.86;
+    signalRing.material.depthTest=false;
+    signalRing.renderOrder=44+i;
+    scene.add(signalRing);
+
+    let signalFlash=new THREE.Mesh(explosionFlashGeo,explosionFlashMat.clone());
+    signalFlash.position.copy(signalRing.position);
+    signalFlash.scale.setScalar(0.28+i*0.18);
+    signalFlash.material.color.set(0x8dfff2);
+    signalFlash.material.opacity=0.65;
+    signalFlash.material.depthTest=false;
+    signalFlash.renderOrder=46+i;
+    scene.add(signalFlash);
+
+    explosionBursts.push({
+      flash:signalFlash,
+      ring:signalRing,
+      age:0,
+      life:0.55+i*0.12,
+      startFlashScale:0.28+i*0.18,
+      endFlashScale:2.4+i*1.2,
+      startRingScale:1.2+i*0.55,
+      endRingScale:radius*(1.15+i*0.62),
+      flashOpacity:0.65,
+      ringOpacity:0.86
+    });
+  }
+
+  let count=30;
+  for(let i=0;i<count;i++){
+    let piece=new THREE.Mesh(buildingDebrisGeo,radarDebrisMat.clone());
+    let angle=(i/count)*Math.PI*2+Math.random()*0.54;
+    let heightT=Math.random();
+    let fragmentY=baseY+1.8+heightT*height;
+    let dist=radius*(0.12+Math.random()*0.42);
+    let scale=0.42+Math.random()*1.35;
+    let panel=Math.random()<0.78;
+
+    piece.position.set(
+      x+Math.cos(angle)*dist,
+      fragmentY,
+      z+Math.sin(angle)*dist
+    );
+    piece.rotation.set(Math.random()*Math.PI,Math.random()*Math.PI,Math.random()*Math.PI);
+    piece.scale.set(
+      scale*(panel ? 1.8+Math.random()*2.2 : 0.42+Math.random()*0.74),
+      scale*(panel ? 0.08+Math.random()*0.18 : 0.28+Math.random()*0.48),
+      scale*(panel ? 0.62+Math.random()*1.28 : 1.4+Math.random()*1.8)
+    );
+    piece.castShadow=true;
+    piece.receiveShadow=true;
+    scene.add(piece);
+
+    let speed=0.46+Math.random()*1.15+heightT*0.34;
+    rockDebris.push({
+      piece,
+      vx:Math.cos(angle)*speed,
+      vz:Math.sin(angle)*speed,
+      vy:0.68+Math.random()*1.15+heightT*0.55,
+      rx:(Math.random()-0.5)*0.32,
+      ry:(Math.random()-0.5)*0.36,
+      rz:(Math.random()-0.5)*0.32,
+      age:0,
+      life:2.4+Math.random()*1.1
+    });
+  }
+
+  for(let i=0;i<24;i++){
+    let angle=Math.random()*Math.PI*2;
+    let speed=2.6+Math.random()*7.2;
+    dust.spawnThrusterParticle(
+      x,
+      baseY+height*(0.28+Math.random()*0.58),
+      z,
+      Math.cos(angle)*speed,
+      Math.sin(angle)*speed,
+      2.2+Math.random()*7.2,
+      0.18+Math.random()*0.2,
+      0.07+Math.random()*0.08
+    );
+  }
+}
+
+function spawnObstacleDestructionDebris(obstacle,y){
+  if(!obstacle) return;
+  if(obstacle.type==="radarOutpost"){
+    spawnRadarOutpostExplosion(obstacle.x,y,obstacle.z,obstacle);
+    return;
+  }
+  spawnRockDebris(obstacle.x,y,obstacle.z,obstacle);
 }
 
 function spawnBossBaseDebris(base){
@@ -6116,11 +6538,11 @@ function applyPlayerLaserDamage(car,hit){
     }else if(hit.obstacle.type==="building" || hit.obstacle.type==="wall"){
       spawnBuildingAmmoImpact(hit.obstacle,point.x,point.y,point.z,playerLaserDamageAmount*2);
       if(damageWorldObstacle(hit.obstacle,playerLaserDamageAmount*2.4)){
-        spawnRockDebris(hit.obstacle.x,point.y,hit.obstacle.z,hit.obstacle);
+        spawnObstacleDestructionDebris(hit.obstacle,point.y);
       }
     }else if(hit.obstacle.type==="rock" || hit.obstacle.type==="smallRock" || hit.obstacle.type==="turret" || hit.obstacle.type==="radarOutpost"){
       if(damageWorldObstacle(hit.obstacle,playerLaserDamageAmount*2)){
-        spawnRockDebris(hit.obstacle.x,point.y,hit.obstacle.z,hit.obstacle);
+        spawnObstacleDestructionDebris(hit.obstacle,point.y);
       }
     }
   }
@@ -6367,12 +6789,7 @@ function detonateClusterBomb(owner,x,y,z){
     for(let obstacle of destroyed){
       if(debrisCount>=42) break;
       if(obstacle.type==="rock" || obstacle.type==="smallRock" || obstacle.type==="building" || obstacle.type==="wall" || obstacle.type==="turret" || obstacle.type==="radarOutpost"){
-        spawnRockDebris(
-          obstacle.x,
-          drivingSurfaceHeight(obstacle.x,obstacle.z)+Math.max(0.8,(obstacle.r || 2)*0.35),
-          obstacle.z,
-          obstacle
-        );
+        spawnObstacleDestructionDebris(obstacle,drivingSurfaceHeight(obstacle.x,obstacle.z)+Math.max(0.8,(obstacle.r || 2)*0.35));
         debrisCount++;
       }
     }
@@ -6476,6 +6893,7 @@ function clearRockets(){
   clearExplosions();
   clearRockDebris();
   clearTeleportEffects();
+  clearTreasurePickupEffects();
   clearBossLaserBeams();
 }
 
@@ -6634,7 +7052,7 @@ function updateRockets(){
             }else if(hitObstacle.type==="rock" || hitObstacle.type==="smallRock" || hitObstacle.type==="building" || hitObstacle.type==="wall" || hitObstacle.type==="turret" || hitObstacle.type==="radarOutpost"){
               if(hitObstacle.type==="building" || hitObstacle.type==="wall") spawnBuildingAmmoImpact(hitObstacle,rocket.x,rocket.y,rocket.z,34);
               if(damageWorldObstacle(hitObstacle,34)){
-                spawnRockDebris(hitObstacle.x,explosionY,hitObstacle.z,hitObstacle);
+                spawnObstacleDestructionDebris(hitObstacle,explosionY);
               }
             }else{
               destroyWorldObstacle(hitObstacle);
@@ -6749,7 +7167,7 @@ function updateCannonBolts(){
             }else if(hitObstacle.type==="rock" || hitObstacle.type==="smallRock" || hitObstacle.type==="building" || hitObstacle.type==="wall" || hitObstacle.type==="turret" || hitObstacle.type==="radarOutpost"){
               if(hitObstacle.type==="building" || hitObstacle.type==="wall") spawnBuildingAmmoImpact(hitObstacle,bolt.x,bolt.y,bolt.z,13);
               if(damageWorldObstacle(hitObstacle,13)){
-                spawnRockDebris(hitObstacle.x,explosionY,hitObstacle.z,hitObstacle);
+                spawnObstacleDestructionDebris(hitObstacle,explosionY);
               }
             }else{
               destroyWorldObstacle(hitObstacle);
@@ -12346,6 +12764,7 @@ function fixedUpdateGame(){
     dust.update();
     updateExplosions();
     updateTeleportEffects();
+    updateTreasurePickupEffects();
     updateRockDebris();
     updateBossLaserBeams();
   }
@@ -12843,8 +13262,61 @@ function startGame(mode,difficulty="medium",savedStatus=null){
 
 let startScreen=document.getElementById("startScreen");
 if(startScreen){
+  let startPlanetLoading=false;
   updateStartupLoadingState();
   updateLoadGameButton();
+  function setStartPlanetLoading(loading){
+    startPlanetLoading=!!loading;
+    startScreen.classList.toggle("is-planet-loading",startPlanetLoading);
+    startScreen.querySelectorAll("[data-planet], [data-mode], [data-load-game], [data-difficulty]").forEach(button=>{
+      if(button.hasAttribute("data-load-game")){
+        button.disabled=startPlanetLoading || !readSavedGameStatus();
+      }else if(button.hasAttribute("data-mode")){
+        button.disabled=startPlanetLoading || !startupAssetsReady;
+      }else{
+        button.disabled=startPlanetLoading;
+      }
+    });
+  }
+  function setPlanetPendingButton(index){
+    startScreen.querySelectorAll("[data-planet]").forEach(button=>{
+      button.classList.toggle("is-loading",Number(button.dataset.planet)===index);
+    });
+  }
+  function finishStartPlanetLoading(startedAt,loadedIndex=null){
+    let elapsed=performance.now()-startedAt;
+    let remaining=Math.max(0,620-elapsed);
+    setTimeout(()=>{
+      setPlanetPendingButton(null);
+      if(Number.isFinite(loadedIndex)) updatePlanetSelectionButtons(loadedIndex);
+      setStartPlanetLoading(false);
+      updateStartupLoadingState();
+      updateLoadGameButton();
+    },remaining);
+  }
+  function updatePlanetSelectionButtons(selectedIndex){
+    startScreen.querySelectorAll("[data-planet]").forEach(button=>{
+      button.classList.toggle("is-selected",Number(button.dataset.planet)===selectedIndex);
+    });
+    startScreen.dataset.environmentIndex=String(selectedIndex);
+  }
+  function initPlanetSelectionMenu(){
+    let planetOptions=startScreen.querySelector("[data-planet-options]");
+    if(!planetOptions) return;
+    planetOptions.textContent="";
+    let selectedIndex=worldEnvironments.indexOf(currentEnvironment);
+    if(selectedIndex<0) selectedIndex=0;
+    worldEnvironments.forEach((environment,index)=>{
+      let button=document.createElement("button");
+      button.type="button";
+      button.dataset.planet=String(index);
+      button.textContent=environment.name || `Planet ${index+1}`;
+      button.classList.toggle("is-selected",index===selectedIndex);
+      planetOptions.appendChild(button);
+    });
+    startScreen.dataset.environmentIndex=String(selectedIndex);
+  }
+  initPlanetSelectionMenu();
   function startActionForTarget(target){
     let loadButton=target && target.closest("[data-load-game]");
     if(loadButton && !loadButton.disabled) return "load";
@@ -12853,11 +13325,31 @@ if(startScreen){
     return null;
   }
   startScreen.addEventListener("pointerdown",event=>{
-    if(!startupAssetsReady || gameStarted) return;
+    if(!startupAssetsReady || gameStarted || startPlanetLoading) return;
     if(startActionForTarget(event.target)) showFullscreenTransitionOverlay();
   },true);
   startScreen.addEventListener("click",event=>{
-    if(!startupAssetsReady) return;
+    let planetButton=event.target.closest("[data-planet]");
+    if(planetButton && !gameStarted && !startPlanetLoading){
+      let index=Number(planetButton.dataset.planet);
+      if(Number.isFinite(index)){
+        let loadingStartedAt=performance.now();
+        setPlanetPendingButton(index);
+        setStartPlanetLoading(true);
+        requestAnimationFrame(()=>{
+          setTimeout(()=>{
+            try{
+              selectStartEnvironment(index);
+            }finally{
+              finishStartPlanetLoading(loadingStartedAt,index);
+            }
+          },140);
+        });
+      }
+      return;
+    }
+
+    if(!startupAssetsReady || startPlanetLoading) return;
 
     let loadButton=event.target.closest("[data-load-game]");
     if(loadButton && !loadButton.disabled && !gameStarted){
@@ -14210,24 +14702,6 @@ function placeTradingOutpostNearStart(startInfo){
 }
 
 let terrainSeed=Math.random()*100000;
-setWorldSeed(terrainSeed,currentEnvironment.terrain || {});
-if(world.setWorkerTerrain) world.setWorkerTerrain(terrainSeed,currentEnvironment.terrain || {});
-let initialStartInfo=findSafeFieldStart([playerCar.lateralOffset,0,secondCar.lateralOffset]);
-placeCarOnOpenField(playerCar,initialStartInfo);
-placeCarOnOpenField(secondCar,initialStartInfo);
-spawnGiantTestRobot(initialStartInfo);
-placeTradingOutpostNearStart(initialStartInfo);
-placeTestingTradingOutpostNearHomeBase();
-placeStartingCarsAtBaseEntrance("double",false);
-world.placeTestBossBaseNearStart(playerCar.x,playerCar.z,playerCar.angle);
-playerCar.cameraYaw=playerCar.angle;
-secondCar.cameraYaw=secondCar.angle;
-updateCameras();
-
-lastChunkSignature=chunkSignatureForCars();
-world.updateChunksForCenters(chunkCentersForActiveCars());
-world.processChunkQueue(80,true);
-updateUnlockedRandomPortals();
-clouds.makeClouds();
-birds.makeBirds();
+applyWorldEnvironment(currentEnvironment,{resetChunks:false,refreshNature:false});
+setupStartWorldPreview();
 loop();
