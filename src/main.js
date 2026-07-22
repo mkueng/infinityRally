@@ -2,9 +2,9 @@ import { THREE } from "./three.js";
 import { carRadius, gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize, viewDistance, mothershipDropCount, mothershipDropInterval, mothershipDropLineSpacing, mothershipHoverDistance, mothershipHoverFrames, mothershipMinDelay, mothershipRandomDelay, mothershipRocketHits } from "./constants.js";
 import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=live-fps-smoothing";
 import { createInput } from "./input.js?v=scanner-bumper";
-import { createHud } from "./hud.js?v=split-hud-clean-left";
+import { createHud } from "./hud.js?v=labeled-boost-fuel";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=tracked-enemy-shadows";
-import { createWorld } from "./world.js?v=pond-size-depth";
+import { createWorld } from "./world.js?v=render-stress-lod";
 import { createMotorAudio } from "./audio.js?v=intro-beam-sizzle";
 import { worldEnvironments } from "./environments.js?v=broad-mountains";
 import { difficultySettings } from "./gameConfig.js?v=ammo-caps";
@@ -413,12 +413,16 @@ function rendererQualityState(){
   let severeDrop=gameStarted && lastMeasuredFps<24;
   let moderateDrop=gameStarted && lastMeasuredFps<36;
   if(gameMode==="double"){
+    if(currentFrameStressLevel>=3) return 0.45;
+    if(currentFrameStressLevel>=2) return 0.6;
     if(severeDrop) return 0.55;
     if(moderateDrop) return 0.68;
     if(jetView && rainy) return 0.75;
     if(jetView || rainy) return 0.85;
     return 0.95;
   }
+  if(currentFrameStressLevel>=3) return 0.58;
+  if(currentFrameStressLevel>=2) return 0.75;
   if(severeDrop) return 0.7;
   if(moderateDrop) return 0.9;
   if(jetView && rainy) return 1.05;
@@ -444,10 +448,13 @@ fpsDisplay.style.cssText=[
   "bottom:10px",
   "z-index:80",
   `font-family:${gameFontFamily}`,
-  "font-size:18px",
+  "font-size:13px",
   "font-weight:900",
-  "letter-spacing:0.08em",
+  "line-height:1.18",
+  "letter-spacing:0.06em",
   "color:rgba(232,255,247,0.92)",
+  "text-align:right",
+  "white-space:pre",
   "text-shadow:0 0 6px rgba(103,244,255,0.46),0 2px 0 rgba(0,0,0,0.72)",
   "pointer-events:none",
   "user-select:none"
@@ -490,6 +497,41 @@ document.body.appendChild(terraformCompleteText);
 let fpsSampleStart=0;
 let fpsSampleFrames=0;
 let lastMeasuredFps=60;
+let perfSampleFrames=0;
+let perfSample={
+  sim:0,
+  effects:0,
+  chunks:0,
+  render:0,
+  maxFrame:0
+};
+
+function resetPerfSample(){
+  perfSampleFrames=0;
+  perfSample.sim=0;
+  perfSample.effects=0;
+  perfSample.chunks=0;
+  perfSample.render=0;
+  perfSample.maxFrame=0;
+}
+
+function recordPerfBucket(bucket,ms){
+  if(!Number.isFinite(ms) || ms<0 || perfSample[bucket]===undefined) return;
+  perfSample[bucket]+=ms;
+}
+
+function recordPerfFrame(frameMs){
+  perfSampleFrames++;
+  if(Number.isFinite(frameMs)) perfSample.maxFrame=Math.max(perfSample.maxFrame,frameMs);
+}
+
+function avgPerfMs(bucket){
+  return perfSample[bucket]/Math.max(1,perfSampleFrames);
+}
+
+function formatPerfMs(value){
+  return value<10 ? value.toFixed(1) : Math.round(value).toString();
+}
 
 function updateFpsDisplay(timestamp){
   if(!Number.isFinite(timestamp)) return;
@@ -501,9 +543,15 @@ function updateFpsDisplay(timestamp){
 
   let fps=Math.round((fpsSampleFrames*1000)/Math.max(1,elapsed));
   lastMeasuredFps=fps;
-  fpsDisplay.textContent=fps+" FPS";
+  fpsDisplay.textContent=[
+    fps+" FPS",
+    "SIM "+formatPerfMs(avgPerfMs("sim"))+"  FX "+formatPerfMs(avgPerfMs("effects")),
+    "CHK "+formatPerfMs(avgPerfMs("chunks"))+"  REN "+formatPerfMs(avgPerfMs("render")),
+    "MAX "+formatPerfMs(perfSample.maxFrame)
+  ].join("\n");
   fpsSampleStart=timestamp;
   fpsSampleFrames=0;
+  resetPerfSample();
 }
 
 skyDomeMat=new THREE.MeshBasicMaterial({
@@ -11537,6 +11585,8 @@ let maxFixedStepsPerFrame=5;
 let fixedAccumulator=0;
 let lastLoopTime=null;
 let renderFrameIndex=0;
+let fixedFrameIndex=0;
+let currentFrameStressLevel=0;
 
 function performanceStressLevel(frameMs=0){
   let instantaneousFps=frameMs>0 ? 1000/Math.max(1,frameMs) : lastMeasuredFps;
@@ -11549,8 +11599,7 @@ function performanceStressLevel(frameMs=0){
 
 function fixedStepLimitForFrame(frameMs){
   let stress=performanceStressLevel(frameMs);
-  if(stress>=3) return 1;
-  if(stress>=2) return 2;
+  if(stress>=2) return 1;
   if(stress>=1) return 3;
   return maxFixedStepsPerFrame;
 }
@@ -12025,6 +12074,10 @@ function chunkSignatureForCars(){
 }
 
 function fixedUpdateGame(){
+  fixedFrameIndex++;
+  let fixedVisualInterval=currentFrameStressLevel>=3 ? 4 : currentFrameStressLevel>=2 ? 2 : 1;
+  let updateFixedVisuals=fixedFrameIndex%fixedVisualInterval===0;
+
   updateRareTradingOutposts();
   updateUnlockedRandomPortals();
   updateScannerMode();
@@ -12052,18 +12105,22 @@ function fixedUpdateGame(){
   }
   if(healthDamageCooldown>0) healthDamageCooldown--;
 
-  dust.update();
-  updateExplosions();
-  updateTeleportEffects();
-  updateRockDebris();
-  updateBossLaserBeams();
+  if(updateFixedVisuals){
+    dust.update();
+    updateExplosions();
+    updateTeleportEffects();
+    updateRockDebris();
+    updateBossLaserBeams();
+  }
   updateJetFogAmount();
   updateGiantTestRobot();
   portalSystem.updatePortals();
-  portalSystem.updateDreamDimensionVisuals();
-  updateWeather();
-  world.updateWind(performance.now(),rainIntensity,currentDayAmount,headlightNightAmount);
-  for(let car of cars) updateVehicleHeadlights(car);
+  if(updateFixedVisuals){
+    portalSystem.updateDreamDimensionVisuals();
+    updateWeather();
+    world.updateWind(performance.now(),rainIntensity,currentDayAmount,headlightNightAmount);
+    for(let car of cars) updateVehicleHeadlights(car);
+  }
   motorAudio.update();
   updateCameras();
 
@@ -12125,23 +12182,28 @@ function loop(timestamp=performance.now()){
   fixedAccumulator+=frameMs;
 
   let steps=0;
+  currentFrameStressLevel=performanceStressLevel(frameMs);
   let fixedStepLimit=fixedStepLimitForFrame(frameMs);
+  let simStart=performance.now();
   while(fixedAccumulator>=fixedStepMs && steps<fixedStepLimit){
     fixedUpdateGame();
     fixedAccumulator-=fixedStepMs;
     steps++;
   }
+  recordPerfBucket("sim",performance.now()-simStart);
 
   if(steps>=fixedStepLimit && fixedAccumulator>=fixedStepMs){
     fixedAccumulator=fixedStepMs-0.001;
   }
 
+  let effectsStart=performance.now();
   if(timestamp-lastPixelRatioUpdate>500){
     lastPixelRatioUpdate=timestamp;
     updateRendererPixelRatio();
   }
 
-  let stressLevel=performanceStressLevel(frameMs);
+  let stressLevel=currentFrameStressLevel;
+  if(stressLevel>=2) updateRendererPixelRatio();
   let visualInterval=stressLevel>=3 ? 4 : stressLevel>=2 ? 2 : 1;
   let updateVisuals=renderFrameIndex%visualInterval===0;
   if(updateVisuals){
@@ -12155,10 +12217,20 @@ function loop(timestamp=performance.now()){
   if(stressLevel<3 || renderFrameIndex%2===0) hud.updateSpeedHud();
   hud.updateMapHud();
   if(stressLevel<2 || renderFrameIndex%2===0) hud.updateCompassHud();
-  let chunkBudget=chunkBuildBudget();
-  if(chunkBudget.items>0) world.processChunkQueue(chunkBudget.items,false,chunkBudget.frameMs);
   pauseMenu.update(timestamp);
+  recordPerfBucket("effects",performance.now()-effectsStart);
+
+  let chunkBudget=chunkBuildBudget();
+  let chunkStart=performance.now();
+  if(chunkBudget.items>0) world.processChunkQueue(chunkBudget.items,false,chunkBudget.frameMs);
+  recordPerfBucket("chunks",performance.now()-chunkStart);
+
+  if(world.setRenderStressLevel) world.setRenderStressLevel(stressLevel,chunkCentersForActiveCars());
+
+  let renderStart=performance.now();
   renderGame();
+  recordPerfBucket("render",performance.now()-renderStart);
+  recordPerfFrame(frameMs);
 }
 
 renderer.domElement.addEventListener("click",event=>{

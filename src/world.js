@@ -29,6 +29,7 @@ export function createWorld(scene,options={}){
   let chunkWorkerResults=new Map();
   let chunkWorkerTerrainSeed=0;
   let chunkWorkerTerrainProfile={};
+  let renderStressSignature="";
   let getDifficulty=typeof options.getDifficulty==="function" ? options.getDifficulty : ()=>"medium";
   let getPerformanceMode=typeof options.getPerformanceMode==="function" ? options.getPerformanceMode : ()=>"full";
   let defaultEnvironment={
@@ -2946,6 +2947,7 @@ function updateChunksForCenters(centers){
     }
   }
   updateIndependentStructureVisibility();
+  renderStressSignature="";
 }
 
 function updateChunks(px,pz){
@@ -3158,6 +3160,69 @@ function finishChunkBuild(job,chunk){
   chunks.set(job.key,chunk);
   registerChunk(chunk);
   updateIndependentStructureVisibility();
+  renderStressSignature="";
+}
+
+function setChunkObjectVisible(object,visible){
+  if(!object) return;
+  if(Array.isArray(object)){
+    for(let item of object) setChunkObjectVisible(item,visible);
+    return;
+  }
+  object.visible=visible;
+}
+
+function chunkDistanceSqToCenters(chunk,centers){
+  let best=Infinity;
+  for(let center of centers){
+    let cx=Math.floor(center.x/chunkSize);
+    let cz=Math.floor(center.z/chunkSize);
+    let dx=chunk.cx-cx;
+    let dz=chunk.cz-cz;
+    best=Math.min(best,dx*dx+dz*dz);
+  }
+  return best;
+}
+
+function applyChunkRenderStress(chunk,stressLevel,centers){
+  if(!chunk) return;
+  let distanceSq=chunkDistanceSqToCenters(chunk,centers);
+  let hideFarGrass=stressLevel>=1 && distanceSq>16;
+  let hideMidVegetation=stressLevel>=2 && distanceSq>8;
+  let hideNearVegetation=stressLevel>=3 && distanceSq>4;
+  let hideDecor=stressLevel>=2 && distanceSq>9;
+  let hideMoreDecor=stressLevel>=3 && distanceSq>4;
+  let hideFarWater=stressLevel>=3 && distanceSq>16;
+
+  setChunkObjectVisible(chunk.grasses,!hideFarGrass && !hideNearVegetation);
+  setChunkObjectVisible(chunk.trunks,!hideMidVegetation && !hideNearVegetation);
+  setChunkObjectVisible(chunk.crowns,!hideMidVegetation && !hideNearVegetation);
+  setChunkObjectVisible(chunk.pods,!hideMidVegetation && !hideNearVegetation);
+  setChunkObjectVisible(chunk.rocks,!hideDecor);
+  setChunkObjectVisible(chunk.gravel,!hideDecor);
+  setChunkObjectVisible(chunk.buildingWindows,!hideDecor);
+  setChunkObjectVisible(chunk.buildingDoors,!hideMoreDecor);
+  setChunkObjectVisible(chunk.buildingChimneys,!hideDecor);
+  setChunkObjectVisible(chunk.buildingTrims,!hideDecor);
+  setChunkObjectVisible(chunk.buildingPorches,!hideMoreDecor);
+  setChunkObjectVisible(chunk.cityStreetDetails,!hideDecor);
+  setChunkObjectVisible(chunk.cityTechDetails,!hideDecor);
+  setChunkObjectVisible(chunk.landingRings,!hideDecor);
+  setChunkObjectVisible(chunk.water,!hideFarWater);
+}
+
+function setRenderStressLevel(stressLevel=0,centers=[]){
+  let level=Math.max(0,Math.min(3,Math.floor(stressLevel || 0)));
+  let safeCenters=Array.isArray(centers) && centers.length ? centers : [{x:0,z:0}];
+  let signature=level+"|"+safeCenters
+    .map(center=>Math.floor(center.x/chunkSize)+","+Math.floor(center.z/chunkSize))
+    .join("|");
+  if(signature===renderStressSignature) return;
+  renderStressSignature=signature;
+
+  for(let chunk of chunks.values()){
+    applyChunkRenderStress(chunk,level,safeCenters);
+  }
 }
 
 function processChunkQueue(maxItems=1,immediate=false,maxFrameMs=2){
@@ -3441,6 +3506,7 @@ function holeSurfaceHeightAt(x,z){
     findCityDistrictNearRoad,
     updateChunks,
     updateChunksForCenters,
+    setRenderStressLevel,
     updateWind,
     setTerraformBloomAmount,
     processChunkQueue,
