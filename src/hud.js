@@ -7,8 +7,9 @@ const healthHudSplitWidth="min(300px,40vw)";
 const compassFullCanvasWidth=430;
 const compassSplitCanvasWidth=300;
 const speedHudScale=1.2;
-const speedHudWidth=mapHudSize/speedHudScale;
+const speedHudWidth=236;
 const laserHudFrames=300;
+const hudIconColor="#b9f4ff";
 
 export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStationState=()=>null,getNearestTradingOutpost=()=>null,getNearestBossBase=()=>null,getScannedBossBases=()=>[],getScannedTradingOutposts=()=>[],getScannedRadarOutposts=()=>[],getScannedLandingSpaces=()=>[],getScannedPortals=()=>[],getPerformanceMode=()=>"full",getEnvironment=()=>({}),getTerrainHeight=()=>0}){
   let panels=[];
@@ -21,28 +22,62 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     return panel.side==="left" ? 0 : "50%";
   }
 
+  function sideTilt(panel){
+    if(panel.side==="left" || panel.side==="right" || panel.side==="full") return "rotateY(20deg) rotateX(1.5deg) rotateZ(-0.4deg)";
+    return "rotateX(7deg)";
+  }
+
+  function sideTransformOrigin(panel){
+    if(panel.side==="left" || panel.side==="right" || panel.side==="full") return "left center";
+    return "top center";
+  }
+
+  function sidePanelClip(panel){
+    if(panel.side==="left" || panel.side==="full") return "polygon(0 0,100% 5%,100% 95%,0 100%)";
+    if(panel.side==="right") return "polygon(0 12%,100% 0,100% 100%,0 88%)";
+    return "polygon(0 0,calc(100% - 22px) 0,100% 22px,100% 100%,18px 100%,0 calc(100% - 18px))";
+  }
+
   function makeHealthHud(panel){
     let healthHud=document.createElement("div");
     healthHud.style.cssText=[
       "position:fixed",
       "top:18px",
       `left:${panel.side==="full" ? "50%" : panel.side==="left" ? "25%" : "75%"}`,
-      "transform:translateX(-50%)",
+      "transform:translateX(-50%) perspective(620px) rotateX(8deg)",
+      "transform-origin:50% 0",
       `width:${panel.side==="full" ? healthHudFullWidth : healthHudSplitWidth}`,
-      "height:22px",
-      "background:rgba(18,7,43,0.1)",
-      "box-shadow:0 4px 14px rgba(0,0,0,0.08)",
+      "height:34px",
+      "padding:6px 8px",
+      "border:1px solid rgba(141,255,242,0.34)",
+      "background:linear-gradient(135deg,rgba(12,22,28,0.58),rgba(39,18,54,0.26) 56%,rgba(214,178,90,0.16))",
+      "box-shadow:0 16px 28px rgba(0,0,0,0.28),inset 0 0 22px rgba(103,244,255,0.12),0 0 18px rgba(103,244,255,0.14)",
       "z-index:10",
       "overflow:hidden",
-      `font-family:${gameFontFamily}`
+      "clip-path:polygon(18px 0,100% 0,calc(100% - 18px) 100%,0 100%)",
+      "box-sizing:border-box",
+      `font-family:${gameFontFamily}`,
+      "pointer-events:none"
     ].join(";");
 
     let healthFill=document.createElement("div");
     healthFill.style.cssText=[
       "height:100%",
       "width:100%",
-      "background:linear-gradient(90deg,rgba(47,211,107,0.46),rgba(168,232,93,0.46))",
-      "transition:width 160ms ease,background 160ms ease"
+      "background:linear-gradient(90deg,rgba(47,211,107,0.72),rgba(168,232,93,0.86),rgba(232,255,247,0.72))",
+      "box-shadow:0 0 16px rgba(125,255,113,0.42),inset 0 0 12px rgba(255,255,255,0.22)",
+      "clip-path:polygon(10px 0,100% 0,calc(100% - 10px) 100%,0 100%)",
+      "transition:width 160ms ease,background 160ms ease,box-shadow 160ms ease"
+    ].join(";");
+
+    let healthGrid=document.createElement("div");
+    healthGrid.style.cssText=[
+      "position:absolute",
+      "inset:6px 8px",
+      "background:repeating-linear-gradient(90deg,rgba(255,255,255,0.16) 0 1px,transparent 1px 18px)",
+      "mix-blend-mode:screen",
+      "opacity:0.34",
+      "pointer-events:none"
     ].join(";");
 
     let healthLabel=document.createElement("div");
@@ -52,15 +87,17 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "display:flex",
       "align-items:center",
       "justify-content:center",
-      "font-size:12px",
-      "font-weight:700",
-      "letter-spacing:0",
-      "color:white",
-      "text-shadow:0 1px 2px rgba(0,0,0,0.6)",
+      "font-size:13px",
+      "font-weight:900",
+      "letter-spacing:0.08em",
+      "text-transform:uppercase",
+      "color:rgba(245,255,249,0.96)",
+      "text-shadow:0 0 8px rgba(103,244,255,0.5),0 2px 0 rgba(0,0,0,0.72)",
       "pointer-events:none"
     ].join(";");
 
     healthHud.appendChild(healthFill);
+    healthHud.appendChild(healthGrid);
     healthHud.appendChild(healthLabel);
     document.body.appendChild(healthHud);
     panel.healthFill=healthFill;
@@ -71,52 +108,123 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     let speedHud=document.createElement("div");
     speedHud.style.cssText=[
       "position:fixed",
-      "top:50px",
-      `left:calc(${panelOffset(panel)} + 18px)`,
-      `transform:scale(${speedHudScale})`,
-      "transform-origin:top left",
+      "top:58px",
+      `left:calc(${panelOffset(panel)} + 20px)`,
+      `transform:perspective(430px) ${sideTilt(panel)} scale(${speedHudScale})`,
+      `transform-origin:${sideTransformOrigin(panel)}`,
       `width:${speedHudWidth}px`,
-      "height:228px",
+      "height:268px",
       "z-index:10",
       "overflow:hidden",
       `font-family:${gameFontFamily}`,
       "letter-spacing:0",
       "color:white",
+      "pointer-events:none",
+      "box-sizing:border-box",
+      "padding:14px 14px 16px",
+      "border:0",
+      "background:transparent",
+      "box-shadow:none",
+      `clip-path:${sidePanelClip(panel)}`,
+      "backdrop-filter:none"
+    ].join(";");
+
+    let panelSheen=document.createElement("div");
+    panelSheen.style.cssText=[
+      "position:absolute",
+      "inset:0",
+      "background:linear-gradient(115deg,rgba(255,255,255,0.18),transparent 22%,transparent 68%,rgba(103,244,255,0.1)),repeating-linear-gradient(0deg,rgba(141,255,242,0.08) 0 1px,transparent 1px 18px)",
+      "opacity:0.44",
       "pointer-events:none"
     ].join(";");
+
+    let healthTrack=document.createElement("div");
+    healthTrack.style.cssText=[
+      "position:absolute",
+      "left:16px",
+      "right:16px",
+      "top:14px",
+      "height:28px",
+      "background:rgba(4,12,16,0.56)",
+      "border:1px solid rgba(141,255,242,0.28)",
+      "box-shadow:inset 0 0 12px rgba(0,0,0,0.48),0 0 12px rgba(103,244,255,0.14)",
+      "overflow:hidden",
+      "clip-path:polygon(9px 0,100% 0,calc(100% - 9px) 100%,0 100%)"
+    ].join(";");
+
+    let healthFill=document.createElement("div");
+    healthFill.style.cssText=[
+      "height:100%",
+      "width:100%",
+      "background:linear-gradient(90deg,rgba(47,211,107,0.72),rgba(168,232,93,0.86),rgba(232,255,247,0.72))",
+      "box-shadow:0 0 16px rgba(125,255,113,0.42),inset 0 0 12px rgba(255,255,255,0.22)",
+      "transition:width 160ms ease,background 160ms ease,box-shadow 160ms ease"
+    ].join(";");
+
+    let healthGrid=document.createElement("div");
+    healthGrid.style.cssText=[
+      "position:absolute",
+      "inset:0",
+      "background:repeating-linear-gradient(90deg,rgba(255,255,255,0.15) 0 1px,transparent 1px 16px)",
+      "opacity:0.34",
+      "pointer-events:none"
+    ].join(";");
+
+    let healthLabel=document.createElement("div");
+    healthLabel.style.cssText=[
+      "position:absolute",
+      "inset:0",
+      "display:flex",
+      "align-items:center",
+      "justify-content:center",
+      "font-size:12px",
+      "font-weight:900",
+      "letter-spacing:0.08em",
+      "text-transform:uppercase",
+      "color:rgba(245,255,249,0.96)",
+      "text-shadow:0 0 8px rgba(103,244,255,0.5),0 2px 0 rgba(0,0,0,0.72)",
+      "pointer-events:none"
+    ].join(";");
+    healthTrack.appendChild(healthFill);
+    healthTrack.appendChild(healthGrid);
+    healthTrack.appendChild(healthLabel);
 
     let ammoLabel=document.createElement("div");
     ammoLabel.style.cssText=[
       "position:absolute",
-      "left:12px",
-      "right:12px",
-      "top:12px",
+      "left:16px",
+      "right:16px",
+      "top:52px",
       "display:flex",
       "flex-direction:column",
-      "gap:3px",
+      "gap:4px",
       "font-size:15px",
       "font-weight:900",
       "line-height:1",
       "color:rgba(245,255,249,0.92)",
-      "text-shadow:0 1px 2px rgba(0,0,0,0.72)"
+      "text-shadow:0 0 7px rgba(103,244,255,0.38),0 2px 0 rgba(0,0,0,0.72)"
     ].join(";");
 
     let boostTrack=document.createElement("div");
     boostTrack.style.cssText=[
       "position:absolute",
-      "left:10px",
-      "right:10px",
-      "bottom:22px",
-      "height:8px",
-      "background:rgba(255,255,255,0.16)",
-      "overflow:hidden"
+      "left:16px",
+      "right:16px",
+      "bottom:34px",
+      "height:13px",
+      "background:rgba(4,12,16,0.56)",
+      "border:1px solid rgba(141,255,242,0.28)",
+      "box-shadow:inset 0 0 12px rgba(0,0,0,0.48),0 0 10px rgba(103,244,255,0.12)",
+      "overflow:hidden",
+      "clip-path:polygon(7px 0,100% 0,calc(100% - 7px) 100%,0 100%)"
     ].join(";");
 
     let boostFill=document.createElement("div");
     boostFill.style.cssText=[
       "height:100%",
       "width:100%",
-      "background:linear-gradient(90deg,#7ff8ff,#d6b25a)",
+      "background:linear-gradient(90deg,#28f6ff,#d9ff7a,#fff4ba)",
+      "box-shadow:0 0 14px rgba(217,255,122,0.58)",
       "transition:width 100ms linear"
     ].join(";");
     boostTrack.appendChild(boostFill);
@@ -124,15 +232,16 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     let laserTrack=document.createElement("div");
     laserTrack.style.cssText=[
       "position:absolute",
-      "left:10px",
-      "right:10px",
-      "top:112px",
-      "height:12px",
-      "background:rgba(255,63,47,0.14)",
-      "border:1px solid rgba(255,155,88,0.26)",
-      "box-shadow:0 0 10px rgba(255,63,47,0.18)",
+      "left:16px",
+      "right:16px",
+      "top:166px",
+      "height:15px",
+      "background:rgba(255,63,47,0.1)",
+      "border:1px solid rgba(255,155,88,0.32)",
+      "box-shadow:inset 0 0 10px rgba(0,0,0,0.46),0 0 12px rgba(255,63,47,0.18)",
       "box-sizing:border-box",
-      "overflow:hidden"
+      "overflow:hidden",
+      "clip-path:polygon(7px 0,100% 0,calc(100% - 7px) 100%,0 100%)"
     ].join(";");
 
     let laserFill=document.createElement("div");
@@ -145,31 +254,63 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     ].join(";");
     laserTrack.appendChild(laserFill);
 
+    let unitsLabel=document.createElement("div");
+    unitsLabel.style.cssText=[
+      "position:absolute",
+      "left:16px",
+      "right:16px",
+      "top:190px",
+      "height:24px",
+      "display:flex",
+      "align-items:center",
+      "justify-content:space-between",
+      "padding:0 9px",
+      "box-sizing:border-box",
+      "font-size:13px",
+      "font-weight:900",
+      "letter-spacing:0.08em",
+      "text-transform:uppercase",
+      "color:rgba(245,255,249,0.96)",
+      "border:1px solid rgba(141,255,242,0.16)",
+      "background:linear-gradient(90deg,rgba(141,255,242,0.07),rgba(255,255,255,0.03))",
+      "clip-path:polygon(7px 0,100% 0,calc(100% - 7px) 100%,0 100%)",
+      `text-shadow:0 0 8px ${hudIconColor},0 2px 0 rgba(0,0,0,0.72)`
+    ].join(";");
+
     let fuelTrack=document.createElement("div");
     fuelTrack.style.cssText=[
       "position:absolute",
-      "left:10px",
-      "right:10px",
-      "bottom:8px",
-      "height:8px",
-      "background:rgba(255,255,255,0.16)",
-      "overflow:hidden"
+      "left:16px",
+      "right:16px",
+      "bottom:14px",
+      "height:13px",
+      "background:rgba(4,12,16,0.56)",
+      "border:1px solid rgba(47,211,107,0.28)",
+      "box-shadow:inset 0 0 12px rgba(0,0,0,0.48),0 0 10px rgba(47,211,107,0.12)",
+      "overflow:hidden",
+      "clip-path:polygon(7px 0,100% 0,calc(100% - 7px) 100%,0 100%)"
     ].join(";");
 
     let fuelFill=document.createElement("div");
     fuelFill.style.cssText=[
       "height:100%",
       "width:100%",
-      "background:linear-gradient(90deg,#2fd36b,#7ff8ff)",
+      "background:linear-gradient(90deg,#2fd36b,#7ff8ff,#d8f8ff)",
+      "box-shadow:0 0 14px rgba(47,211,107,0.45)",
       "transition:width 100ms linear"
     ].join(";");
     fuelTrack.appendChild(fuelFill);
+    speedHud.appendChild(healthTrack);
     speedHud.appendChild(ammoLabel);
     speedHud.appendChild(laserTrack);
+    speedHud.appendChild(unitsLabel);
     speedHud.appendChild(boostTrack);
     speedHud.appendChild(fuelTrack);
     document.body.appendChild(speedHud);
     panel.ammoLabel=ammoLabel;
+    panel.unitsLabel=unitsLabel;
+    panel.healthFill=healthFill;
+    panel.healthLabel=healthLabel;
     panel.laserFill=laserFill;
     panel.laserTrack=laserTrack;
     panel.boostFill=boostFill;
@@ -179,16 +320,16 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
   function drawSpeedHud(panel,state){
     if(panel.ammoLabel){
       let ammoRows=[
-        {icon:"rocket",value:state.rocketAmmo ?? 0,color:"#e36b44"},
-        {icon:"cannon",value:state.cannonAmmo ?? 0,color:"#75d7e8"},
-        {icon:"bomb",value:state.clusterBombAmmo ?? 0,color:"#d8aa4c"},
-        {icon:"carRocket",value:state.carRocketAmmo ?? 0,color:"#ff9a4d"}
+        {icon:"rocket",value:state.rocketAmmo ?? 0},
+        {icon:"cannon",value:state.cannonAmmo ?? 0},
+        {icon:"bomb",value:state.clusterBombAmmo ?? 0},
+        {icon:"carRocket",value:state.carRocketAmmo ?? 0}
       ];
       panel.ammoLabel.innerHTML=[
         ...ammoRows.map(row=>[
-          `<span style="display:flex;align-items:center;justify-content:space-between;height:22px;gap:8px">`,
-          ammoIcon(row.icon,row.color),
-          `<span style="min-width:38px;text-align:right">${row.value}</span>`,
+          `<span style="display:flex;align-items:center;justify-content:space-between;height:24px;gap:8px;padding:0 7px;border:1px solid rgba(141,255,242,0.12);background:linear-gradient(90deg,rgba(141,255,242,0.07),rgba(255,255,255,0.03));clip-path:polygon(7px 0,100% 0,calc(100% - 7px) 100%,0 100%)">`,
+          ammoIcon(row.icon),
+          `<span style="min-width:38px;text-align:right;color:rgba(245,255,249,0.96);text-shadow:0 0 8px ${hudIconColor}">${row.value}</span>`,
           `</span>`
         ].join(""))
       ].join("");
@@ -197,15 +338,22 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       let boostPct=Math.max(0,Math.min(100,state.boostCharge ?? 0));
       panel.boostFill.style.width=boostPct+"%";
     }
+    if(panel.unitsLabel){
+      panel.unitsLabel.innerHTML=`<span>Units</span><span>${Math.max(0,Math.round(state.units ?? 0))}</span>`;
+    }
     if(panel.laserFill){
       let laserFire=Math.max(0,Math.min(laserHudFrames,state.laserFireFrames ?? 0));
       let laserCooldown=Math.max(0,Math.min(laserHudFrames,state.laserCooldown ?? 0));
-      let laserPct=100;
-      if(laserFire>0) laserPct=(laserFire/laserHudFrames)*100;
-      else if(laserCooldown>0) laserPct=(1-laserCooldown/laserHudFrames)*100;
-      panel.laserFill.style.width=Math.max(0,Math.min(100,laserPct))+"%";
-      panel.laserFill.style.opacity=laserFire>0 ? "1" : laserCooldown>0 ? "0.78" : "0.94";
-      if(panel.laserTrack) panel.laserTrack.style.opacity=laserPct<=0.5 ? "0.62" : "1";
+      let laserVisible=!!state.laserAvailable || laserFire>0 || laserCooldown>0;
+      if(panel.laserTrack) panel.laserTrack.style.display=laserVisible ? "block" : "none";
+      if(laserVisible){
+        let laserPct=100;
+        if(laserFire>0) laserPct=(laserFire/laserHudFrames)*100;
+        else if(laserCooldown>0) laserPct=(1-laserCooldown/laserHudFrames)*100;
+        panel.laserFill.style.width=Math.max(0,Math.min(100,laserPct))+"%";
+        panel.laserFill.style.opacity=laserFire>0 ? "1" : laserCooldown>0 ? "0.78" : "0.94";
+        if(panel.laserTrack) panel.laserTrack.style.opacity=laserPct<=0.5 ? "0.62" : "1";
+      }
     }
     if(panel.fuelFill){
       let fuelPct=Math.max(0,Math.min(100,state.fuel ?? 100));
@@ -213,51 +361,52 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     }
   }
 
-  function ammoIcon(kind,color){
+  function ammoIcon(kind){
+    let color=hudIconColor;
     if(kind==="rocket"){
       return [
-        `<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" style="flex:0 0 24px;filter:drop-shadow(0 0 5px ${color}) drop-shadow(0 2px 1px rgba(0,0,0,0.7))">`,
-        `<path d="M13.4 1.8l5.9 3.5 1.7 5.1-6.9 7.2-7.4-7.2 6.7-8.6z" fill="#1b232b" stroke="#d8f8ff" stroke-opacity="0.32" stroke-width="0.7"/>`,
-        `<path d="M13.8 4.2l3.5 2.1 0.9 2.9-4.5 4.8-4.3-4.1 4.4-5.7z" fill="${color}"/>`,
-        `<path d="M6 10.9l7.1 6.8-4.3 2.2-5.1-5 2.3-4z" fill="#56636d"/>`,
-        `<path d="M3.9 16.3l2.2 2.1-3.7 1.8 1.5-3.9z" fill="#b9f4ff"/>`,
-        `<path d="M15.4 6.7l1.4 0.9 0.4 1.2-2 2.2-1.7-1.7 1.9-2.6z" fill="#fff6cb" opacity="0.68"/>`,
+        `<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" style="flex:0 0 24px;color:${color};filter:drop-shadow(0 0 5px ${color}) drop-shadow(0 2px 1px rgba(0,0,0,0.7))">`,
+        `<path d="M13.4 1.8l5.9 3.5 1.7 5.1-6.9 7.2-7.4-7.2 6.7-8.6z" fill="currentColor" fill-opacity="0.16" stroke="currentColor" stroke-opacity="0.44" stroke-width="0.7"/>`,
+        `<path d="M13.8 4.2l3.5 2.1 0.9 2.9-4.5 4.8-4.3-4.1 4.4-5.7z" fill="currentColor" fill-opacity="0.82"/>`,
+        `<path d="M6 10.9l7.1 6.8-4.3 2.2-5.1-5 2.3-4z" fill="currentColor" fill-opacity="0.38"/>`,
+        `<path d="M3.9 16.3l2.2 2.1-3.7 1.8 1.5-3.9z" fill="currentColor" fill-opacity="0.72"/>`,
+        `<path d="M15.4 6.7l1.4 0.9 0.4 1.2-2 2.2-1.7-1.7 1.9-2.6z" fill="currentColor" fill-opacity="0.92"/>`,
         `</svg>`
       ].join("");
     }
     if(kind==="cannon"){
       return [
-        `<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" style="flex:0 0 24px;filter:drop-shadow(0 0 5px ${color}) drop-shadow(0 2px 1px rgba(0,0,0,0.7))">`,
-        `<path d="M2.5 12h12l1.8-2.2h5.1v4.2h-5.1l-1.8 2.1h-12V12z" fill="#202b33" stroke="#d8f8ff" stroke-opacity="0.24" stroke-width="0.7"/>`,
-        `<path d="M5.1 13h8.8v2H5.1v-2z" fill="${color}"/>`,
-        `<path d="M3.5 16.2h4.2l1.8 3H5.2l-1.7-3z" fill="#64717a"/>`,
-        `<path d="M16.9 10.7h4.1v1.5h-4.1v-1.5z" fill="#d8f8ff"/>`,
-        `<path d="M19.8 9.2l2.1-0.9-0.7 2.4-1.4-1.5z" fill="#fff6cb"/>`,
-        `<path d="M8.3 10.1h5.8l-1.3 1.4H8.3v-1.4z" fill="#5a6973"/>`,
+        `<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" style="flex:0 0 24px;color:${color};filter:drop-shadow(0 0 5px ${color}) drop-shadow(0 2px 1px rgba(0,0,0,0.7))">`,
+        `<path d="M2.5 12h12l1.8-2.2h5.1v4.2h-5.1l-1.8 2.1h-12V12z" fill="currentColor" fill-opacity="0.16" stroke="currentColor" stroke-opacity="0.38" stroke-width="0.7"/>`,
+        `<path d="M5.1 13h8.8v2H5.1v-2z" fill="currentColor" fill-opacity="0.86"/>`,
+        `<path d="M3.5 16.2h4.2l1.8 3H5.2l-1.7-3z" fill="currentColor" fill-opacity="0.38"/>`,
+        `<path d="M16.9 10.7h4.1v1.5h-4.1v-1.5z" fill="currentColor" fill-opacity="0.78"/>`,
+        `<path d="M19.8 9.2l2.1-0.9-0.7 2.4-1.4-1.5z" fill="currentColor" fill-opacity="0.94"/>`,
+        `<path d="M8.3 10.1h5.8l-1.3 1.4H8.3v-1.4z" fill="currentColor" fill-opacity="0.34"/>`,
         `</svg>`
       ].join("");
     }
     if(kind==="carRocket"){
       return [
-        `<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" style="flex:0 0 24px;filter:drop-shadow(0 0 5px ${color}) drop-shadow(0 2px 1px rgba(0,0,0,0.7))">`,
-        `<path d="M2.8 16.5h18.4v2.7H2.8v-2.7z" fill="#2d363e"/>`,
-        `<path d="M5.1 13.3h13.8l1.7 3.2H3.4l1.7-3.2z" fill="#4c5961" stroke="#d8f8ff" stroke-opacity="0.18" stroke-width="0.6"/>`,
-        `<path d="M6.9 9h3.2v5H6.9V9zM13.9 9h3.2v5h-3.2V9z" fill="#202b33"/>`,
-        `<path d="M8.5 2.5l2 1.8 0.4 4.2H5.8l0.5-4.2 2.2-1.8z" fill="${color}"/>`,
-        `<path d="M15.5 2.5l2.1 1.8 0.4 4.2h-5.2l0.5-4.2 2.2-1.8z" fill="${color}"/>`,
-        `<path d="M7.2 10.1h2.5v1.8H7.2v-1.8zM14.2 10.1h2.5v1.8h-2.5v-1.8z" fill="#d8f8ff"/>`,
-        `<path d="M5.2 19.4h2.8l-1 2.1H4.4l0.8-2.1zM16 19.4h2.8l0.8 2.1H17l-1-2.1z" fill="#ffcf6a"/>`,
+        `<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" style="flex:0 0 24px;color:${color};filter:drop-shadow(0 0 5px ${color}) drop-shadow(0 2px 1px rgba(0,0,0,0.7))">`,
+        `<path d="M2.8 16.5h18.4v2.7H2.8v-2.7z" fill="currentColor" fill-opacity="0.18"/>`,
+        `<path d="M5.1 13.3h13.8l1.7 3.2H3.4l1.7-3.2z" fill="currentColor" fill-opacity="0.34" stroke="currentColor" stroke-opacity="0.28" stroke-width="0.6"/>`,
+        `<path d="M6.9 9h3.2v5H6.9V9zM13.9 9h3.2v5h-3.2V9z" fill="currentColor" fill-opacity="0.14"/>`,
+        `<path d="M8.5 2.5l2 1.8 0.4 4.2H5.8l0.5-4.2 2.2-1.8z" fill="currentColor" fill-opacity="0.84"/>`,
+        `<path d="M15.5 2.5l2.1 1.8 0.4 4.2h-5.2l0.5-4.2 2.2-1.8z" fill="currentColor" fill-opacity="0.84"/>`,
+        `<path d="M7.2 10.1h2.5v1.8H7.2v-1.8zM14.2 10.1h2.5v1.8h-2.5v-1.8z" fill="currentColor" fill-opacity="0.76"/>`,
+        `<path d="M5.2 19.4h2.8l-1 2.1H4.4l0.8-2.1zM16 19.4h2.8l0.8 2.1H17l-1-2.1z" fill="currentColor" fill-opacity="0.58"/>`,
         `</svg>`
       ].join("");
     }
     return [
-      `<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" style="flex:0 0 24px;filter:drop-shadow(0 0 5px ${color}) drop-shadow(0 2px 1px rgba(0,0,0,0.7))">`,
-      `<path d="M6.4 8.2h8.4l3.2 4.9-2.4 6.7H5.4L3 13.1l3.4-4.9z" fill="#252d33" stroke="#d8f8ff" stroke-opacity="0.24" stroke-width="0.7"/>`,
-      `<path d="M7.7 9.7h5.7l2.2 3.5-1.5 4.2H7l-1.5-4.2 2.2-3.5z" fill="${color}"/>`,
-      `<path d="M10.6 4h5.1v2.3h-5.1V4z" fill="#6e7a82"/>`,
-      `<path d="M14.8 2.8h4.4v1.6h-4.4V2.8z" fill="#b9f4ff"/>`,
-      `<path d="M15.9 2.2l2.8-1.2-0.9 2.3-1.9-1.1z" fill="#fff6cb"/>`,
-      `<path d="M8 12.5h2.2v2.2H8v-2.2zM11.3 12.5h2.2v2.2h-2.2v-2.2z" fill="#2a2417" opacity="0.55"/>`,
+      `<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" style="flex:0 0 24px;color:${color};filter:drop-shadow(0 0 5px ${color}) drop-shadow(0 2px 1px rgba(0,0,0,0.7))">`,
+      `<path d="M6.4 8.2h8.4l3.2 4.9-2.4 6.7H5.4L3 13.1l3.4-4.9z" fill="currentColor" fill-opacity="0.16" stroke="currentColor" stroke-opacity="0.38" stroke-width="0.7"/>`,
+      `<path d="M7.7 9.7h5.7l2.2 3.5-1.5 4.2H7l-1.5-4.2 2.2-3.5z" fill="currentColor" fill-opacity="0.82"/>`,
+      `<path d="M10.6 4h5.1v2.3h-5.1V4z" fill="currentColor" fill-opacity="0.34"/>`,
+      `<path d="M14.8 2.8h4.4v1.6h-4.4V2.8z" fill="currentColor" fill-opacity="0.72"/>`,
+      `<path d="M15.9 2.2l2.8-1.2-0.9 2.3-1.9-1.1z" fill="currentColor" fill-opacity="0.94"/>`,
+      `<path d="M8 12.5h2.2v2.2H8v-2.2zM11.3 12.5h2.2v2.2h-2.2v-2.2z" fill="currentColor" fill-opacity="0.28"/>`,
       `</svg>`
     ].join("");
   }
@@ -266,24 +415,52 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     let mapHud=document.createElement("div");
     mapHud.style.cssText=[
       "position:fixed",
-      "top:50px",
-      `right:${panel.side==="left" ? "calc(50% + 18px)" : "18px"}`,
+      "top:56px",
+      `right:${panel.side==="left" ? "calc(50% + 22px)" : "22px"}`,
       `width:${mapHudSize}px`,
       `height:${mapHudSize}px`,
       "border-radius:50%",
-      "background:rgba(20,28,34,0.42)",
-      "box-shadow:0 4px 14px rgba(0,0,0,0.2)",
+      "background:transparent",
+      "border:1px solid rgba(141,255,242,0.09)",
+      "box-shadow:0 18px 34px rgba(0,0,0,0.26),inset 0 0 18px rgba(103,244,255,0.035),0 0 14px rgba(103,244,255,0.035)",
       "z-index:10",
       "overflow:hidden",
+      "pointer-events:none",
+      `transform:perspective(780px) ${panel.side==="left" ? "rotateY(-8deg)" : "rotateY(8deg)"}`,
+      "transform-origin:center center"
+    ].join(";");
+
+    let mapRing=document.createElement("div");
+    mapRing.style.cssText=[
+      "position:absolute",
+      "inset:9px",
+      "border-radius:50%",
+      "border:1px solid rgba(232,248,255,0.045)",
+      "box-shadow:inset 0 0 10px rgba(141,255,242,0.035),0 0 6px rgba(214,178,90,0.025)",
+      "background:repeating-conic-gradient(from 0deg,rgba(141,255,242,0.035) 0deg 1deg,transparent 1deg 12deg)",
+      "mask:radial-gradient(circle,transparent 0 69%,#000 70% 100%)",
+      "-webkit-mask:radial-gradient(circle,transparent 0 69%,#000 70% 100%)",
       "pointer-events:none"
+    ].join(";");
+
+    let mapGlass=document.createElement("div");
+    mapGlass.style.cssText=[
+      "position:absolute",
+      "inset:0",
+      "border-radius:50%",
+      "background:linear-gradient(140deg,rgba(255,255,255,0.07),transparent 24%,transparent 62%,rgba(103,244,255,0.04)),radial-gradient(circle at 35% 25%,rgba(255,255,255,0.06),transparent 28%)",
+      "pointer-events:none",
+      "mix-blend-mode:screen"
     ].join(";");
 
     let mapCanvas=document.createElement("canvas");
     mapCanvas.width=mapHudSize;
     mapCanvas.height=mapHudSize;
-    mapCanvas.style.cssText=`display:block;width:${mapHudSize}px;height:${mapHudSize}px;border-radius:50%`;
+    mapCanvas.style.cssText=`position:absolute;inset:14px;display:block;width:${mapHudSize-28}px;height:${mapHudSize-28}px;border-radius:50%;opacity:0.78;filter:saturate(1.2) contrast(1.08) drop-shadow(0 0 10px rgba(103,244,255,0.22))`;
     let mapCtx=mapCanvas.getContext("2d");
+    mapHud.appendChild(mapRing);
     mapHud.appendChild(mapCanvas);
+    mapHud.appendChild(mapGlass);
     document.body.appendChild(mapHud);
     panel.mapCanvas=mapCanvas;
     panel.mapCtx=mapCtx;
@@ -293,44 +470,27 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     let compassHud=document.createElement("div");
     compassHud.style.cssText=[
       "position:fixed",
-      "top:44px",
+      "top:42px",
       `left:${panel.side==="full" ? "50%" : panel.side==="left" ? "25%" : "75%"}`,
-      "transform:translateX(-50%)",
+      "transform:translateX(-50%) perspective(760px) rotateX(9deg)",
+      "transform-origin:50% 0",
       `width:${panel.side==="full" ? healthHudFullWidth : healthHudSplitWidth}`,
       "height:74px",
       "z-index:11",
-      "pointer-events:none"
+      "pointer-events:none",
+      "filter:drop-shadow(0 12px 16px rgba(0,0,0,0.32))"
     ].join(";");
 
     let compassCanvas=document.createElement("canvas");
     compassCanvas.width=panel.side==="full" ? compassFullCanvasWidth : compassSplitCanvasWidth;
     compassCanvas.height=74;
-    compassCanvas.style.cssText="display:block;width:100%;height:74px";
+    compassCanvas.style.cssText="display:block;width:100%;height:74px;filter:drop-shadow(0 0 8px rgba(103,244,255,0.18))";
     let compassCtx=compassCanvas.getContext("2d");
     compassHud.appendChild(compassCanvas);
     document.body.appendChild(compassHud);
 
-    let unitsLabel=document.createElement("div");
-    unitsLabel.style.cssText=[
-      "position:fixed",
-      "top:138px",
-      `left:${panel.side==="full" ? "50%" : panel.side==="left" ? "25%" : "75%"}`,
-      "transform:translateX(-50%)",
-      "z-index:11",
-      `font-family:${gameFontFamily}`,
-      "font-size:22px",
-      "font-weight:900",
-      "letter-spacing:0.1em",
-      "color:rgba(245,255,249,0.94)",
-      "text-shadow:0 0 6px rgba(103,244,255,0.58),0 3px 0 rgba(0,0,0,0.68)",
-      "text-transform:uppercase",
-      "pointer-events:none"
-    ].join(";");
-    document.body.appendChild(unitsLabel);
-
     panel.compassCanvas=compassCanvas;
     panel.compassCtx=compassCtx;
-    panel.unitsLabel=unitsLabel;
   }
 
   function mapToCanvas(wx,wz,cx,cz,radius,size){
@@ -1032,16 +1192,10 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     ctx.clearRect(0,0,width,height);
 
     ctx.lineCap="round";
-    ctx.strokeStyle="rgba(141,255,242,0.34)";
-    ctx.lineWidth=2;
+    ctx.strokeStyle="rgba(141,255,242,0.56)";
+    ctx.lineWidth=2.4;
     ctx.beginPath();
     ctx.arc(cx,cy,radius,-Math.PI/2-arcHalf,-Math.PI/2+arcHalf);
-    ctx.stroke();
-
-    ctx.strokeStyle="rgba(240,140,113,0.45)";
-    ctx.lineWidth=1;
-    ctx.beginPath();
-    ctx.arc(cx,cy,radius-12,-Math.PI/2-arcHalf*0.88,-Math.PI/2+arcHalf*0.88);
     ctx.stroke();
 
     for(let i=-4;i<=4;i++){
@@ -1101,9 +1255,6 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     ctx.closePath();
     ctx.fill();
 
-    if(panel.unitsLabel){
-      panel.unitsLabel.textContent=`Units ${Math.max(0,Math.round(state.units ?? 0))}`;
-    }
   }
 
   function makeGameOverOverlay(){
@@ -1138,10 +1289,15 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       let pct=Math.max(0,Math.min(100,state.carHealth));
       panel.healthFill.style.width=pct+"%";
       panel.healthFill.style.background=pct>55
-        ? "linear-gradient(90deg,rgba(47,211,107,0.46),rgba(168,232,93,0.46))"
+        ? "linear-gradient(90deg,rgba(47,211,107,0.72),rgba(168,232,93,0.86),rgba(232,255,247,0.72))"
         : pct>25
-          ? "linear-gradient(90deg,rgba(240,184,63,0.46),rgba(244,223,101,0.46))"
-          : "linear-gradient(90deg,rgba(216,58,52,0.46),rgba(240,113,92,0.46))";
+          ? "linear-gradient(90deg,rgba(240,184,63,0.72),rgba(244,223,101,0.86),rgba(255,246,196,0.72))"
+          : "linear-gradient(90deg,rgba(216,58,52,0.78),rgba(240,113,92,0.9),rgba(255,220,196,0.72))";
+      panel.healthFill.style.boxShadow=pct>55
+        ? "0 0 16px rgba(125,255,113,0.42),inset 0 0 12px rgba(255,255,255,0.22)"
+        : pct>25
+          ? "0 0 16px rgba(244,223,101,0.46),inset 0 0 12px rgba(255,255,255,0.2)"
+          : "0 0 18px rgba(240,113,92,0.54),inset 0 0 12px rgba(255,255,255,0.18)";
       panel.healthLabel.textContent=state.label+" Health "+Math.round(pct)+"%";
     }
   }
@@ -1187,7 +1343,6 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     }));
 
     for(let panel of panels){
-      makeHealthHud(panel);
       makeSpeedHud(panel);
       makeMapHud(panel);
       makeCompassHud(panel);
