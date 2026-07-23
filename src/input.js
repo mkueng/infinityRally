@@ -27,10 +27,17 @@ export function createInput(){
     gamepads[event.gamepad.index]=null;
   });
 
+  function acceleratedMouseDelta(delta){
+    let abs=Math.abs(delta);
+    if(abs<=0) return 0;
+    let gain=1.35+Math.min(1.45,abs/18);
+    return delta*gain;
+  }
+
   function updateMousePosition(event){
     if(mouse.locked){
-      mouse.x=Math.max(0,Math.min(window.innerWidth,mouse.x+(event.movementX || 0)));
-      mouse.y=Math.max(0,Math.min(window.innerHeight,mouse.y+(event.movementY || 0)));
+      mouse.x=Math.max(0,Math.min(window.innerWidth,mouse.x+acceleratedMouseDelta(event.movementX || 0)));
+      mouse.y=Math.max(0,Math.min(window.innerHeight,mouse.y+acceleratedMouseDelta(event.movementY || 0)));
     }else{
       mouse.x=event.clientX;
       mouse.y=event.clientY;

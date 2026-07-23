@@ -1,7 +1,7 @@
 import { THREE } from "./three.js";
 import { carRadius, gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize, viewDistance, mothershipDropCount, mothershipDropInterval, mothershipDropLineSpacing, mothershipHoverDistance, mothershipHoverFrames, mothershipMinDelay, mothershipRandomDelay, mothershipRocketHits } from "./constants.js";
 import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=live-fps-smoothing";
-import { createInput } from "./input.js?v=scanner-bumper";
+import { createInput } from "./input.js?v=progressive-pointer-aim";
 import { createHud } from "./hud.js?v=grey-display-bars-compass";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=stronger-directed-rain";
 import { createWorld } from "./world.js?v=treasure-pickup-beam";
@@ -617,11 +617,104 @@ firstPersonVisorOverlay.style.cssText=[
 ].join(";");
 document.body.appendChild(firstPersonVisorOverlay);
 
+let firstPersonRainSplatterStyle=document.createElement("style");
+firstPersonRainSplatterStyle.textContent=[
+  "@keyframes cockpitRainDropRun{",
+  "0%{transform:translate3d(0,-16px,0) skewX(var(--drop-skew)) scale(0.82);opacity:0}",
+  "12%{opacity:var(--drop-opacity)}",
+  "74%{opacity:var(--drop-opacity)}",
+  "100%{transform:translate3d(var(--drop-drift),78px,0) skewX(var(--drop-skew)) scale(1.08);opacity:0}",
+  "}",
+  "@keyframes cockpitRainStreakRun{",
+  "0%{transform:translate3d(0,-44px,0) rotate(var(--streak-tilt));opacity:0}",
+  "14%{opacity:var(--streak-opacity)}",
+  "78%{opacity:var(--streak-opacity)}",
+  "100%{transform:translate3d(var(--streak-drift),96px,0) rotate(var(--streak-tilt));opacity:0}",
+  "}"
+].join("");
+document.head.appendChild(firstPersonRainSplatterStyle);
+
 function addVisorPart(parent,styles){
   let part=document.createElement("div");
   part.style.cssText=styles.join(";");
   parent.appendChild(part);
   return part;
+}
+
+function createRainSplatterLayer(parent){
+  let layer=document.createElement("div");
+  layer.style.cssText=[
+    "position:absolute",
+    "inset:0",
+    "opacity:0",
+    "pointer-events:none",
+    "overflow:hidden",
+    "transition:opacity 220ms linear",
+    "filter:drop-shadow(0 1px 2px rgba(8,35,49,0.28)) drop-shadow(0 0 2px rgba(232,252,255,0.24))"
+  ].join(";");
+  parent.appendChild(layer);
+
+  for(let i=0;i<26;i++){
+    let size=3.2+(i%9)*1.08+(i%6===0 ? 4.2 : 0)+(i%11===0 ? 2.8 : 0);
+    let dropHeight=size*(1.72+(i%5)*0.18);
+    let left=(8+(i*37)%86)+((i%3)-1)*1.8;
+    let top=(7+(i*53)%78)+((i%5)-2)*1.2;
+    let opacity=0.42+(i%5)*0.055;
+    let duration=(5.4+(i%6)*0.72).toFixed(2);
+    let delay=(-(i*0.47)%5.2).toFixed(2);
+    let drift=((i%5)-2)*3.4;
+    let skew=((i%5)-2)*0.8;
+    let radius=i%4===0 ? "48% 52% 54% 46% / 28% 30% 72% 70%" : "50% 50% 56% 44% / 24% 26% 76% 74%";
+    addVisorPart(layer,[
+      "position:absolute",
+      `left:${left}%`,
+      `top:${top}%`,
+      `width:${size}px`,
+      `height:${dropHeight}px`,
+      `border-radius:${radius}`,
+      `opacity:${opacity}`,
+      `--drop-opacity:${opacity}`,
+      `--drop-drift:${drift}px`,
+      `--drop-skew:${skew}deg`,
+      `animation:cockpitRainDropRun ${duration}s linear ${delay}s infinite`,
+      "will-change:transform,opacity",
+      `transform:skewX(${skew}deg)`,
+      "background:radial-gradient(ellipse at 32% 20%, rgba(255,255,255,0.92) 0 8%, rgba(255,255,255,0.2) 15%, rgba(166,221,240,0.18) 42%, rgba(58,101,121,0.25) 74%, rgba(255,255,255,0.03) 100%)",
+      "border:1px solid rgba(228,253,255,0.42)",
+      "box-shadow:inset 1px 1px 2px rgba(255,255,255,0.34), inset -1px -2px 3px rgba(29,71,92,0.3), 0 1px 4px rgba(6,30,44,0.24)",
+      "backdrop-filter:blur(0.55px)"
+    ]);
+  }
+
+  for(let i=0;i<12;i++){
+    let left=6+(i*29)%88;
+    let top=4+(i*41)%70;
+    let height=34+(i%5)*13;
+    let width=2+(i%3)*0.65;
+    let duration=(3.8+(i%5)*0.55).toFixed(2);
+    let delay=(-(i*0.63)%4.6).toFixed(2);
+    let drift=((i%4)-1.5)*5.8;
+    addVisorPart(layer,[
+      "position:absolute",
+      `left:${left}%`,
+      `top:${top}%`,
+      `width:${width}px`,
+      `height:${height}px`,
+      "border-radius:999px",
+      "opacity:0.5",
+      "--streak-opacity:0.5",
+      `--streak-drift:${drift}px`,
+      "--streak-tilt:8deg",
+      `animation:cockpitRainStreakRun ${duration}s linear ${delay}s infinite`,
+      "will-change:transform,opacity",
+      "background:linear-gradient(90deg, rgba(255,255,255,0.18), rgba(236,252,255,0.62) 34%, rgba(96,150,174,0.34) 62%, rgba(255,255,255,0.08))",
+      "box-shadow:inset 1px 0 1px rgba(255,255,255,0.4), inset -1px 0 2px rgba(31,74,96,0.28), 0 1px 3px rgba(8,35,49,0.22)",
+      "filter:blur(0.08px)",
+      "backdrop-filter:blur(0.7px)"
+    ]);
+  }
+
+  return layer;
 }
 
 function createFirstPersonVisorPane(left,width){
@@ -788,6 +881,7 @@ function createFirstPersonVisorPane(left,width){
     "opacity:0.55"
   ]);
 
+  pane._rainLayer=createRainSplatterLayer(pane);
   firstPersonVisorOverlay.appendChild(pane);
   return pane;
 }
@@ -833,6 +927,10 @@ function updateFirstPersonVisorOverlay(){
     let carAmount=firstPersonPaneCarAmount(i);
     if(pane._robotLayer) pane._robotLayer.style.opacity=String(1-carAmount*0.82);
     if(pane._carLayer) pane._carLayer.style.opacity=String(carAmount);
+    if(pane._rainLayer){
+      let rainAmount=smoothStep(clamp((rainIntensity-0.04)/0.58,0,1));
+      pane._rainLayer.style.opacity=String(rainAmount*(0.58+carAmount*0.26));
+    }
   }
 }
 let terraformFadeOverlay=document.createElement("div");
@@ -1919,6 +2017,7 @@ function createCarState(id,lateralOffset,controls,camera,gamepadIndex){
     aimOffsetX:0,
     aimOffsetY:0,
     aimDistance:32,
+    headLookYaw:0,
     hasMouseAimPoint:false,
     hasGamepadAimPoint:false,
     controllerAimOffsetX:0,
@@ -11432,6 +11531,9 @@ function updateMechAnimation(car){
 
   if(parts.torso) parts.torso.rotation.z+=torsoSway*0.45;
   if(parts.torso) parts.torso.rotation.y-=torsoTwist*0.7;
+  let headLookRobotAmount=clamp(1-(car.morphProgress || 0)/0.48,0,1)*clamp(1-(car.jetProgress || 0)/0.38,0,1);
+  let headLookYaw=updateRobotHeadLookYaw(car,headLookRobotAmount);
+  if(parts.torso) parts.torso.rotation.y+=headLookYaw*0.12;
   if(parts.pelvis) {
     parts.pelvis.rotation.z-=torsoSway*0.8;
     parts.pelvis.rotation.x+=forwardLean*0.35;
@@ -11441,8 +11543,9 @@ function updateMechAnimation(car){
   if(parts.head) {
     parts.head.rotation.z-=headCounter+heavyLean*0.32;
     parts.head.rotation.x+=forwardLean*0.32-heavyPitch*0.35;
-    parts.head.rotation.y+=torsoTwist*0.32;
+    parts.head.rotation.y+=torsoTwist*0.32+headLookYaw;
   }
+  if(parts.visor) parts.visor.rotation.y+=headLookYaw*0.92;
   if(parts.torso) {
     parts.torso.position.y-=compression*0.34;
     parts.torso.rotation.x+=heavyPitch*0.42;
@@ -12058,20 +12161,35 @@ function updateCameraPitchOffset(car,targetPitchOffset){
   return car.cameraPitchOffset;
 }
 
+function updateRobotHeadLookYaw(car,robotAmount=1){
+  let aiming=car && car.health>0 && car.group && car.group.visible
+    && (car.hasMouseAimPoint || car.hasGamepadAimPoint);
+  let target=0;
+  if(aiming){
+    let aimDistance=Math.max(8,car.aimDistance || 32);
+    let aimYaw=Math.atan2(car.aimOffsetX || 0,aimDistance);
+    target=clamp(aimYaw,-0.56,0.56)*clamp(robotAmount,0,1);
+  }
+  if(!Number.isFinite(car.headLookYaw)) car.headLookYaw=0;
+  car.headLookYaw+=(target-car.headLookYaw)*0.09;
+  return car.headLookYaw;
+}
+
 function updateCameraForCar(car){
   car.cameraYaw+=normalizeAngle(car.velAngle-car.cameraYaw)*0.075;
 
   if(firstPersonViewActive()){
     car.cameraYaw+=normalizeAngle(car.angle-car.cameraYaw)*0.28;
-    let forwardX=Math.sin(car.cameraYaw);
-    let forwardZ=Math.cos(car.cameraYaw);
-    let rightX=Math.cos(car.cameraYaw);
-    let rightZ=-Math.sin(car.cameraYaw);
     let morphBlend=smoothStep(clamp((car.morphProgress-0.12)/0.78,0,1));
     let jetBlend=smoothStep(clamp((car.jetProgress-0.35)/0.38,0,1));
     let robotViewAmount=(1-morphBlend)*(1-jetBlend);
     let robotMode=robotViewAmount>0.42;
     let jetMode=jetBlend>0.5;
+    let viewYaw=car.cameraYaw+(car.headLookYaw || 0)*robotViewAmount*0.64;
+    let forwardX=Math.sin(viewYaw);
+    let forwardZ=Math.cos(viewYaw);
+    let rightX=Math.cos(viewYaw);
+    let rightZ=-Math.sin(viewYaw);
     let desiredNear=0.1+0.22*robotViewAmount;
     if(Math.abs(car.camera.near-desiredNear)>0.001){
       car.camera.near=desiredNear;
@@ -13886,6 +14004,7 @@ function placeCarOnOpenField(car,startInfo){
   car.aimOffsetX=0;
   car.aimOffsetY=0;
   car.aimDistance=32;
+  car.headLookYaw=0;
   car.hasMouseAimPoint=false;
   car.hasGamepadAimPoint=false;
   car.controllerAimOffsetX=0;
