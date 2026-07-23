@@ -1,6 +1,6 @@
 import { THREE } from "./three.js";
 import { carRadius, chunkSize, segments, viewDistance } from "./constants.js";
-import { groundHeight, rand, roadCenterX, roadDistance } from "./terrain.js?v=live-fps-smoothing";
+import { groundHeight, rand, roadCenterX, roadDistance } from "./terrain.js?v=no-roads";
 import { makeCarShadowTexture, makeGroundTexture } from "./textures.js?v=building-shadows";
 import { makeMissionOutpostTerminal } from "./models.js?v=radar-performance-fix";
 
@@ -88,6 +88,7 @@ export function createWorld(scene,options={}){
     }
   };
   let currentEnvironment={...defaultEnvironment,...(options.getEnvironment ? options.getEnvironment() : {})};
+  const roadsEnabled=false;
 
 let landMat=new THREE.MeshStandardMaterial({
   map:makeGroundTexture(currentEnvironment),
@@ -669,7 +670,7 @@ function createChunkWorker(){
   if(options.disableChunkWorker || typeof Worker==="undefined") return null;
 
   try{
-    let worker=new Worker(new URL("./chunkWorker.js?v=pond-size-depth",import.meta.url),{type:"module"});
+    let worker=new Worker(new URL("./chunkWorker.js?v=no-roads",import.meta.url),{type:"module"});
     let template=makeTerrainVertexTemplate();
     worker.postMessage({
       type:"setTerrainTemplate",
@@ -2222,8 +2223,8 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   let buildingTrims=new THREE.InstancedMesh(trimGeo,houseTrimMat,maxTrimInstances);
   let buildingPorches=new THREE.InstancedMesh(porchGeo,houseTrimMat,maxBuildings);
   let villageWalls=new THREE.InstancedMesh(brickWallGeo,brickWallMat,villagesPerChunk*18);
-  let cityStreets=new THREE.InstancedMesh(cityStreetGeo,cityStreetMat,cityMode ? villagesPerChunk*8 : 1);
-  let cityStreetDetails=new THREE.InstancedMesh(cityStreetGeo,cityDetailMat,cityMode ? villagesPerChunk*96 : 1);
+  let cityStreets=new THREE.InstancedMesh(cityStreetGeo,cityStreetMat,roadsEnabled && cityMode ? villagesPerChunk*8 : 1);
+  let cityStreetDetails=new THREE.InstancedMesh(cityStreetGeo,cityDetailMat,roadsEnabled && cityMode ? villagesPerChunk*96 : 1);
   let cityTechDetails=new THREE.InstancedMesh(cityStreetGeo,cityGlowMat,cityMode ? maxBuildings*12+villagesPerChunk*32 : 1);
   let buildingShadowUsed=0;
   let buildingUsed=0;
@@ -2270,7 +2271,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
       : 12+Math.floor(r01(cx+v*7,cz-v*5)*10);
     let placed=[];
 
-    if(cityMode){
+    if(cityMode && roadsEnabled){
       let cityYaw=roadYawAt(centerZ);
       let streetLength=villageRadius*2.25;
       let streetWidth=9.5;
@@ -2366,8 +2367,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
         }
       }
     }else{
-      // Brick wall ring around each village with a front opening toward the road.
-      let gateAngle=roadCenterX(centerZ)>centerX ? 0 : Math.PI;
+      let gateAngle=r01(cx*2131+v*17,cz*1723-v*31)*Math.PI*2;
       let wallSegments=14;
       for(let s=0;s<wallSegments && wallUsed<villagesPerChunk*18;s++){
         let t=s/wallSegments;
@@ -2427,11 +2427,13 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
         let spacing=24+r01(cx*17+i,cz*23-v)*8;
         cityLocalX=(col-(cols-1)*0.5)*spacing+(r01(i*11+cx,cz)-0.5)*4;
         cityLocalZ=(row-(cols-1)*0.5)*spacing+(r01(i*13+cz,cx)-0.5)*4;
-        let streetSpacing=villageRadius*0.5;
-        let streetClearance=10.5;
-        let nearStreetX=Math.min(Math.abs(cityLocalX),Math.abs(cityLocalX-streetSpacing),Math.abs(cityLocalX+streetSpacing));
-        let nearStreetZ=Math.min(Math.abs(cityLocalZ),Math.abs(cityLocalZ-streetSpacing),Math.abs(cityLocalZ+streetSpacing));
-        if(nearStreetX<streetClearance || nearStreetZ<streetClearance) continue;
+        if(roadsEnabled){
+          let streetSpacing=villageRadius*0.5;
+          let streetClearance=10.5;
+          let nearStreetX=Math.min(Math.abs(cityLocalX),Math.abs(cityLocalX-streetSpacing),Math.abs(cityLocalX+streetSpacing));
+          let nearStreetZ=Math.min(Math.abs(cityLocalZ),Math.abs(cityLocalZ-streetSpacing),Math.abs(cityLocalZ+streetSpacing));
+          if(nearStreetX<streetClearance || nearStreetZ<streetClearance) continue;
+        }
         wx=centerX+rightX*cityLocalX+forwardX*cityLocalZ;
         wz=centerZ+rightZ*cityLocalX+forwardZ*cityLocalZ;
       }

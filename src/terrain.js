@@ -1,4 +1,4 @@
-import { offroadMaxSpeed, roadMaxSpeed } from "./constants.js";
+import { offroadMaxSpeed } from "./constants.js";
 
 let worldSeed=0;
 const defaultTerrainProfile={
@@ -16,6 +16,7 @@ const defaultTerrainProfile={
   roadPhase:0
 };
 let terrainProfile={...defaultTerrainProfile};
+const noRoadDistance=1000000000;
 const broadMountainSpacing=1650;
 const broadMountainCellCacheLimit=4096;
 let broadMountainCellCache=new Map();
@@ -247,20 +248,16 @@ export function roadYawAt(z){
 }
 
 export function roadDistance(x,z){
-  return Math.abs(x-roadCenterX(z));
+  return noRoadDistance;
 }
 
 export function maxSpeedForRoadDistance(d){
-  if(d<45) return roadMaxSpeed;
-  let t=Math.min(1,(d-45)/55);
-  t=t*t*(3-2*t);
-  return roadMaxSpeed*(1-t)+offroadMaxSpeed*t;
+  return offroadMaxSpeed;
 }
 
 
 export function roadHeight(x,z){
-  let center=roadCenterX(z);
-  return groundHeight(center,z)+.25;
+  return groundHeight(x,z)+.25;
 }
 
 export function carSurfaceHeight(x,z){

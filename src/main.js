@@ -1,10 +1,10 @@
 import { THREE } from "./three.js";
 import { carRadius, gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize, viewDistance, mothershipDropCount, mothershipDropInterval, mothershipDropLineSpacing, mothershipHoverDistance, mothershipHoverFrames, mothershipMinDelay, mothershipRandomDelay, mothershipRocketHits } from "./constants.js";
-import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=live-fps-smoothing";
+import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=no-roads";
 import { createInput } from "./input.js?v=progressive-pointer-aim";
 import { createHud } from "./hud.js?v=first-person-left-display-perspective";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=stronger-directed-rain";
-import { createWorld } from "./world.js?v=treasure-pickup-beam";
+import { createWorld } from "./world.js?v=no-roads";
 import { createMotorAudio } from "./audio.js?v=intro-beam-sizzle";
 import { worldEnvironments } from "./environments.js?v=neon-city-terrain-color";
 import { difficultySettings } from "./gameConfig.js?v=ammo-caps";
@@ -83,9 +83,11 @@ const rareTradingOutpostChunkProbability=0.055;
 const rareTradingOutpostMinSpacing=1800;
 
 let currentEnvironment=worldEnvironments[Math.floor(Math.random()*worldEnvironments.length)];
+let terrainSeed=Math.random()*100000;
 let rainIntensity=0;
 let weatherTargetIntensity=0;
 let nextWeatherChange=0;
+let startPlanetPreview=null;
 let baseFogNear=initialBaseFogNear;
 let baseFogFar=initialBaseFogFar;
 let jetFogAmount=0;
@@ -1248,7 +1250,7 @@ let testingScannerAvailableFromStart=false;
 let jetAvailableFromStart=true;
 let testingRocketBuggiesAtStart=true;
 let testingRocketBuggyStartCount=5;
-let testingSkipIntro=true;
+let testingSkipIntro=false;
 let units=initialUnits;
 let lastBuildingExplosionSoundAt=0;
 let buildingExplosionSoundCooldownMs=80;
@@ -1691,11 +1693,20 @@ function terrainSlopeAt(x,z){
   return Math.max(xSlope,zSlope,diagonalSlope,Math.abs(center-drivingSurfaceHeight(x+sampleDistance,z-sampleDistance))/(sampleDistance*1.414));
 }
 
+function terrainReliefAt(x,z){
+  let center=drivingSurfaceHeight(x,z);
+  let radius=20;
+  let minNearby=center;
+  for(let sample of [[1,0],[-1,0],[0,1],[0,-1],[0.7,0.7],[-0.7,0.7],[0.7,-0.7],[-0.7,-0.7]]){
+    minNearby=Math.min(minNearby,drivingSurfaceHeight(x+sample[0]*radius,z+sample[1]*radius));
+  }
+  return Math.max(0,center-minNearby);
+}
+
 function mountainClimbProfile(car,fromX,fromZ,toX,toZ){
   let fromY=drivingSurfaceHeight(fromX,fromZ);
   let actuallyFlying=car.y>fromY+1.4 || car.jetMode || car.jetProgress>0.2;
   if(actuallyFlying) return {blocked:false,slowdown:0};
-  if(roadDistance(toX,toZ)<58) return {blocked:false,slowdown:0};
 
   let dx=toX-fromX;
   let dz=toZ-fromZ;
@@ -1728,7 +1739,7 @@ function mountainClimbProfile(car,fromX,fromZ,toX,toZ){
   }
 
   let localSlope=terrainSlopeAt(toX,toZ);
-  let heightAboveRoad=drivingSurfaceHeight(toX,toZ)-drivingSurfaceHeight(roadCenterX(toZ),toZ);
+  let localRelief=terrainReliefAt(toX,toZ);
   let averageUphill=totalUphill/Math.max(0.001,distance);
   let carMode=car.morphProgress>0.68 && car.jetProgress<0.35;
 
@@ -1738,14 +1749,14 @@ function mountainClimbProfile(car,fromX,fromZ,toX,toZ){
     let gradeSeverity=clamp((maxGrade-0.26)/0.42,0,1);
     let averageSeverity=clamp((averageUphill-0.1)/0.24,0,1);
     let slopeSeverity=clamp((localSlope-0.18)/0.32,0,1);
-    let heightSeverity=clamp((heightAboveRoad-5)/14,0,1);
+    let heightSeverity=clamp((localRelief-4)/14,0,1);
     let slowdown=Math.max(gradeSeverity,averageSeverity,slopeSeverity)*heightSeverity;
-    let blocked=(heightAboveRoad>14 && totalUphill>0.34 && maxGrade>0.62 && localSlope>0.42)
-      || (heightAboveRoad>20 && averageUphill>0.24 && localSlope>0.36);
+    let blocked=(localRelief>13 && totalUphill>0.34 && maxGrade>0.62 && localSlope>0.42)
+      || (localRelief>18 && averageUphill>0.24 && localSlope>0.36);
     return {blocked,slowdown:blocked ? 1 : clamp(slowdown,0,0.82)};
   }
 
-  let blocked=heightAboveRoad>18 && totalUphill>0.42 && maxGrade>0.95 && localSlope>0.85;
+  let blocked=localRelief>17 && totalUphill>0.42 && maxGrade>0.95 && localSlope>0.85;
   return {blocked,slowdown:0};
 }
 
@@ -3323,6 +3334,263 @@ function setupStartWorldPreview(){
   birds.makeBirds();
 }
 
+function disposePreviewObject(object){
+  if(!object) return;
+  object.traverse(child=>{
+    if(child.geometry) child.geometry.dispose();
+    if(child.material){
+      if(Array.isArray(child.material)){
+        for(let material of child.material) material.dispose();
+      }else{
+        child.material.dispose();
+      }
+    }
+  });
+}
+
+function initStartPlanetPreview(){
+  let host=document.querySelector("[data-planet-preview]");
+  if(!host) return null;
+
+  let previewScene=new THREE.Scene();
+  let previewCamera=new THREE.PerspectiveCamera(34,1,0.1,80);
+  previewCamera.position.set(0,4.8,10.4);
+  previewCamera.lookAt(0,0.6,0);
+
+  let previewRenderer=new THREE.WebGLRenderer({alpha:true,antialias:true});
+  previewRenderer.setClearColor(0x000000,0);
+  previewRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1,1.75));
+  host.appendChild(previewRenderer.domElement);
+
+  let keyLight=new THREE.DirectionalLight(0xffffff,2.1);
+  keyLight.position.set(5,8,6);
+  previewScene.add(keyLight);
+  previewScene.add(new THREE.HemisphereLight(0xbdefff,0x172027,1.9));
+
+  let worldGroup=new THREE.Group();
+  previewScene.add(worldGroup);
+
+  function envColor(environment,key,fallback){
+    let colors=environment && environment.colors || {};
+    return Number.isFinite(colors[key]) ? colors[key] : fallback;
+  }
+
+  function makeMat(color,roughness=0.72,metalness=0.08){
+    return new THREE.MeshStandardMaterial({color,roughness,metalness});
+  }
+
+  function previewLocalY(worldY,baseY,heightScale){
+    return clamp((worldY-baseY)*heightScale,-0.52,2.25);
+  }
+
+  function previewTerrainColor(environment,rawY,minY,maxY){
+    let underwater=envColor(environment,"underwater",0x214b5b);
+    let shore=envColor(environment,"shore",0xa89662);
+    let low=envColor(environment,"low",0x556f43);
+    let mid=envColor(environment,"mid",0x59704d);
+    let high=envColor(environment,"high",0x8d8a75);
+    let rock=envColor(environment,"rock",high);
+    let range=Math.max(1,maxY-minY);
+    let t=clamp01((rawY-minY)/range);
+
+    if(rawY<waterLevel-0.4){
+      return new THREE.Color(underwater).lerp(new THREE.Color(low),clamp01((rawY-waterLevel+8)/8)*0.34);
+    }
+    if(rawY<waterLevel+2.2){
+      return new THREE.Color(shore).lerp(new THREE.Color(low),clamp01((rawY-waterLevel)/2.2));
+    }
+    if(t<0.48){
+      return new THREE.Color(low).lerp(new THREE.Color(mid),t/0.48);
+    }
+    let mountainTone=new THREE.Color(high).lerp(new THREE.Color(rock),clamp01((t-0.72)/0.28)*0.45);
+    return new THREE.Color(mid).lerp(mountainTone,(t-0.48)/0.52);
+  }
+
+  function buildPreviewTerrainGeometry(environment,centerX,centerZ,span,localSize=5.85,segments=58){
+    let sampleCount=segments+1;
+    let rawHeights=new Float32Array(sampleCount*sampleCount);
+    let minY=Infinity;
+    let maxY=-Infinity;
+
+    for(let iz=0;iz<=segments;iz++){
+      let v=iz/segments;
+      let worldZ=centerZ+(v-0.5)*span;
+      for(let ix=0;ix<=segments;ix++){
+        let u=ix/segments;
+        let worldX=centerX+(u-0.5)*span;
+        let rawY=groundHeight(worldX,worldZ);
+        rawHeights[iz*sampleCount+ix]=rawY;
+        minY=Math.min(minY,rawY);
+        maxY=Math.max(maxY,rawY);
+      }
+    }
+
+    let baseY=Math.min(minY,waterLevel-4);
+    let heightScale=clamp(1.72/Math.max(18,maxY-baseY),0.034,0.078);
+    let positions=[];
+    let colors=[];
+    let indices=[];
+    let color=new THREE.Color();
+
+    for(let iz=0;iz<=segments;iz++){
+      let v=iz/segments;
+      let localZ=(v-0.5)*localSize;
+      for(let ix=0;ix<=segments;ix++){
+        let u=ix/segments;
+        let localX=(u-0.5)*localSize;
+        let rawY=rawHeights[iz*sampleCount+ix];
+        positions.push(localX,previewLocalY(rawY,baseY,heightScale),localZ);
+        color.copy(previewTerrainColor(environment,rawY,minY,maxY));
+        colors.push(color.r,color.g,color.b);
+      }
+    }
+
+    for(let iz=0;iz<segments;iz++){
+      for(let ix=0;ix<segments;ix++){
+        let a=iz*sampleCount+ix;
+        let b=a+1;
+        let c=a+sampleCount;
+        let d=c+1;
+        indices.push(a,c,b,b,c,d);
+      }
+    }
+
+    let geometry=new THREE.BufferGeometry();
+    geometry.setAttribute("position",new THREE.Float32BufferAttribute(positions,3));
+    geometry.setAttribute("color",new THREE.Float32BufferAttribute(colors,3));
+    geometry.setIndex(indices);
+    geometry.computeVertexNormals();
+
+    return {geometry,baseY,heightScale,minY,maxY,localSize,span,centerX,centerZ};
+  }
+
+  function addPreviewTerrainDetails(parent,sample,environment){
+    let colors=environment && environment.colors || {};
+    let detailCount=environment && environment.city ? 18 : 24;
+    let wallMat=makeMat(envColor(environment,"wall",0x4c5966),0.7,0.12);
+    let trimMat=makeMat(envColor(environment,"trim",0x92d8e8),0.48,0.16);
+    let barkMat=makeMat(envColor(environment,"bark",0x2a2019),0.86,0.04);
+    let leafMat=makeMat(envColor(environment,"leaf",0x56a85f),0.72,0.04);
+
+    for(let i=0;i<detailCount;i++){
+      let u=hash01(i+11,worldEnvironments.indexOf(environment)+3);
+      let v=hash01(i+37,worldEnvironments.indexOf(environment)+19);
+      let worldX=sample.centerX+(u-0.5)*sample.span*0.82;
+      let worldZ=sample.centerZ+(v-0.5)*sample.span*0.82;
+      let rawY=groundHeight(worldX,worldZ);
+      if(rawY<waterLevel+0.8) continue;
+
+      let localX=(worldX-sample.centerX)/sample.span*sample.localSize;
+      let localZ=(worldZ-sample.centerZ)/sample.span*sample.localSize;
+      let y=previewLocalY(rawY,sample.baseY,sample.heightScale);
+      let worldScale=environment && environment.city ? 18+hash01(i,7)*18 : 10+hash01(i,13)*12;
+      let scale=worldScale/sample.span*sample.localSize;
+
+      if(environment && environment.city){
+        let height=(1.8+hash01(i,23)*3.4)*scale;
+        let footprint=(0.72+hash01(i,29)*0.45)*scale;
+        let building=new THREE.Mesh(new THREE.BoxGeometry(footprint,height,footprint*0.86),wallMat);
+        building.position.set(localX,y+height*0.5,localZ);
+        building.rotation.y=(hash01(i,31)-0.5)*0.9;
+        parent.add(building);
+        if(colors.trim){
+          let cap=new THREE.Mesh(new THREE.BoxGeometry(footprint*1.08,0.045,footprint*0.94),trimMat);
+          cap.position.set(localX,y+height+0.025,localZ);
+          cap.rotation.y=building.rotation.y;
+          parent.add(cap);
+        }
+      }else{
+        let trunkHeight=1.1*scale;
+        let trunk=new THREE.Mesh(new THREE.CylinderGeometry(0.12*scale,0.18*scale,trunkHeight,6),barkMat);
+        trunk.position.set(localX,y+trunkHeight*0.5,localZ);
+        trunk.rotation.z=(hash01(i,41)-0.5)*0.18;
+        parent.add(trunk);
+
+        let crown=new THREE.Mesh(new THREE.SphereGeometry(0.52*scale,9,7),leafMat);
+        crown.scale.set(1.05+hash01(i,43)*0.55,0.72+hash01(i,47)*0.42,0.9+hash01(i,53)*0.5);
+        crown.position.set(localX,y+trunkHeight+0.44*scale,localZ);
+        parent.add(crown);
+      }
+    }
+  }
+
+  function rebuild(environment){
+    disposePreviewObject(worldGroup);
+    worldGroup.clear();
+    setWorldSeed(terrainSeed,environment && environment.terrain || {});
+
+    let water=envColor(environment,"water",0x3fc8ff);
+    let rock=envColor(environment,"rock",envColor(environment,"high",0x687064));
+    let colors=environment && environment.colors || {};
+    let environmentIndex=Math.max(0,worldEnvironments.indexOf(environment));
+    let centerZ=560+environmentIndex*290;
+    let centerX=(hash01(environmentIndex+5,terrainSeed+17)-0.5)*(environment && environment.city ? 420 : 760);
+    let span=environment && environment.city ? 360 : 620;
+    let sample=buildPreviewTerrainGeometry(environment,centerX,centerZ,span);
+
+    let base=new THREE.Mesh(
+      new THREE.BoxGeometry(sample.localSize,0.36,sample.localSize),
+      makeMat(rock,0.86,0.05)
+    );
+    base.position.y=-0.28;
+    worldGroup.add(base);
+
+    let terrainMesh=new THREE.Mesh(sample.geometry,new THREE.MeshStandardMaterial({
+      vertexColors:true,
+      roughness:0.82,
+      metalness:0.035
+    }));
+    worldGroup.add(terrainMesh);
+
+    if(sample.minY<waterLevel+7){
+      let waterY=previewLocalY(waterLevel,sample.baseY,sample.heightScale)+0.018;
+      let waterPlane=new THREE.Mesh(new THREE.PlaneGeometry(sample.localSize*1.04,sample.localSize*1.04,1,1),new THREE.MeshStandardMaterial({
+        color:water,
+        emissive:colors.waterEmissive || 0x000000,
+        emissiveIntensity:0.16,
+        transparent:true,
+        opacity:0.46,
+        roughness:0.18,
+        metalness:0.16,
+        side:THREE.DoubleSide
+      }));
+      waterPlane.rotation.x=-Math.PI/2;
+      waterPlane.position.y=waterY;
+      worldGroup.add(waterPlane);
+    }
+
+    addPreviewTerrainDetails(worldGroup,sample,environment);
+  }
+
+  function resize(){
+    let rect=host.getBoundingClientRect();
+    let width=Math.max(1,Math.floor(rect.width));
+    let height=Math.max(1,Math.floor(rect.height));
+    previewCamera.aspect=width/height;
+    previewCamera.updateProjectionMatrix();
+    previewRenderer.setSize(width,height,false);
+  }
+
+  let resizeObserver=new ResizeObserver(resize);
+  resizeObserver.observe(host);
+  resize();
+
+  function animate(){
+    requestAnimationFrame(animate);
+    if(!host.isConnected) return;
+    if(startScreen && startScreen.style.display==="none") return;
+    worldGroup.rotation.y+=0.006;
+    worldGroup.rotation.x=Math.sin(performance.now()*0.0007)*0.035;
+    previewRenderer.render(previewScene,previewCamera);
+  }
+  requestAnimationFrame(animate);
+
+  return {
+    setEnvironment:rebuild,
+    resize
+  };
+}
+
 function selectStartEnvironment(index){
   if(gameStarted) return;
   let environment=worldEnvironments[index];
@@ -3330,6 +3598,7 @@ function selectStartEnvironment(index){
   clearStartWorldPreview();
   applyWorldEnvironment(environment,{resetChunks:true,refreshNature:false});
   setupStartWorldPreview();
+  if(startPlanetPreview) startPlanetPreview.setEnvironment(environment);
 }
 
 function restoreSavedRuntimeStatus(status){
@@ -13823,6 +14092,8 @@ if(startScreen){
     startScreen.dataset.environmentIndex=String(selectedIndex);
   }
   initPlanetSelectionMenu();
+  startPlanetPreview=initStartPlanetPreview();
+  if(startPlanetPreview) startPlanetPreview.setEnvironment(currentEnvironment);
   function startActionForTarget(target){
     let loadButton=target && target.closest("[data-load-game]");
     if(loadButton && !loadButton.disabled) return "load";
@@ -15208,7 +15479,6 @@ function placeTradingOutpostNearStart(startInfo){
   scheduleTestingAmbientSpaceshipFormationOverHomeBase();
 }
 
-let terrainSeed=Math.random()*100000;
 applyWorldEnvironment(currentEnvironment,{resetChunks:false,refreshNature:false});
 setupStartWorldPreview();
 loop();
