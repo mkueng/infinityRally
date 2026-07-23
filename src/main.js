@@ -2,7 +2,7 @@ import { THREE } from "./three.js";
 import { carRadius, gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize, viewDistance, mothershipDropCount, mothershipDropInterval, mothershipDropLineSpacing, mothershipHoverDistance, mothershipHoverFrames, mothershipMinDelay, mothershipRandomDelay, mothershipRocketHits } from "./constants.js";
 import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=live-fps-smoothing";
 import { createInput } from "./input.js?v=progressive-pointer-aim";
-import { createHud } from "./hud.js?v=grey-display-bars-compass";
+import { createHud } from "./hud.js?v=first-person-left-display-perspective";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=stronger-directed-rain";
 import { createWorld } from "./world.js?v=treasure-pickup-beam";
 import { createMotorAudio } from "./audio.js?v=intro-beam-sizzle";
@@ -1248,6 +1248,7 @@ let testingScannerAvailableFromStart=false;
 let jetAvailableFromStart=true;
 let testingRocketBuggiesAtStart=true;
 let testingRocketBuggyStartCount=5;
+let testingSkipIntro=true;
 let units=initialUnits;
 let lastBuildingExplosionSoundAt=0;
 let buildingExplosionSoundCooldownMs=80;
@@ -2913,6 +2914,7 @@ function nearestBossBaseForCompass(state){
 
 let hud=createHud({
   getPerformanceMode:()=>gameMode==="double" ? "split" : "full",
+  getFirstPersonMode:()=>firstPersonViewActive(),
   getEnvironment:()=>currentEnvironment,
   getCarStates:()=>displayCars().map(car=>({
     id:car.id,
@@ -13734,7 +13736,7 @@ function startGame(mode,difficulty="medium",savedStatus=null){
   spawnGiantTestRobot(startInfo);
   placeTradingOutpostNearStart(startInfo);
   placeTestingTradingOutpostNearHomeBase();
-  if(!savedStatus) placeStartingCarsAtBaseEntrance(mode,true);
+  if(!savedStatus) placeStartingCarsAtBaseEntrance(mode,!testingSkipIntro);
   world.placeTestBossBaseNearStart(playerCar.x,playerCar.z,playerCar.angle);
   spawnBossBaseGuards();
   setCarActive(playerCar,true);

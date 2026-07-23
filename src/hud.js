@@ -19,7 +19,7 @@ const compassArcStroke="rgba(178,187,188,0.62)";
 const compassArcMajorStroke="rgba(216,222,222,0.78)";
 const compassArcMinorStroke="rgba(178,187,188,0.42)";
 
-export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStationState=()=>null,getNearestTradingOutpost=()=>null,getNearestBossBase=()=>null,getScannedBossBases=()=>[],getScannedTradingOutposts=()=>[],getScannedRadarOutposts=()=>[],getScannedLandingSpaces=()=>[],getScannedPortals=()=>[],getPerformanceMode=()=>"full",getEnvironment=()=>({}),getTerrainHeight=()=>0}){
+export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStationState=()=>null,getNearestTradingOutpost=()=>null,getNearestBossBase=()=>null,getScannedBossBases=()=>[],getScannedTradingOutposts=()=>[],getScannedRadarOutposts=()=>[],getScannedLandingSpaces=()=>[],getScannedPortals=()=>[],getPerformanceMode=()=>"full",getFirstPersonMode=()=>false,getEnvironment=()=>({}),getTerrainHeight=()=>0}){
   let panels=[];
   let gameOverOverlay;
   let mapUpdateFrame=0;
@@ -585,6 +585,58 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     panel.compassHud=compassHud;
     panel.compassCanvas=compassCanvas;
     panel.compassCtx=compassCtx;
+  }
+
+  function firstPersonMapRight(panel){
+    if(panel.side==="full") return "calc(9vw + 24px)";
+    return panel.side==="left" ? "calc(50vw + 4.5vw + 18px)" : "calc(4.5vw + 18px)";
+  }
+
+  function firstPersonSpeedLeft(panel){
+    if(panel.side==="full") return "calc(9vw + 24px)";
+    return panel.side==="left" ? "calc(4.5vw + 18px)" : "calc(50vw + 4.5vw + 18px)";
+  }
+
+  function applyNavigationHudLayout(){
+    let firstPerson=!!getFirstPersonMode();
+    for(let panel of panels){
+      if(panel.speedHud){
+        panel.speedHud.style.top=firstPerson ? "auto" : "58px";
+        panel.speedHud.style.bottom=firstPerson ? "calc(8vh + 18px)" : "auto";
+        panel.speedHud.style.left=firstPerson ? firstPersonSpeedLeft(panel) : `calc(${panelOffset(panel)} + ${speedHudInset(panel)})`;
+        panel.speedHud.style.transform=firstPerson
+          ? `perspective(430px) ${sideTilt(panel)} rotateX(5deg) scale(0.92)`
+          : speedHudTransform(panel);
+        panel.speedHud.style.transformOrigin=sideTransformOrigin(panel);
+        panel.speedHud.style.zIndex=firstPerson ? "76" : "10";
+        panel.speedHud.style.opacity=firstPerson ? "0.94" : "1";
+      }
+      if(panel.mapHud){
+        panel.mapHud.style.setProperty("--map-size",firstPerson
+          ? (panel.side==="full" ? "222px" : "min(192px,calc(50vw - 52px))")
+          : mapHudCssSizeFor(panel)
+        );
+        panel.mapHud.style.top=firstPerson ? "auto" : "112px";
+        panel.mapHud.style.bottom=firstPerson ? "calc(8vh + 18px)" : "auto";
+        panel.mapHud.style.left=firstPerson ? "auto" : panelCenterLeft(panel);
+        panel.mapHud.style.right=firstPerson ? firstPersonMapRight(panel) : "auto";
+        panel.mapHud.style.transform=firstPerson ? "none" : "translateX(-50%)";
+        panel.mapHud.style.zIndex=firstPerson ? "76" : "10";
+        panel.mapHud.style.opacity=firstPerson ? "0.92" : "1";
+      }
+      if(panel.compassHud){
+        panel.compassHud.style.top=firstPerson ? "calc(7vh + 6px)" : "42px";
+        panel.compassHud.style.left=panelCenterLeft(panel);
+        panel.compassHud.style.width=firstPerson
+          ? (panel.side==="full" ? "min(360px,46vw)" : "min(260px,38vw)")
+          : (panel.side==="full" ? healthHudFullWidth : healthHudSplitWidth);
+        panel.compassHud.style.transform=firstPerson
+          ? "translateX(-50%)"
+          : "translateX(-50%) perspective(760px) rotateX(9deg)";
+        panel.compassHud.style.zIndex=firstPerson ? "76" : "11";
+        panel.compassHud.style.opacity=firstPerson ? "0.94" : "1";
+      }
+    }
   }
 
   function mapToCanvas(wx,wz,cx,cz,radius,size){
@@ -1389,6 +1441,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
   }
 
   function updateSpeedHud(){
+    applyNavigationHudLayout();
     let states=getCarStates();
     for(let i=0;i<panels.length;i++){
       drawSpeedHud(panels[i],states[i]);
@@ -1396,6 +1449,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
   }
 
   function updateMapHud(force=false){
+    applyNavigationHudLayout();
     let interval=getPerformanceMode()==="split" ? 12 : 6;
     if(!force && mapUpdateFrame++%interval!==0) return;
     let states=getCarStates();
@@ -1406,6 +1460,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
   }
 
   function updateCompassHud(){
+    applyNavigationHudLayout();
     if(getPerformanceMode()==="split" && compassUpdateFrame++%2!==0) return;
     let states=getCarStates();
     for(let i=0;i<panels.length;i++){
@@ -1437,6 +1492,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     makeGameOverOverlay();
     updateHealthHud();
     updateSpeedHud();
+    applyNavigationHudLayout();
     updateMapHud(true);
     updateCompassHud();
   }
