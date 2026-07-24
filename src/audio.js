@@ -22,6 +22,7 @@ export function createMotorAudio(cars){
   let musicVolume=0.1;
   let paused=false;
   let sfxEnabled=false;
+  let playbackAllowed=false;
   let musicPlaylist=[
     "./assets/music/Planetatmospher.mp3",
     "./assets/music/ROSpace.mp3"
@@ -135,7 +136,7 @@ export function createMotorAudio(cars){
 
   function applyVolumes(){
     backgroundMusic.volume=musicVolume;
-    if(master) master.gain.value=paused || !sfxEnabled ? 0 : 0.26*sfxVolume;
+    if(master) master.gain.value=paused || !sfxEnabled || !playbackAllowed ? 0 : 0.26*sfxVolume;
   }
 
   function ensureBackgroundMusicSource(){
@@ -144,7 +145,7 @@ export function createMotorAudio(cars){
   }
 
   function playBackgroundMusic(){
-    if(musicVolume<=0) return;
+    if(!playbackAllowed || paused || musicVolume<=0) return;
     ensureBackgroundMusicSource();
     backgroundMusic.play().catch(()=>{});
   }
@@ -173,7 +174,7 @@ export function createMotorAudio(cars){
   function setMusicVolume(value){
     musicVolume=clamp(Number(value) || 0,0,1);
     applyVolumes();
-    if(musicVolume>0 && backgroundMusic.paused) playBackgroundMusic();
+    if(playbackAllowed && !paused && musicVolume>0 && backgroundMusic.paused) playBackgroundMusic();
   }
 
   function setSfxVolume(value){
@@ -189,6 +190,20 @@ export function createMotorAudio(cars){
   function setSfxEnabled(value){
     sfxEnabled=!!value;
     applyVolumes();
+  }
+
+  function setPlaybackAllowed(value){
+    playbackAllowed=!!value;
+    if(playbackAllowed){
+      sfxEnabled=true;
+      ensureContext();
+      if(context && context.state==="suspended") context.resume();
+      applyVolumes();
+      playBackgroundMusic();
+    }else{
+      if(!backgroundMusic.paused) backgroundMusic.pause();
+      applyVolumes();
+    }
   }
 
   function getVolumeSettings(){
@@ -514,11 +529,11 @@ export function createMotorAudio(cars){
   }
 
   function resume(){
-    sfxEnabled=true;
     ensureContext();
     if(context && context.state==="suspended") context.resume();
+    if(playbackAllowed) sfxEnabled=true;
     applyVolumes();
-    if(backgroundMusic.paused){
+    if(playbackAllowed && backgroundMusic.paused){
       playBackgroundMusic();
     }
   }
@@ -1005,6 +1020,41 @@ export function createMotorAudio(cars){
     overtone.stop(time+0.14);
   }
 
+  function playMenuClick(){
+    ensureContext();
+    if(!context || !supported || sfxVolume<=0) return;
+    if(context.state==="suspended") context.resume();
+
+    let time=context.currentTime+0.004;
+    let tick=context.createOscillator();
+    let body=context.createOscillator();
+    let filter=context.createBiquadFilter();
+    let gain=context.createGain();
+    let volume=0.11*sfxVolume;
+
+    tick.type="triangle";
+    body.type="sine";
+    tick.frequency.setValueAtTime(1160,time);
+    tick.frequency.exponentialRampToValueAtTime(1520,time+0.035);
+    body.frequency.setValueAtTime(420,time);
+    body.frequency.exponentialRampToValueAtTime(260,time+0.06);
+    filter.type="bandpass";
+    filter.frequency.setValueAtTime(1180,time);
+    filter.Q.setValueAtTime(4.2,time);
+    gain.gain.setValueAtTime(0.0001,time);
+    gain.gain.exponentialRampToValueAtTime(Math.max(0.0001,volume),time+0.006);
+    gain.gain.exponentialRampToValueAtTime(0.0001,time+0.075);
+
+    tick.connect(filter);
+    body.connect(filter);
+    filter.connect(gain);
+    gain.connect(context.destination);
+    tick.start(time);
+    body.start(time);
+    tick.stop(time+0.09);
+    body.stop(time+0.085);
+  }
+
   function startMothershipHum(position=null){
     ensureContext();
     if(!context || !supported) return;
@@ -1362,6 +1412,7 @@ export function createMotorAudio(cars){
     setSfxVolume,
     setPaused,
     setSfxEnabled,
+    setPlaybackAllowed,
     getVolumeSettings,
     playRocketLaunch,
     playCannonFire,
@@ -1374,6 +1425,7 @@ export function createMotorAudio(cars){
     playLaserFire,
     playPlayerLaserFire,
     playTerminalBleep,
+    playMenuClick,
     startMothershipHum,
     updateMothershipHum,
     stopMothershipHum,

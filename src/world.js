@@ -3193,8 +3193,8 @@ function applyChunkRenderStress(chunk,stressLevel,centers){
   let hideFarGrass=stressLevel>=1 && distanceSq>16;
   let hideMidVegetation=stressLevel>=2 && distanceSq>8;
   let hideNearVegetation=stressLevel>=3 && distanceSq>4;
-  let hideDecor=stressLevel>=2 && distanceSq>9;
-  let hideMoreDecor=stressLevel>=3 && distanceSq>4;
+  let hideDecor=(stressLevel>=1 && distanceSq>16) || (stressLevel>=2 && distanceSq>9);
+  let hideMoreDecor=(stressLevel>=2 && distanceSq>9) || (stressLevel>=3 && distanceSq>4);
   let hideFarWater=stressLevel>=3 && distanceSq>16;
 
   setChunkObjectVisible(chunk.grasses,!hideFarGrass && !hideNearVegetation);

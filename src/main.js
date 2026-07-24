@@ -2,10 +2,10 @@ import { THREE } from "./three.js";
 import { carRadius, gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize, viewDistance, mothershipDropCount, mothershipDropInterval, mothershipDropLineSpacing, mothershipHoverDistance, mothershipHoverFrames, mothershipMinDelay, mothershipRandomDelay, mothershipRocketHits } from "./constants.js";
 import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=no-roads";
 import { createInput } from "./input.js?v=progressive-pointer-aim";
-import { createHud } from "./hud.js?v=jet-first-person-front-camera";
+import { createHud } from "./hud.js?v=adaptive-minimap-rate";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=stronger-directed-rain";
-import { createWorld } from "./world.js?v=less-city-buildings";
-import { createMotorAudio } from "./audio.js?v=intro-beam-sizzle";
+import { createWorld } from "./world.js?v=stress-decor-culling";
+import { createMotorAudio } from "./audio.js?v=menu-click-feedback";
 import { worldEnvironments } from "./environments.js?v=neon-city-terrain-color";
 import { difficultySettings } from "./gameConfig.js?v=ammo-caps";
 import { loadBackPackModel, loadBaseStationModel, loadCarModel, loadEnemyBattleShipModel, loadJetModel, loadLandingSpaceModel, loadTradingOutpostModel, loadTreasureChestModels, makeMechModel } from "./models.js?v=radar-performance-fix";
@@ -430,9 +430,9 @@ function rendererQualityState(){
     if(jetView || rainy) return 0.64;
     return 0.72;
   }
-  if(currentFrameStressLevel>=3) return 0.48;
-  if(currentFrameStressLevel>=2) return 0.62;
-  if(severeDrop) return 0.58;
+  if(currentFrameStressLevel>=3) return 0.42;
+  if(currentFrameStressLevel>=2) return 0.56;
+  if(severeDrop) return 0.52;
   if(moderateDrop) return 0.72;
   if(jetView && rainy) return 0.8;
   if(jetView || rainy) return 0.88;
@@ -1213,6 +1213,7 @@ let startSequenceCameraPos=new THREE.Vector3();
 let startSequenceLookAt=new THREE.Vector3();
 let startSequenceNormalPos=new THREE.Vector3();
 let startSequenceNormalQuat=new THREE.Quaternion();
+let gameIntroAudioStarted=false;
 let cars=[];
 let gameStarted=false;
 let gamePaused=false;
@@ -2133,6 +2134,25 @@ let dust=createDust(scene);
 let wheelTracks=createWheelTracks(scene);
 let motorAudio=createMotorAudio(cars);
 
+function setGameAudioAllowed(allowed){
+  if(motorAudio.setPlaybackAllowed) motorAudio.setPlaybackAllowed(allowed);
+  else{
+    if(motorAudio.setSfxEnabled) motorAudio.setSfxEnabled(allowed);
+    if(allowed && motorAudio.resume) motorAudio.resume();
+  }
+}
+
+function startIntroAudio(){
+  if(gameIntroAudioStarted) return;
+  gameIntroAudioStarted=true;
+  setGameAudioAllowed(true);
+  motorAudio.setPaused(false);
+}
+
+function playMenuClickFeedback(){
+  if(motorAudio.playMenuClick) motorAudio.playMenuClick();
+}
+
 function createPauseMenu(audio){
   let overlay=document.createElement("div");
   overlay.id="pauseMenuOverlay";
@@ -2252,6 +2272,7 @@ function createPauseMenu(audio){
   ].join(";");
   saveButton.addEventListener("click",event=>{
     event.stopPropagation();
+    playMenuClickFeedback();
     let saved=saveGameStatus();
     saveStatus.textContent=saved ? "Saved" : "Save failed";
   });
@@ -2369,6 +2390,7 @@ function makeTerminalCloseButton(onClose){
   button.addEventListener("click",event=>{
     event.preventDefault();
     event.stopPropagation();
+    playMenuClickFeedback();
     onClose();
   });
   return button;
@@ -2803,6 +2825,7 @@ function createTradingScreen(){
       row.addEventListener("click",event=>{
         event.preventDefault();
         event.stopPropagation();
+        if(!row.disabled) playMenuClickFeedback();
         buyTradingItem(item);
       });
       availableList.appendChild(row);
@@ -2925,6 +2948,7 @@ function nearestBossBaseForCompass(state){
 
 let hud=createHud({
   getPerformanceMode:()=>gameMode==="double" ? "split" : "full",
+  getPerformanceStressLevel:()=>currentFrameStressLevel,
   getFirstPersonMode:()=>firstPersonViewActive(),
   getEnvironment:()=>currentEnvironment,
   getCarStates:()=>displayCars().map(car=>({
@@ -9014,13 +9038,16 @@ function updateEnemy(enemy){
 
 function updateEnemies(){
   let settings=currentDifficulty();
+  let farEnemyUpdateDistance=currentFrameStressLevel>=2 ? 260 : currentFrameStressLevel>=1 ? 340 : 420;
+  let farEnemyUpdateEvery=currentFrameStressLevel>=2 ? 4 : 3;
+  let farEnemyUpdateDistanceSq=farEnemyUpdateDistance*farEnemyUpdateDistance;
   for(let enemy of enemies){
     let distSq=playerDistanceSqForEnemy(enemy);
     let skipFarUpdate=enemy.active
-      && distSq>420*420
+      && distSq>farEnemyUpdateDistanceSq
       && enemy.hitRattle<=0
       && !enemy.isBoss
-      && ((enemy.lodFrame=(enemy.lodFrame || 0)+1)%3!==0);
+      && ((enemy.lodFrame=(enemy.lodFrame || 0)+1)%farEnemyUpdateEvery!==0);
 
     if(!skipFarUpdate) updateEnemy(enemy);
     if(enemy.active && distSq>720*720){
@@ -12426,6 +12453,23 @@ function firstPersonPitchTargetForCar(car){
   return clamp((car.controllerAimOffsetY || 0)*0.42,cameraAimPitchMin,cameraAimPitchMax);
 }
 
+function firstPersonYawTargetForCar(car){
+  if(gameMode==="single" && car===playerCar && input.mouse.hasPosition){
+    let normalized=(input.mouse.x-(innerWidth*0.5))/Math.max(1,innerWidth*0.5);
+    let deadZone=0.08;
+    let amount=Math.max(0,(Math.abs(normalized)-deadZone)/(1-deadZone));
+    return normalized>0 ? amount*0.62 : -amount*0.62;
+  }
+
+  return clamp((car.controllerAimOffsetX || 0)*0.052,-0.58,0.58);
+}
+
+function updateFirstPersonYawOffset(car,targetYawOffset){
+  if(!Number.isFinite(car.firstPersonYawOffset)) car.firstPersonYawOffset=0;
+  car.firstPersonYawOffset+=(targetYawOffset-car.firstPersonYawOffset)*0.07;
+  return car.firstPersonYawOffset;
+}
+
 function updateCameraPitchOffset(car,targetPitchOffset){
   if(!Number.isFinite(car.cameraPitchOffset)) car.cameraPitchOffset=0;
   car.cameraPitchOffset+=(targetPitchOffset-car.cameraPitchOffset)*0.035;
@@ -12456,11 +12500,15 @@ function updateCameraForCar(car){
     let robotViewAmount=(1-morphBlend)*(1-jetBlend);
     let robotMode=robotViewAmount>0.42;
     let jetMode=jetBlend>0.5;
-    let viewYaw=car.cameraYaw+(car.headLookYaw || 0)*robotViewAmount*0.64;
-    let forwardX=Math.sin(viewYaw);
-    let forwardZ=Math.cos(viewYaw);
-    let rightX=Math.cos(viewYaw);
-    let rightZ=-Math.sin(viewYaw);
+    let cockpitLookYaw=updateFirstPersonYawOffset(car,firstPersonYawTargetForCar(car));
+    let viewYaw=car.cameraYaw+(car.headLookYaw || 0)*robotViewAmount*0.64-cockpitLookYaw*jetBlend*0.86;
+    let positionYaw=jetMode ? car.cameraYaw : viewYaw;
+    let forwardX=Math.sin(positionYaw);
+    let forwardZ=Math.cos(positionYaw);
+    let rightX=Math.cos(positionYaw);
+    let rightZ=-Math.sin(positionYaw);
+    let lookForwardX=Math.sin(viewYaw);
+    let lookForwardZ=Math.cos(viewYaw);
     let desiredNear=0.1+0.22*robotViewAmount;
     if(Math.abs(car.camera.near-desiredNear)>0.001){
       car.camera.near=desiredNear;
@@ -12508,9 +12556,9 @@ function updateCameraForCar(car){
     }
     car.camera.position.set(camX,camY,camZ);
     car.camera.lookAt(
-      camX+forwardX*lookAhead,
+      camX+lookForwardX*lookAhead,
       camY+1.2+pitchLift,
-      camZ+forwardZ*lookAhead
+      camZ+lookForwardZ*lookAhead
     );
     if(jetMode){
       car.camera.rotateZ(-(car.jetBank || 0)*0.72);
@@ -12524,6 +12572,7 @@ function updateCameraForCar(car){
   car.firstPersonEyeHeight=NaN;
   car.firstPersonForwardOffset=NaN;
   car.firstPersonWalkMotion=0;
+  car.firstPersonYawOffset=0;
   if(Math.abs(car.camera.near-0.1)>0.001){
     car.camera.near=0.1;
     car.camera.updateProjectionMatrix();
@@ -13038,6 +13087,7 @@ function chunkViewDistanceForCar(car){
   let jetView=car.jetMode || car.jetProgress>0.35 || altitude>32;
   if(!jetView) return viewDistance;
 
+  if(currentFrameStressLevel>=2 || lastMeasuredFps<34) return viewDistance;
   let stressed=gameMode==="double" || lastMeasuredFps<46;
   return viewDistance+(stressed ? 1 : 2);
 }
@@ -13930,6 +13980,8 @@ function startGame(mode,difficulty="medium",savedStatus=null){
   currentGameFromSave=!!savedStatus;
   enemyBudgetRun++;
   gameStarted=true;
+  gameIntroAudioStarted=false;
+  setGameAudioAllowed(false);
   input.requestPointerLock(renderer.domElement);
   document.body.classList.toggle("single-player",mode==="single");
   document.body.classList.toggle("double-player",mode==="double");
@@ -13956,8 +14008,6 @@ function startGame(mode,difficulty="medium",savedStatus=null){
   tradingScreenOpen=false;
   missionScreenOpen=false;
   jetFogAmount=0;
-  if(motorAudio.setSfxEnabled) motorAudio.setSfxEnabled(true);
-  if(motorAudio.resume) motorAudio.resume();
   motorAudio.setPaused(false);
   pauseMenu.setVisible(false);
   missionScreen.setVisible(false);
@@ -14020,6 +14070,7 @@ function startGame(mode,difficulty="medium",savedStatus=null){
   let startScreen=document.getElementById("startScreen");
   if(startScreen) startScreen.style.display="none";
   showMissionStartTitle();
+  startIntroAudio();
 
   hud.init();
   lastChunkSignature=chunkSignatureForCars();
@@ -14040,6 +14091,18 @@ if(startScreen){
   let startPlanetLoading=false;
   updateStartupLoadingState();
   updateLoadGameButton();
+  function selectedStartDifficulty(){
+    let selected=startScreen.querySelector("[data-difficulty].is-selected");
+    let difficulty=startScreen.dataset.difficulty || (selected && selected.dataset.difficulty) || "medium";
+    return difficultySettings[difficulty] ? difficulty : "medium";
+  }
+  function applyStartDifficultySelection(difficulty){
+    let selectedDifficulty=difficultySettings[difficulty] ? difficulty : "medium";
+    startScreen.dataset.difficulty=selectedDifficulty;
+    startScreen.querySelectorAll("[data-difficulty]").forEach(button=>{
+      button.classList.toggle("is-selected",button.dataset.difficulty===selectedDifficulty);
+    });
+  }
   function setStartPlanetLoading(loading){
     startPlanetLoading=!!loading;
     startScreen.classList.toggle("is-planet-loading",startPlanetLoading);
@@ -14058,12 +14121,13 @@ if(startScreen){
       button.classList.toggle("is-loading",Number(button.dataset.planet)===index);
     });
   }
-  function finishStartPlanetLoading(startedAt,loadedIndex=null){
+  function finishStartPlanetLoading(startedAt,loadedIndex=null,selectedDifficulty=null){
     let elapsed=performance.now()-startedAt;
     let remaining=Math.max(0,620-elapsed);
     setTimeout(()=>{
       setPlanetPendingButton(null);
       if(Number.isFinite(loadedIndex)) updatePlanetSelectionButtons(loadedIndex);
+      if(selectedDifficulty) applyStartDifficultySelection(selectedDifficulty);
       setStartPlanetLoading(false);
       updateStartupLoadingState();
       updateLoadGameButton();
@@ -14106,11 +14170,15 @@ if(startScreen){
     if(startActionForTarget(event.target)) showFullscreenTransitionOverlay();
   },true);
   startScreen.addEventListener("click",event=>{
+    let clickedMenuButton=event.target.closest("[data-planet], [data-load-game], [data-mode], [data-difficulty]");
+    if(clickedMenuButton && !clickedMenuButton.disabled) playMenuClickFeedback();
+
     let planetButton=event.target.closest("[data-planet]");
     if(planetButton && !gameStarted && !startPlanetLoading){
       let index=Number(planetButton.dataset.planet);
       if(Number.isFinite(index)){
         let loadingStartedAt=performance.now();
+        let selectedDifficulty=selectedStartDifficulty();
         setPlanetPendingButton(index);
         setStartPlanetLoading(true);
         requestAnimationFrame(()=>{
@@ -14118,7 +14186,7 @@ if(startScreen){
             try{
               selectStartEnvironment(index);
             }finally{
-              finishStartPlanetLoading(loadingStartedAt,index);
+              finishStartPlanetLoading(loadingStartedAt,index,selectedDifficulty);
             }
           },140);
         });
@@ -14142,7 +14210,7 @@ if(startScreen){
     if(!button || button.disabled || gameStarted) return;
     showFullscreenTransitionOverlay();
     requestBrowserFullscreen();
-    let difficulty=startScreen.dataset.difficulty || "medium";
+    let difficulty=selectedStartDifficulty();
     startGame(button.dataset.mode==="double" ? "double" : "single",difficulty);
   });
 }

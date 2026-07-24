@@ -18,11 +18,14 @@ const compassArcStroke="rgba(178,187,188,0.62)";
 const compassArcMajorStroke="rgba(216,222,222,0.78)";
 const compassArcMinorStroke="rgba(178,187,188,0.42)";
 
-export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStationState=()=>null,getNearestTradingOutpost=()=>null,getNearestBossBase=()=>null,getScannedBossBases=()=>[],getScannedTradingOutposts=()=>[],getScannedRadarOutposts=()=>[],getScannedLandingSpaces=()=>[],getScannedPortals=()=>[],getPerformanceMode=()=>"full",getFirstPersonMode=()=>false,getEnvironment=()=>({}),getTerrainHeight=()=>0}){
+export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStationState=()=>null,getNearestTradingOutpost=()=>null,getNearestBossBase=()=>null,getScannedBossBases=()=>[],getScannedTradingOutposts=()=>[],getScannedRadarOutposts=()=>[],getScannedLandingSpaces=()=>[],getScannedPortals=()=>[],getPerformanceMode=()=>"full",getPerformanceStressLevel=()=>0,getFirstPersonMode=()=>false,getEnvironment=()=>({}),getTerrainHeight=()=>0}){
   let panels=[];
   let gameOverOverlay;
   let mapUpdateFrame=0;
   let compassUpdateFrame=0;
+  let navigationLayoutSignature="";
+  let displayPaletteCacheSignature="";
+  let displayPaletteCache=null;
 
   function panelOffset(panel){
     if(panel.side==="full") return "0%";
@@ -88,6 +91,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       removeNode(panel.compassHud);
     }
     panels=[];
+    navigationLayoutSignature="";
     removeNode(gameOverOverlay);
     gameOverOverlay=null;
   }
@@ -434,6 +438,9 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
 
   function applyDisplayPalette(panel){
     let palette=displayPalette();
+    if(panel.displayPaletteSignature===palette.signature) return palette;
+    panel.displayPaletteSignature=palette.signature;
+
     if(panel.panelSheen) panel.panelSheen.style.background=palette.panelSheen;
     if(panel.healthTrack){
       panel.healthTrack.style.background=palette.trackBackground;
@@ -486,6 +493,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
   }
 
   function drawSpeedHud(panel,state){
+    if(!state) return;
     let palette=applyDisplayPalette(panel);
     if(panel.ammoLabel){
       let ammoRows=[
@@ -494,22 +502,31 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
         {icon:"bomb",value:state.clusterBombAmmo ?? 0},
         {icon:"carRocket",value:state.carRocketAmmo ?? 0}
       ];
-      let rowClip=barClip(panel);
-      panel.ammoLabel.innerHTML=[
-        ...ammoRows.map(row=>[
-          `<span style="display:flex;align-items:center;justify-content:space-between;height:24px;gap:8px;padding:0 7px;border:${palette.softBorder};background:${palette.unitBackground};clip-path:${rowClip}">`,
-          ammoIcon(row.icon,palette),
-          `<span style="min-width:38px;text-align:right;color:rgba(245,255,249,0.96);text-shadow:${palette.textGlow}">${row.value}</span>`,
-          `</span>`
-        ].join(""))
-      ].join("");
+      let ammoSignature=palette.signature+"|"+ammoRows.map(row=>row.value).join("|");
+      if(panel.ammoSignature!==ammoSignature){
+        panel.ammoSignature=ammoSignature;
+        let rowClip=barClip(panel);
+        panel.ammoLabel.innerHTML=[
+          ...ammoRows.map(row=>[
+            `<span style="display:flex;align-items:center;justify-content:space-between;height:24px;gap:8px;padding:0 7px;border:${palette.softBorder};background:${palette.unitBackground};clip-path:${rowClip}">`,
+            ammoIcon(row.icon,palette),
+            `<span style="min-width:38px;text-align:right;color:rgba(245,255,249,0.96);text-shadow:${palette.textGlow}">${row.value}</span>`,
+            `</span>`
+          ].join(""))
+        ].join("");
+      }
     }
     if(panel.boostFill){
       let boostPct=Math.max(0,Math.min(100,state.boostCharge ?? 0));
-      panel.boostFill.style.width=boostPct+"%";
+      let boostWidth=boostPct+"%";
+      if(panel.boostFill.style.width!==boostWidth) panel.boostFill.style.width=boostWidth;
     }
     if(panel.unitsLabel){
-      panel.unitsLabel.innerHTML=`<span>Units</span><span>${Math.max(0,Math.round(state.units ?? 0))}</span>`;
+      let unitsText=String(Math.max(0,Math.round(state.units ?? 0)));
+      if(panel.unitsSignature!==unitsText){
+        panel.unitsSignature=unitsText;
+        panel.unitsLabel.innerHTML=`<span>Units</span><span>${unitsText}</span>`;
+      }
     }
     if(panel.laserFill){
       let laserFire=Math.max(0,Math.min(laserHudFrames,state.laserFireFrames ?? 0));
@@ -520,14 +537,20 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
         let laserPct=100;
         if(laserFire>0) laserPct=(laserFire/laserHudFrames)*100;
         else if(laserCooldown>0) laserPct=(1-laserCooldown/laserHudFrames)*100;
-        panel.laserFill.style.width=Math.max(0,Math.min(100,laserPct))+"%";
-        panel.laserFill.style.opacity=laserFire>0 ? "1" : laserCooldown>0 ? "0.78" : "0.94";
-        if(panel.laserTrack) panel.laserTrack.style.opacity=laserPct<=0.5 ? "0.62" : "1";
+        let laserWidth=Math.max(0,Math.min(100,laserPct))+"%";
+        let laserOpacity=laserFire>0 ? "1" : laserCooldown>0 ? "0.78" : "0.94";
+        if(panel.laserFill.style.width!==laserWidth) panel.laserFill.style.width=laserWidth;
+        if(panel.laserFill.style.opacity!==laserOpacity) panel.laserFill.style.opacity=laserOpacity;
+        if(panel.laserTrack){
+          let trackOpacity=laserPct<=0.5 ? "0.62" : "1";
+          if(panel.laserTrack.style.opacity!==trackOpacity) panel.laserTrack.style.opacity=trackOpacity;
+        }
       }
     }
     if(panel.fuelFill){
       let fuelPct=Math.max(0,Math.min(100,state.fuel ?? 100));
-      panel.fuelFill.style.width=fuelPct+"%";
+      let fuelWidth=fuelPct+"%";
+      if(panel.fuelFill.style.width!==fuelWidth) panel.fuelFill.style.width=fuelWidth;
     }
   }
 
@@ -679,6 +702,10 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
 
   function applyNavigationHudLayout(){
     let firstPerson=!!getFirstPersonMode();
+    let signature=(firstPerson ? "fp" : "tp")+"|"+panels.map(panel=>panel.side).join(",");
+    if(signature===navigationLayoutSignature) return;
+    navigationLayoutSignature=signature;
+
     for(let panel of panels){
       if(panel.speedHud){
         panel.speedHud.style.top=firstPerson ? "auto" : "58px";
@@ -752,7 +779,12 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     let danger=colors.pod || colors.shore || 0xff6a42;
     let fuel=colors.grass || colors.leaf || accent;
     let text=colors.trim || colors.water || 0xf5fff9;
-    return {
+    let signature=[accent,accentGlow,low,mid,high,shadow,danger,fuel,text].join("|");
+    if(displayPaletteCache && displayPaletteCacheSignature===signature) return displayPaletteCache;
+
+    displayPaletteCacheSignature=signature;
+    displayPaletteCache={
+      signature,
       accent,
       accentGlow,
       text,
@@ -773,6 +805,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       fuelBorder:"0",
       fuelShadow:`inset 0 0 10px rgba(0,0,0,0.24),0 0 10px ${rgba(fuel,0.12,0x2fd36b)}`
     };
+    return displayPaletteCache;
   }
 
   function mapPalette(){
@@ -1548,11 +1581,11 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       if(!panel.healthFill || !panel.healthLabel || !state) continue;
 
       let pct=Math.max(0,Math.min(100,state.carHealth));
-      let palette=applyDisplayPalette(panel);
-      panel.healthFill.style.width=pct+"%";
-      panel.healthFill.style.background=palette.barFill;
-      panel.healthFill.style.boxShadow=palette.barShadow;
-      panel.healthLabel.textContent=state.label+" Health "+Math.round(pct)+"%";
+      applyDisplayPalette(panel);
+      let healthWidth=pct+"%";
+      if(panel.healthFill.style.width!==healthWidth) panel.healthFill.style.width=healthWidth;
+      let healthLabel=state.label+" Health "+Math.round(pct)+"%";
+      if(panel.healthLabel.textContent!==healthLabel) panel.healthLabel.textContent=healthLabel;
     }
   }
 
@@ -1566,7 +1599,11 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
 
   function updateMapHud(force=false){
     applyNavigationHudLayout();
-    let interval=getPerformanceMode()==="split" ? 12 : 6;
+    let stressLevel=Math.max(0,Math.min(3,Math.floor(getPerformanceStressLevel() || 0)));
+    let interval=getPerformanceMode()==="split" ? 16 : 8;
+    if(stressLevel>=3) interval*=4;
+    else if(stressLevel>=2) interval*=3;
+    else if(stressLevel>=1) interval*=2;
     if(!force && mapUpdateFrame++%interval!==0) return;
     let states=getCarStates();
     let enemies=getEnemyStates();
