@@ -903,6 +903,37 @@
       letter-spacing: 0.04em;
     }
 
+    .start-credits {
+      position: absolute;
+      left: 50%;
+      bottom: 18px;
+      z-index: 4;
+      width: min(860px, calc(100vw - 32px));
+      display: grid;
+      grid-template-columns: repeat(4, max-content);
+      justify-content: center;
+      gap: 18px;
+      transform: translateX(-50%);
+      color: rgba(232,248,255,0.66);
+      font-size: 11px;
+      font-weight: 900;
+      line-height: 1.2;
+      text-align: center;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+      text-shadow: 0 2px 0 rgba(0,0,0,0.62), 0 0 8px rgba(103,244,255,0.2);
+      pointer-events: none;
+    }
+
+    @media (max-width: 820px) {
+      .start-credits {
+        grid-template-columns: repeat(2, max-content);
+        gap: 6px 14px;
+        bottom: 12px;
+        font-size: 10px;
+      }
+    }
+
     .menu-robot-cursor {
       position: fixed;
       left: 0;
@@ -1070,6 +1101,12 @@
       <button type="button" data-mode="double" disabled>Double Player</button>
     </div>
   </div>
+  <div class="start-credits" aria-label="Credits">
+    <div>design: Noa Kueng-Dinally |</div>
+    <div>music and sound-effects: Noa Kueng-Dinally |</div>
+    <div>testing: Yun Kueng-Dinally / Kai Kueng-Dinally |</div>
+    <div>programming: Marco Kueng</div>
+  </div>
   <div id="menuRobotCursor" class="menu-robot-cursor" aria-hidden="true">
     <div class="robot-head">
       <span class="robot-eye left"></span>
@@ -1218,7 +1255,7 @@
     }
   }
 </script>
-<script type="module" src="./src/main.js?v=borderless-left-display-bars"></script>
+<script type="module" src="./src/main.js?v=less-city-buildings"></script>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js";
   import { getAnalytics, isSupported } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-analytics.js";

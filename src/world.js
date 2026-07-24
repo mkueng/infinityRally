@@ -2208,7 +2208,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
     ? 1
     : buildChunkFeatures ? Math.max(1,Math.min(3,Math.floor(villageAttemptRoll)+(r01(cx*919+17,cz*613-23)<villageAttemptRoll%1 ? 1 : 0))) : 1;
   let villageSpawnChance=!buildChunkFeatures ? 0 : cityMode ? 1 : Math.max(0,Math.min(1,(settlements.villageSpawnChance ?? 0.45)*featureDensity));
-  let maxBuildings=Math.max(1,Math.floor((cityMode ? 92 : 120*villagesPerChunk)*Math.max(0.08,featureDensity)));
+  let maxBuildings=Math.max(1,Math.floor((cityMode ? 48 : 120*villagesPerChunk)*Math.max(0.08,featureDensity)));
   let maxWindowInstances=maxBuildings*(cityMode ? 84 : 8);
   let buildingShadows=new THREE.InstancedMesh(buildingShadowGeo,buildingShadowMat,maxBuildings);
   buildingShadows.renderOrder=1;
@@ -2225,7 +2225,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   let villageWalls=new THREE.InstancedMesh(brickWallGeo,brickWallMat,villagesPerChunk*18);
   let cityStreets=new THREE.InstancedMesh(cityStreetGeo,cityStreetMat,roadsEnabled && cityMode ? villagesPerChunk*8 : 1);
   let cityStreetDetails=new THREE.InstancedMesh(cityStreetGeo,cityDetailMat,roadsEnabled && cityMode ? villagesPerChunk*96 : 1);
-  let cityTechDetails=new THREE.InstancedMesh(cityStreetGeo,cityGlowMat,cityMode ? maxBuildings*12+villagesPerChunk*32 : 1);
+  let cityTechDetails=new THREE.InstancedMesh(cityStreetGeo,cityGlowMat,cityMode ? maxBuildings*10+villagesPerChunk*24 : 1);
   let buildingShadowUsed=0;
   let buildingUsed=0;
   let windowUsed=0;
@@ -2265,7 +2265,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
     let village={x:centerX,z:centerZ,y:centerY,r:villageRadius,buildings:[],turrets:[],enemyBudget,enemyRemaining:enemyBudget,bossVillage,bossSpawned:false,city:cityMode};
     villageCenters.push(village);
     let housesInVillage=cityMode
-      ? 88
+      ? 44
       : largeTown
       ? 26+Math.floor(r01(cx+v*7,cz-v*5)*12)
       : 12+Math.floor(r01(cx+v*7,cz-v*5)*10);
@@ -2447,7 +2447,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
       let height=cityMode
         ? 22+r01(cx-i,cz+i+v*17)*54+(i%7===0 ? 18+r01(cx+i*3,cz-v*5)*28 : 0)
         : 4.8+r01(cx-i,cz+i+v*17)*5.6;
-      let minGap=Math.max(width,depth)*(cityMode ? 1.08 : largeTown ? 1.05 : 1.35);
+      let minGap=Math.max(width,depth)*(cityMode ? 1.48 : largeTown ? 1.05 : 1.35);
       if(!terrainPatchOk(wx,wz,Math.max(width,depth)*0.62,cityMode ? 70 : 24,cityMode ? 5.8 : 4.5)) continue;
 
       let tooClose=false;

@@ -19,7 +19,7 @@ export function createMotorAudio(cars){
   let rainAudio=null;
   let supported=true;
   let sfxVolume=1.0;
-  let musicVolume=0.0;
+  let musicVolume=0.1;
   let paused=false;
   let sfxEnabled=false;
   let musicPlaylist=[

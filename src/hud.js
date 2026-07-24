@@ -198,7 +198,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "position:absolute",
       "left:16px",
       "right:16px",
-      "top:14px",
+      "top:44px",
       "height:28px",
       `background:${palette.trackBackground}`,
       `border:${palette.border}`,
@@ -249,7 +249,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "position:absolute",
       "left:16px",
       "right:16px",
-      "top:52px",
+      "top:82px",
       "display:flex",
       "flex-direction:column",
       "gap:4px",
@@ -306,11 +306,11 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "position:absolute",
       "left:16px",
       "right:16px",
-      "top:166px",
+      "top:198px",
       "height:15px",
-      `background:${palette.dangerTrack}`,
+      `background:${palette.trackBackground}`,
       `border:${palette.dangerBorder}`,
-      `box-shadow:${palette.dangerShadow}`,
+      `box-shadow:${palette.trackShadow}`,
       "box-sizing:border-box",
       "overflow:hidden",
       `clip-path:${barClip(panel)}`
@@ -324,14 +324,31 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       `box-shadow:${palette.barShadow}`,
       "transition:width 80ms linear,opacity 120ms linear"
     ].join(";");
+    let laserLabel=document.createElement("div");
+    laserLabel.textContent="Laser";
+    laserLabel.style.cssText=[
+      "position:absolute",
+      "inset:0 8px",
+      "display:flex",
+      "align-items:center",
+      "justify-content:flex-start",
+      "font-size:9px",
+      "font-weight:900",
+      "letter-spacing:0.08em",
+      "text-transform:uppercase",
+      "color:rgba(245,255,249,0.92)",
+      `text-shadow:${palette.smallTextGlow}`,
+      "pointer-events:none"
+    ].join(";");
     laserTrack.appendChild(laserFill);
+    laserTrack.appendChild(laserLabel);
 
     let unitsLabel=document.createElement("div");
     unitsLabel.style.cssText=[
       "position:absolute",
       "left:16px",
       "right:16px",
-      "top:190px",
+      "top:14px",
       "height:24px",
       "display:flex",
       "align-items:center",
@@ -406,6 +423,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     panel.healthLabel=healthLabel;
     panel.laserFill=laserFill;
     panel.laserTrack=laserTrack;
+    panel.laserLabel=laserLabel;
     panel.boostTrack=boostTrack;
     panel.boostLabel=boostLabel;
     panel.boostFill=boostFill;
@@ -440,14 +458,15 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     }
     if(panel.boostLabel) panel.boostLabel.style.textShadow=palette.smallTextGlow;
     if(panel.laserTrack){
-      panel.laserTrack.style.background=palette.dangerTrack;
+      panel.laserTrack.style.background=palette.trackBackground;
       panel.laserTrack.style.border=palette.dangerBorder;
-      panel.laserTrack.style.boxShadow=palette.dangerShadow;
+      panel.laserTrack.style.boxShadow=palette.trackShadow;
     }
     if(panel.laserFill){
       panel.laserFill.style.background=palette.barFill;
       panel.laserFill.style.boxShadow=palette.barShadow;
     }
+    if(panel.laserLabel) panel.laserLabel.style.textShadow=palette.smallTextGlow;
     if(panel.unitsLabel){
       panel.unitsLabel.style.border=palette.softBorder;
       panel.unitsLabel.style.background=palette.unitBackground;
