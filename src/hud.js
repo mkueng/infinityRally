@@ -12,7 +12,6 @@ const speedHudSplitScale=1;
 const speedHudWidth=340;
 const speedHudSplitWidth="min(200px,calc(50vw - 72px))";
 const laserHudFrames=300;
-const hudIconColor="#b9f4ff";
 const displayBarFill="linear-gradient(90deg,rgba(128,137,140,0.72),rgba(178,187,188,0.86),rgba(229,234,232,0.72))";
 const displayBarShadow="0 0 12px rgba(210,220,220,0.24),inset 0 0 12px rgba(255,255,255,0.18)";
 const compassArcStroke="rgba(178,187,188,0.62)";
@@ -160,6 +159,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
   }
 
   function makeSpeedHud(panel){
+    let palette=displayPalette();
     let speedHud=document.createElement("div");
     speedHud.style.cssText=[
       "position:fixed",
@@ -188,7 +188,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     panelSheen.style.cssText=[
       "position:absolute",
       "inset:0",
-      "background:linear-gradient(115deg,rgba(255,255,255,0.18),transparent 22%,transparent 68%,rgba(103,244,255,0.1)),repeating-linear-gradient(0deg,rgba(141,255,242,0.08) 0 1px,transparent 1px 18px)",
+      `background:${palette.panelSheen}`,
       "opacity:0.44",
       "pointer-events:none"
     ].join(";");
@@ -200,9 +200,9 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "right:16px",
       "top:14px",
       "height:28px",
-      "background:rgba(4,12,16,0.56)",
-      "border:1px solid rgba(141,255,242,0.28)",
-      "box-shadow:inset 0 0 12px rgba(0,0,0,0.48),0 0 12px rgba(103,244,255,0.14)",
+      `background:${palette.trackBackground}`,
+      `border:${palette.border}`,
+      `box-shadow:${palette.trackShadow}`,
       "overflow:hidden",
       `clip-path:${barClip(panel,9)}`
     ].join(";");
@@ -211,8 +211,8 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     healthFill.style.cssText=[
       "height:100%",
       "width:100%",
-      `background:${displayBarFill}`,
-      `box-shadow:${displayBarShadow}`,
+      `background:${palette.barFill}`,
+      `box-shadow:${palette.barShadow}`,
       "transition:width 160ms ease,background 160ms ease,box-shadow 160ms ease"
     ].join(";");
 
@@ -220,7 +220,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     healthGrid.style.cssText=[
       "position:absolute",
       "inset:0",
-      "background:repeating-linear-gradient(90deg,rgba(255,255,255,0.15) 0 1px,transparent 1px 16px)",
+      `background:${palette.grid}`,
       "opacity:0.34",
       "pointer-events:none"
     ].join(";");
@@ -237,7 +237,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "letter-spacing:0.08em",
       "text-transform:uppercase",
       "color:rgba(245,255,249,0.96)",
-      "text-shadow:0 0 8px rgba(103,244,255,0.5),0 2px 0 rgba(0,0,0,0.72)",
+      `text-shadow:${palette.textGlow}`,
       "pointer-events:none"
     ].join(";");
     healthTrack.appendChild(healthFill);
@@ -257,7 +257,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "font-weight:900",
       "line-height:1",
       "color:rgba(245,255,249,0.92)",
-      "text-shadow:0 0 7px rgba(103,244,255,0.38),0 2px 0 rgba(0,0,0,0.72)"
+      `text-shadow:${palette.textGlow}`
     ].join(";");
 
     let boostTrack=document.createElement("div");
@@ -267,9 +267,9 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "right:16px",
       "bottom:34px",
       "height:13px",
-      "background:rgba(4,12,16,0.56)",
-      "border:1px solid rgba(141,255,242,0.28)",
-      "box-shadow:inset 0 0 12px rgba(0,0,0,0.48),0 0 10px rgba(103,244,255,0.12)",
+      `background:${palette.trackBackground}`,
+      `border:${palette.border}`,
+      `box-shadow:${palette.trackShadow}`,
       "overflow:hidden",
       `clip-path:${barClip(panel)}`
     ].join(";");
@@ -278,8 +278,8 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     boostFill.style.cssText=[
       "height:100%",
       "width:100%",
-      `background:${displayBarFill}`,
-      `box-shadow:${displayBarShadow}`,
+      `background:${palette.barFill}`,
+      `box-shadow:${palette.barShadow}`,
       "transition:width 100ms linear"
     ].join(";");
     let boostLabel=document.createElement("div");
@@ -295,7 +295,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "letter-spacing:0.08em",
       "text-transform:uppercase",
       "color:rgba(245,255,249,0.92)",
-      `text-shadow:0 0 6px ${hudIconColor},0 1px 0 rgba(0,0,0,0.8)`,
+      `text-shadow:${palette.smallTextGlow}`,
       "pointer-events:none"
     ].join(";");
     boostTrack.appendChild(boostFill);
@@ -308,9 +308,9 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "right:16px",
       "top:166px",
       "height:15px",
-      "background:rgba(255,63,47,0.1)",
-      "border:1px solid rgba(255,155,88,0.32)",
-      "box-shadow:inset 0 0 10px rgba(0,0,0,0.46),0 0 12px rgba(255,63,47,0.18)",
+      `background:${palette.dangerTrack}`,
+      `border:${palette.dangerBorder}`,
+      `box-shadow:${palette.dangerShadow}`,
       "box-sizing:border-box",
       "overflow:hidden",
       `clip-path:${barClip(panel)}`
@@ -320,8 +320,8 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     laserFill.style.cssText=[
       "height:100%",
       "width:100%",
-      `background:${displayBarFill}`,
-      `box-shadow:${displayBarShadow}`,
+      `background:${palette.barFill}`,
+      `box-shadow:${palette.barShadow}`,
       "transition:width 80ms linear,opacity 120ms linear"
     ].join(";");
     laserTrack.appendChild(laserFill);
@@ -343,10 +343,10 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "letter-spacing:0.08em",
       "text-transform:uppercase",
       "color:rgba(245,255,249,0.96)",
-      "border:1px solid rgba(141,255,242,0.16)",
-      "background:linear-gradient(90deg,rgba(141,255,242,0.07),rgba(255,255,255,0.03))",
+      `border:${palette.softBorder}`,
+      `background:${palette.unitBackground}`,
       `clip-path:${barClip(panel)}`,
-      `text-shadow:0 0 8px ${hudIconColor},0 2px 0 rgba(0,0,0,0.72)`
+      `text-shadow:${palette.textGlow}`
     ].join(";");
 
     let fuelTrack=document.createElement("div");
@@ -356,9 +356,9 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "right:16px",
       "bottom:14px",
       "height:13px",
-      "background:rgba(4,12,16,0.56)",
-      "border:1px solid rgba(47,211,107,0.28)",
-      "box-shadow:inset 0 0 12px rgba(0,0,0,0.48),0 0 10px rgba(47,211,107,0.12)",
+      `background:${palette.trackBackground}`,
+      `border:${palette.fuelBorder}`,
+      `box-shadow:${palette.fuelShadow}`,
       "overflow:hidden",
       `clip-path:${barClip(panel)}`
     ].join(";");
@@ -367,8 +367,8 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     fuelFill.style.cssText=[
       "height:100%",
       "width:100%",
-      `background:${displayBarFill}`,
-      `box-shadow:${displayBarShadow}`,
+      `background:${palette.barFill}`,
+      `box-shadow:${palette.barShadow}`,
       "transition:width 100ms linear"
     ].join(";");
     let fuelLabel=document.createElement("div");
@@ -384,7 +384,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "letter-spacing:0.08em",
       "text-transform:uppercase",
       "color:rgba(245,255,249,0.92)",
-      `text-shadow:0 0 6px ${hudIconColor},0 1px 0 rgba(0,0,0,0.8)`,
+      `text-shadow:${palette.smallTextGlow}`,
       "pointer-events:none"
     ].join(";");
     fuelTrack.appendChild(fuelFill);
@@ -397,17 +397,77 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     speedHud.appendChild(fuelTrack);
     document.body.appendChild(speedHud);
     panel.speedHud=speedHud;
+    panel.panelSheen=panelSheen;
+    panel.healthTrack=healthTrack;
+    panel.healthGrid=healthGrid;
     panel.ammoLabel=ammoLabel;
     panel.unitsLabel=unitsLabel;
     panel.healthFill=healthFill;
     panel.healthLabel=healthLabel;
     panel.laserFill=laserFill;
     panel.laserTrack=laserTrack;
+    panel.boostTrack=boostTrack;
+    panel.boostLabel=boostLabel;
     panel.boostFill=boostFill;
+    panel.fuelTrack=fuelTrack;
+    panel.fuelLabel=fuelLabel;
     panel.fuelFill=fuelFill;
   }
 
+  function applyDisplayPalette(panel){
+    let palette=displayPalette();
+    if(panel.panelSheen) panel.panelSheen.style.background=palette.panelSheen;
+    if(panel.healthTrack){
+      panel.healthTrack.style.background=palette.trackBackground;
+      panel.healthTrack.style.border=palette.border;
+      panel.healthTrack.style.boxShadow=palette.trackShadow;
+    }
+    if(panel.healthGrid) panel.healthGrid.style.background=palette.grid;
+    if(panel.healthFill){
+      panel.healthFill.style.background=palette.barFill;
+      panel.healthFill.style.boxShadow=palette.barShadow;
+    }
+    if(panel.healthLabel) panel.healthLabel.style.textShadow=palette.textGlow;
+    if(panel.ammoLabel) panel.ammoLabel.style.textShadow=palette.textGlow;
+    if(panel.boostTrack){
+      panel.boostTrack.style.background=palette.trackBackground;
+      panel.boostTrack.style.border=palette.border;
+      panel.boostTrack.style.boxShadow=palette.trackShadow;
+    }
+    if(panel.boostFill){
+      panel.boostFill.style.background=palette.barFill;
+      panel.boostFill.style.boxShadow=palette.barShadow;
+    }
+    if(panel.boostLabel) panel.boostLabel.style.textShadow=palette.smallTextGlow;
+    if(panel.laserTrack){
+      panel.laserTrack.style.background=palette.dangerTrack;
+      panel.laserTrack.style.border=palette.dangerBorder;
+      panel.laserTrack.style.boxShadow=palette.dangerShadow;
+    }
+    if(panel.laserFill){
+      panel.laserFill.style.background=palette.barFill;
+      panel.laserFill.style.boxShadow=palette.barShadow;
+    }
+    if(panel.unitsLabel){
+      panel.unitsLabel.style.border=palette.softBorder;
+      panel.unitsLabel.style.background=palette.unitBackground;
+      panel.unitsLabel.style.textShadow=palette.textGlow;
+    }
+    if(panel.fuelTrack){
+      panel.fuelTrack.style.background=palette.trackBackground;
+      panel.fuelTrack.style.border=palette.fuelBorder;
+      panel.fuelTrack.style.boxShadow=palette.fuelShadow;
+    }
+    if(panel.fuelFill){
+      panel.fuelFill.style.background=palette.barFill;
+      panel.fuelFill.style.boxShadow=palette.barShadow;
+    }
+    if(panel.fuelLabel) panel.fuelLabel.style.textShadow=palette.smallTextGlow;
+    return palette;
+  }
+
   function drawSpeedHud(panel,state){
+    let palette=applyDisplayPalette(panel);
     if(panel.ammoLabel){
       let ammoRows=[
         {icon:"rocket",value:state.rocketAmmo ?? 0},
@@ -418,9 +478,9 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       let rowClip=barClip(panel);
       panel.ammoLabel.innerHTML=[
         ...ammoRows.map(row=>[
-          `<span style="display:flex;align-items:center;justify-content:space-between;height:24px;gap:8px;padding:0 7px;border:1px solid rgba(141,255,242,0.12);background:linear-gradient(90deg,rgba(141,255,242,0.07),rgba(255,255,255,0.03));clip-path:${rowClip}">`,
-          ammoIcon(row.icon),
-          `<span style="min-width:38px;text-align:right;color:rgba(245,255,249,0.96);text-shadow:0 0 8px ${hudIconColor}">${row.value}</span>`,
+          `<span style="display:flex;align-items:center;justify-content:space-between;height:24px;gap:8px;padding:0 7px;border:${palette.softBorder};background:${palette.unitBackground};clip-path:${rowClip}">`,
+          ammoIcon(row.icon,palette),
+          `<span style="min-width:38px;text-align:right;color:rgba(245,255,249,0.96);text-shadow:${palette.textGlow}">${row.value}</span>`,
           `</span>`
         ].join(""))
       ].join("");
@@ -452,11 +512,12 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     }
   }
 
-  function ammoIcon(kind){
-    let color=hudIconColor;
+  function ammoIcon(kind,palette=displayPalette()){
+    let color=rgba(palette.text,0.96,0xb9f4ff);
+    let glow=rgba(palette.accentGlow,0.62,0x67f4ff);
     if(kind==="rocket"){
       return [
-        `<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" style="flex:0 0 24px;color:${color};filter:drop-shadow(0 0 5px ${color}) drop-shadow(0 2px 1px rgba(0,0,0,0.7))">`,
+        `<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" style="flex:0 0 24px;color:${color};filter:drop-shadow(0 0 5px ${glow}) drop-shadow(0 2px 1px rgba(0,0,0,0.7))">`,
         `<path d="M13.4 1.8l5.9 3.5 1.7 5.1-6.9 7.2-7.4-7.2 6.7-8.6z" fill="currentColor" fill-opacity="0.16" stroke="currentColor" stroke-opacity="0.44" stroke-width="0.7"/>`,
         `<path d="M13.8 4.2l3.5 2.1 0.9 2.9-4.5 4.8-4.3-4.1 4.4-5.7z" fill="currentColor" fill-opacity="0.82"/>`,
         `<path d="M6 10.9l7.1 6.8-4.3 2.2-5.1-5 2.3-4z" fill="currentColor" fill-opacity="0.38"/>`,
@@ -467,7 +528,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     }
     if(kind==="cannon"){
       return [
-        `<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" style="flex:0 0 24px;color:${color};filter:drop-shadow(0 0 5px ${color}) drop-shadow(0 2px 1px rgba(0,0,0,0.7))">`,
+        `<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" style="flex:0 0 24px;color:${color};filter:drop-shadow(0 0 5px ${glow}) drop-shadow(0 2px 1px rgba(0,0,0,0.7))">`,
         `<path d="M2.5 12h12l1.8-2.2h5.1v4.2h-5.1l-1.8 2.1h-12V12z" fill="currentColor" fill-opacity="0.16" stroke="currentColor" stroke-opacity="0.38" stroke-width="0.7"/>`,
         `<path d="M5.1 13h8.8v2H5.1v-2z" fill="currentColor" fill-opacity="0.86"/>`,
         `<path d="M3.5 16.2h4.2l1.8 3H5.2l-1.7-3z" fill="currentColor" fill-opacity="0.38"/>`,
@@ -479,7 +540,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     }
     if(kind==="carRocket"){
       return [
-        `<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" style="flex:0 0 24px;color:${color};filter:drop-shadow(0 0 5px ${color}) drop-shadow(0 2px 1px rgba(0,0,0,0.7))">`,
+        `<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" style="flex:0 0 24px;color:${color};filter:drop-shadow(0 0 5px ${glow}) drop-shadow(0 2px 1px rgba(0,0,0,0.7))">`,
         `<path d="M2.8 16.5h18.4v2.7H2.8v-2.7z" fill="currentColor" fill-opacity="0.18"/>`,
         `<path d="M5.1 13.3h13.8l1.7 3.2H3.4l1.7-3.2z" fill="currentColor" fill-opacity="0.34" stroke="currentColor" stroke-opacity="0.28" stroke-width="0.6"/>`,
         `<path d="M6.9 9h3.2v5H6.9V9zM13.9 9h3.2v5h-3.2V9z" fill="currentColor" fill-opacity="0.14"/>`,
@@ -491,7 +552,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       ].join("");
     }
     return [
-      `<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" style="flex:0 0 24px;color:${color};filter:drop-shadow(0 0 5px ${color}) drop-shadow(0 2px 1px rgba(0,0,0,0.7))">`,
+      `<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" style="flex:0 0 24px;color:${color};filter:drop-shadow(0 0 5px ${glow}) drop-shadow(0 2px 1px rgba(0,0,0,0.7))">`,
       `<path d="M6.4 8.2h8.4l3.2 4.9-2.4 6.7H5.4L3 13.1l3.4-4.9z" fill="currentColor" fill-opacity="0.16" stroke="currentColor" stroke-opacity="0.38" stroke-width="0.7"/>`,
       `<path d="M7.7 9.7h5.7l2.2 3.5-1.5 4.2H7l-1.5-4.2 2.2-3.5z" fill="currentColor" fill-opacity="0.82"/>`,
       `<path d="M10.6 4h5.1v2.3h-5.1V4z" fill="currentColor" fill-opacity="0.34"/>`,
@@ -605,7 +666,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
         panel.speedHud.style.bottom=firstPerson ? "calc(8vh + 18px)" : "auto";
         panel.speedHud.style.left=firstPerson ? firstPersonSpeedLeft(panel) : `calc(${panelOffset(panel)} + ${speedHudInset(panel)})`;
         panel.speedHud.style.transform=firstPerson
-          ? `perspective(430px) ${sideTilt(panel)} rotateX(5deg) scale(0.92)`
+          ? "scale(1.104)"
           : speedHudTransform(panel);
         panel.speedHud.style.transformOrigin=sideTransformOrigin(panel);
         panel.speedHud.style.zIndex=firstPerson ? "76" : "10";
@@ -613,7 +674,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       }
       if(panel.mapHud){
         panel.mapHud.style.setProperty("--map-size",firstPerson
-          ? (panel.side==="full" ? "222px" : "min(192px,calc(50vw - 52px))")
+          ? (panel.side==="full" ? "333px" : "min(288px,calc(50vw - 52px))")
           : mapHudCssSizeFor(panel)
         );
         panel.mapHud.style.top=firstPerson ? "auto" : "112px";
@@ -658,6 +719,41 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
   function rgba(color,alpha,fallback=0xffffff){
     let {r,g,b}=hexToRgb(color,fallback);
     return `rgba(${r},${g},${b},${alpha})`;
+  }
+
+  function displayPalette(){
+    let environment=getEnvironment() || {};
+    let colors=environment.colors || {};
+    let accent=colors.trim || colors.water || colors.shore || 0x8dfff2;
+    let accentGlow=colors.water || colors.trim || 0x8dfff2;
+    let low=colors.low || colors.wall || 0x687064;
+    let mid=colors.mid || colors.rock || low;
+    let high=colors.high || colors.trim || mid;
+    let shadow=colors.underwater || colors.rock || 0x041018;
+    let danger=colors.pod || colors.shore || 0xff6a42;
+    let fuel=colors.grass || colors.leaf || accent;
+    let text=colors.trim || colors.water || 0xf5fff9;
+    return {
+      accent,
+      accentGlow,
+      text,
+      trackBackground:rgba(shadow,0.18,0x041018),
+      panelSheen:`linear-gradient(115deg,${rgba(accent,0.16,0x8dfff2)},transparent 24%,transparent 68%,${rgba(accentGlow,0.1,0x67f4ff)}),repeating-linear-gradient(0deg,${rgba(accent,0.07,0x8dfff2)} 0 1px,transparent 1px 18px)`,
+      barFill:`linear-gradient(90deg,${rgba(low,0.16,0x687064)},${rgba(mid,0.24,0x8c9696)},${rgba(high,0.18,0xdde8e6)})`,
+      barShadow:`inset 0 0 10px ${rgba(accentGlow,0.08,0x67f4ff)}`,
+      grid:`repeating-linear-gradient(90deg,${rgba(accent,0.16,0x8dfff2)} 0 1px,transparent 1px 16px)`,
+      border:"0",
+      softBorder:"0",
+      trackShadow:`inset 0 0 10px rgba(0,0,0,0.24),0 0 10px ${rgba(accentGlow,0.1,0x67f4ff)}`,
+      textGlow:`0 0 7px ${rgba(accentGlow,0.46,0x67f4ff)},0 2px 0 rgba(0,0,0,0.72)`,
+      smallTextGlow:`0 0 6px ${rgba(accentGlow,0.58,0x67f4ff)},0 1px 0 rgba(0,0,0,0.8)`,
+      unitBackground:`linear-gradient(90deg,${rgba(accent,0.08,0x8dfff2)},${rgba(high,0.05,0xffffff)})`,
+      dangerTrack:rgba(danger,0.08,0xff6a42),
+      dangerBorder:"0",
+      dangerShadow:`inset 0 0 10px rgba(0,0,0,0.22),0 0 10px ${rgba(danger,0.14,0xff6a42)}`,
+      fuelBorder:"0",
+      fuelShadow:`inset 0 0 10px rgba(0,0,0,0.24),0 0 10px ${rgba(fuel,0.12,0x2fd36b)}`
+    };
   }
 
   function mapPalette(){
@@ -1433,9 +1529,10 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       if(!panel.healthFill || !panel.healthLabel || !state) continue;
 
       let pct=Math.max(0,Math.min(100,state.carHealth));
+      let palette=applyDisplayPalette(panel);
       panel.healthFill.style.width=pct+"%";
-      panel.healthFill.style.background=displayBarFill;
-      panel.healthFill.style.boxShadow=displayBarShadow;
+      panel.healthFill.style.background=palette.barFill;
+      panel.healthFill.style.boxShadow=palette.barShadow;
       panel.healthLabel.textContent=state.label+" Health "+Math.round(pct)+"%";
     }
   }

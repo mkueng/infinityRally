@@ -87,11 +87,13 @@
     }
 
     .start-panel {
-      position: relative;
+      position: absolute;
+      top: 100px;
+      left: 50%;
       z-index: 3;
       width: min(620px, calc(100vw - 36px));
       padding: 0 28px;
-      transform: translateY(calc(-50vh + 24vh));
+      transform: translateX(-50%);
     }
 
     .start-illustration {
@@ -761,28 +763,13 @@
       height: 168px;
       margin: -4px 0 14px;
       overflow: hidden;
-      border: 1px solid rgba(141,255,242,0.18);
-      background:
-        radial-gradient(circle at 50% 28%, rgba(103,244,255,0.14), transparent 42%),
-        linear-gradient(180deg, rgba(10,18,24,0.58), rgba(4,8,12,0.82));
-      clip-path: polygon(14px 0,100% 0,calc(100% - 14px) 100%,0 100%);
+      background: transparent;
     }
 
     .planet-preview canvas {
       display: block;
       width: 100%;
       height: 100%;
-    }
-
-    .planet-preview::after {
-      content: "";
-      position: absolute;
-      inset: 0;
-      pointer-events: none;
-      background:
-        linear-gradient(90deg, rgba(141,255,242,0.22), transparent 16%, transparent 84%, rgba(141,255,242,0.16)),
-        linear-gradient(180deg, rgba(255,255,255,0.08), transparent 28%, rgba(0,0,0,0.24));
-      mix-blend-mode: screen;
     }
 
     .difficulty-actions button,
@@ -914,20 +901,6 @@
       text-align: center;
       text-transform: uppercase;
       letter-spacing: 0.04em;
-    }
-
-    .start-credits {
-      margin-top: 16px;
-      display: grid;
-      gap: 5px;
-      color: rgba(232,248,255,0.68);
-      font-size: 13px;
-      font-weight: 900;
-      line-height: 1.25;
-      text-align: center;
-      text-transform: uppercase;
-      letter-spacing: 0.02em;
-      text-shadow: 0 2px 0 rgba(0,0,0,0.62), 0 0 8px rgba(103,244,255,0.24);
     }
 
     .menu-robot-cursor {
@@ -1096,12 +1069,6 @@
       <button type="button" data-mode="single" disabled>Single Player</button>
       <button type="button" data-mode="double" disabled>Double Player</button>
     </div>
-    <div class="start-credits" aria-label="Credits">
-      <div>design: Noa Kueng-Dinally</div>
-      <div>music and sound-effects: Noa Kueng-Dinally</div>
-      <div>testing: Yun Kueng-Dinally / Kai Kueng-Dinally</div>
-      <div>programming: codex / Marco Kueng</div>
-    </div>
   </div>
   <div id="menuRobotCursor" class="menu-robot-cursor" aria-hidden="true">
     <div class="robot-head">
@@ -1251,7 +1218,7 @@
     }
   }
 </script>
-<script type="module" src="./src/main.js?v=intro-restored"></script>
+<script type="module" src="./src/main.js?v=borderless-left-display-bars"></script>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js";
   import { getAnalytics, isSupported } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-analytics.js";

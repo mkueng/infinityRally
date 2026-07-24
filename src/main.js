@@ -2,7 +2,7 @@ import { THREE } from "./three.js";
 import { carRadius, gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize, viewDistance, mothershipDropCount, mothershipDropInterval, mothershipDropLineSpacing, mothershipHoverDistance, mothershipHoverFrames, mothershipMinDelay, mothershipRandomDelay, mothershipRocketHits } from "./constants.js";
 import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=no-roads";
 import { createInput } from "./input.js?v=progressive-pointer-aim";
-import { createHud } from "./hud.js?v=first-person-left-display-perspective";
+import { createHud } from "./hud.js?v=borderless-left-display-bars";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=stronger-directed-rain";
 import { createWorld } from "./world.js?v=no-roads";
 import { createMotorAudio } from "./audio.js?v=intro-beam-sizzle";
@@ -969,7 +969,7 @@ terraformCompleteText.style.cssText=[
 ].join(";");
 document.body.appendChild(terraformCompleteText);
 let missionStartText=document.createElement("div");
-missionStartText.textContent="Mission Start";
+missionStartText.textContent="Mission: Initiated";
 missionStartText.style.cssText=[
   "position:fixed",
   "left:50%",
