@@ -5,7 +5,7 @@ import { createInput } from "./input.js?v=progressive-pointer-aim";
 import { createHud } from "./hud.js?v=adaptive-minimap-rate";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=stronger-directed-rain";
 import { createWorld } from "./world.js?v=stress-decor-culling";
-import { createMotorAudio } from "./audio.js?v=menu-click-feedback";
+import { createMotorAudio } from "./audio.js?v=boss-finale-delay";
 import { worldEnvironments } from "./environments.js?v=neon-city-terrain-color";
 import { difficultySettings } from "./gameConfig.js?v=ammo-caps";
 import { loadBackPackModel, loadBaseStationModel, loadCarModel, loadEnemyBattleShipModel, loadJetModel, loadLandingSpaceModel, loadTradingOutpostModel, loadTreasureChestModels, makeMechModel } from "./models.js?v=radar-performance-fix";
@@ -1089,6 +1089,7 @@ let screenShakeSeed=0;
 let screenShakeOffset=new THREE.Vector3();
 let terraformFinale=null;
 let terraformFinaleTriggered=false;
+let pendingBossFinale=null;
 let testingTerraformFinaleAfterSpawn=false;
 let testingTerraformFinaleDelayFrames=5*60;
 let terraformMatrixDummy=new THREE.Object3D();
@@ -1299,7 +1300,7 @@ let aimOffsetYMin=-16;
 let aimOffsetYMax=21;
 let cameraAimPitchMin=-8.4;
 let cameraAimPitchMax=8.8;
-let initialClusterBombAmmo=0;
+let initialClusterBombAmmo=10;
 let rocketLauncherPurchaseAmmo=50;
 let tradingCannonShotAmount=100;
 let tradingRocketAmount=50;
@@ -2023,6 +2024,7 @@ function createCarState(id,lateralOffset,controls,camera,gamepadIndex){
     landingReleaseFrames:0,
     landedOnPad:false,
     jetAutoLandToRobot:false,
+    landingSequenceVoicePlayed:false,
     mechModel:null,
     jetModel:null,
     carModel:null,
@@ -2147,10 +2149,17 @@ function startIntroAudio(){
   gameIntroAudioStarted=true;
   setGameAudioAllowed(true);
   motorAudio.setPaused(false);
+  if(motorAudio.playMissionInitiatedVoice) motorAudio.playMissionInitiatedVoice();
 }
 
 function playMenuClickFeedback(){
   if(motorAudio.playMenuClick) motorAudio.playMenuClick();
+}
+
+function announceLandingSequence(car){
+  if(!car || car.landingSequenceVoicePlayed) return;
+  car.landingSequenceVoicePlayed=true;
+  if(motorAudio.playLandingSequenceVoice) motorAudio.playLandingSequenceVoice();
 }
 
 function createPauseMenu(audio){
@@ -3013,6 +3022,39 @@ function showGameWon(source=null){
   }
   hud.updateHealthHud();
   startTerraformFinale(source || playerCar);
+}
+
+function freezeCarsForWin(){
+  for(let car of activeCars()){
+    car.speed=0;
+    car.vy=0;
+    car.throttleEase=0;
+    car.turnInputEase=0;
+  }
+}
+
+function scheduleBossFinale(source=null,delayFrames=210){
+  if(gameWon || pendingBossFinale || terraformFinaleTriggered) return;
+  gameOver=true;
+  gameWon=true;
+  terraformFinaleTriggered=true;
+  freezeCarsForWin();
+  hud.updateHealthHud();
+  if(motorAudio.stopMusic) motorAudio.stopMusic();
+  pendingBossFinale={
+    source:source || playerCar,
+    frames:Math.max(1,Math.floor(delayFrames))
+  };
+}
+
+function updatePendingBossFinale(){
+  if(!pendingBossFinale) return;
+  pendingBossFinale.frames--;
+  if(pendingBossFinale.frames>0) return;
+
+  let source=pendingBossFinale.source || playerCar;
+  pendingBossFinale=null;
+  startTerraformFinale(source);
 }
 
 function finiteOr(value,fallback){
@@ -4107,33 +4149,35 @@ function damageBossBaseObstacle(obstacle,x,y,z,amount){
   let destroyed=world.damageBossBase(obstacle,hardenedDamage);
 
   if(destroyed){
+    if(motorAudio.stopMusic) motorAudio.stopMusic();
     spawnBossBaseDebris(base);
-    spawnRadiusExplosion(base.x,base.y+12,base.z,72);
-    for(let i=0;i<8;i++){
-      let angle=(i/8)*Math.PI*2+Math.random()*0.24;
-      let dist=12+Math.random()*34;
+    spawnRadiusExplosion(base.x,base.y+18,base.z,156);
+    spawnRadiusExplosion(base.x,base.y+9,base.z,96,false);
+    for(let i=0;i<18;i++){
+      let angle=(i/18)*Math.PI*2+Math.random()*0.28;
+      let dist=14+Math.random()*62;
       spawnRocketExplosion(
         base.x+Math.cos(angle)*dist,
-        base.y+6+Math.random()*30,
+        base.y+8+Math.random()*46,
         base.z+Math.sin(angle)*dist
       );
     }
-    for(let i=0;i<18;i++){
+    for(let i=0;i<72;i++){
       let angle=Math.random()*Math.PI*2;
-      let dist=Math.random()*58;
+      let dist=Math.random()*88;
       dust.spawnThrusterParticle(
         base.x+Math.cos(angle)*dist,
-        base.y+4+Math.random()*32,
+        base.y+4+Math.random()*52,
         base.z+Math.sin(angle)*dist,
-        Math.cos(angle)*(2+Math.random()*7),
-        Math.sin(angle)*(2+Math.random()*7),
-        1.5+Math.random()*6,
-        0.28+Math.random()*0.18,
-        0.12+Math.random()*0.1
+        Math.cos(angle)*(3+Math.random()*10),
+        Math.sin(angle)*(3+Math.random()*10),
+        2.2+Math.random()*9,
+        0.32+Math.random()*0.22,
+        0.14+Math.random()*0.12
       );
     }
     addUnits(bossBaseUnitAmount);
-    showGameWon(base);
+    scheduleBossFinale(base,210);
   }
 
   return true;
@@ -6480,16 +6524,22 @@ function updateAimCross(car){
     }
   }
 
-  let aimDisplayDistance=car.aimDistance || 32;
-  let forwardX=Math.sin(car.angle);
-  let forwardZ=Math.cos(car.angle);
-  let rightX=Math.cos(car.angle);
-  let rightZ=-Math.sin(car.angle);
-  aimCrossWorldPoint.set(
-    car.x+forwardX*aimDisplayDistance+rightX*car.aimOffsetX,
-    car.y+3.15+car.aimOffsetY,
-    car.z+forwardZ*aimDisplayDistance+rightZ*car.aimOffsetX
-  );
+  let jetBombAim=car.jetMode || car.jetProgress>0.35;
+  if(jetBombAim){
+    let impact=clusterBombImpactPointForCar(car);
+    aimCrossWorldPoint.set(impact.x,impact.y,impact.z);
+  }else{
+    let aimDisplayDistance=car.aimDistance || 32;
+    let forwardX=Math.sin(car.angle);
+    let forwardZ=Math.cos(car.angle);
+    let rightX=Math.cos(car.angle);
+    let rightZ=-Math.sin(car.angle);
+    aimCrossWorldPoint.set(
+      car.x+forwardX*aimDisplayDistance+rightX*car.aimOffsetX,
+      car.y+3.15+car.aimOffsetY,
+      car.z+forwardZ*aimDisplayDistance+rightZ*car.aimOffsetX
+    );
+  }
   car.group.updateMatrixWorld(true);
   car.aimCross.position.copy(aimCrossWorldPoint);
   car.group.worldToLocal(car.aimCross.position);
@@ -7340,6 +7390,44 @@ function fireCannon(car){
   car.cannonCooldown=cannonCooldownFrames;
   if(!car.isEnemy) car.cannonAmmo=Math.max(0,car.cannonAmmo-1);
   return true;
+}
+
+function clusterBombImpactPointForCar(car){
+  let forwardX=Math.sin(car.angle);
+  let forwardZ=Math.cos(car.angle);
+  let rightX=Math.cos(car.angle);
+  let rightZ=-Math.sin(car.angle);
+  let startX=car.x+forwardX*4.2+rightX*0.25;
+  let startY=car.y-1.25;
+  let startZ=car.z+forwardZ*4.2+rightZ*0.25;
+  let carriedSpeed=Math.max(0,car.speed || 0);
+  let impactX=startX;
+  let impactY=startY;
+  let impactZ=startZ;
+
+  for(let age=1;age<=180;age++){
+    let arcT=Math.min(1,age/118);
+    let forwardTravel=clusterBombArcDistance*(1-Math.pow(1-arcT,1.55))+carriedSpeed*age;
+    let downwardDrop=clusterBombArcDrop*arcT*arcT+clusterBombInitialDropSpeed*age;
+    impactX=startX+forwardX*forwardTravel;
+    impactZ=startZ+forwardZ*forwardTravel;
+    impactY=startY-downwardDrop;
+
+    let surfaceY=drivingSurfaceHeight(impactX,impactZ);
+    if(impactY<=surfaceY+0.5 || impactY<=waterLevel+0.6){
+      return {
+        x:impactX,
+        y:Math.max(surfaceY,waterLevel)+1.05,
+        z:impactZ
+      };
+    }
+  }
+
+  return {
+    x:impactX,
+    y:Math.max(drivingSurfaceHeight(impactX,impactZ),waterLevel)+1.05,
+    z:impactZ
+  };
 }
 
 function fireClusterBomb(car){
@@ -9334,6 +9422,7 @@ function updateMorphInput(car){
     if(car.jetMode){
       car.morphed=false;
       car.jetAutoLandToRobot=false;
+      car.landingSequenceVoicePlayed=false;
       car.jetAltitudeTarget=Math.max(car.y,surfaceHeightForActor(car,car.x,car.z)+8);
     }
   }
@@ -11748,7 +11837,8 @@ function updateMorphVisual(car){
   }
 
   if(car.aimCross){
-    car.aimCross.scale.setScalar(1+Math.sin(performance.now()*0.004)*0.035);
+    let jetAimCross=car.jetMode || car.jetProgress>0.35;
+    car.aimCross.scale.setScalar(jetAimCross ? 1 : 1+Math.sin(performance.now()*0.004)*0.035);
   }
   updateVehicleHeadlights(car);
 
@@ -12171,6 +12261,7 @@ function updateCar(car){
   let autoLanding=jetHovering && landingSurface && car.jetProgress>0.82 && !(car.landingReleaseFrames>0);
   let fuelAutoLanding=jetHovering && fuelEmpty && !autoLanding;
   let manualAutoLanding=jetHovering && car.jetAutoLandToRobot && !autoLanding && !fuelAutoLanding;
+  if(autoLanding || fuelAutoLanding || manualAutoLanding) announceLandingSequence(car);
   let groundAutoLanded=false;
   let autoLandingApproachY=autoLanding ? landingSurface.y+12 : null;
   let autoLandingDeckY=null;
@@ -12280,6 +12371,7 @@ function updateCar(car){
     car.jetAltitudeTarget=surfaceY+8;
     car.landingReleaseFrames=0;
     car.landedOnPad=false;
+    car.landingSequenceVoicePlayed=false;
     if(manualAutoLanding){
       car.morphed=false;
       car.jetAutoLandToRobot=false;
@@ -12304,6 +12396,7 @@ function updateCar(car){
       car.speed*=0.82;
       car.jetAltitudeTarget=landingDeckY;
       car.landedOnPad=true;
+      car.landingSequenceVoicePlayed=false;
       if(car.jetAutoLandToRobot){
         car.jetMode=false;
         car.morphed=false;
@@ -12685,7 +12778,8 @@ function setDistantMoonDirectionForHeading(heading){
 
 function aimCrossVisibleFor(car){
   let groundWeaponMode=car.morphProgress<0.35 || car.morphProgress>0.72;
-  return car.aimCross && groundWeaponMode && car.jetProgress<0.35 && car.health>0 && !gameOver && car.group.visible;
+  let jetWeaponMode=car.jetMode || car.jetProgress>0.35;
+  return car.aimCross && (groundWeaponMode || jetWeaponMode) && car.health>0 && !gameOver && car.group.visible;
 }
 
 function setAimCrossForRender(focusedCar){
@@ -12743,6 +12837,7 @@ function renderGame(){
 }
 
 function clearTerraformFinale(){
+  pendingBossFinale=null;
   if(!terraformFinale) return;
   if(terraformFinale.group){
     scene.remove(terraformFinale.group);
@@ -13562,6 +13657,7 @@ function fixedUpdateGame(){
   updateScannerMode();
   updateStartSequence();
   updateTerraformFinale();
+  updatePendingBossFinale();
   let finaleActive=!!(terraformFinale && terraformFinale.active);
   for(let car of activeCars()){
     if(isCarInStartSequence(car)) continue;
@@ -13998,6 +14094,7 @@ function startGame(mode,difficulty="medium",savedStatus=null){
   clearTestingRadarOutpost();
   clearStartSequence();
   clearTerraformFinale();
+  pendingBossFinale=null;
   terraformFinaleTriggered=false;
   if(world.clearBossBases) world.clearBossBases();
   if(savedStatus) applySavedWorldSettings(savedStatus);
@@ -14341,6 +14438,7 @@ function placeCarOnOpenField(car,startInfo){
   car.landingReleaseFrames=0;
   car.landedOnPad=false;
   car.jetAutoLandToRobot=false;
+  car.landingSequenceVoicePlayed=false;
   car.lastJetButton=false;
   car.aimOffsetX=0;
   car.aimOffsetY=0;

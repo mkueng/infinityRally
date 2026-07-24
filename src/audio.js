@@ -32,6 +32,7 @@ export function createMotorAudio(cars){
   let musicLoopsPerTrack=2;
   let musicSwitchDelayMs=5000;
   let musicSwitchTimer=null;
+  let musicSuppressed=false;
   let backgroundMusic=new Audio();
   backgroundMusic.loop=false;
   backgroundMusic.volume=musicVolume;
@@ -145,9 +146,19 @@ export function createMotorAudio(cars){
   }
 
   function playBackgroundMusic(){
-    if(!playbackAllowed || paused || musicVolume<=0) return;
+    if(!playbackAllowed || musicSuppressed || paused || musicVolume<=0) return;
     ensureBackgroundMusicSource();
     backgroundMusic.play().catch(()=>{});
+  }
+
+  function stopMusic(){
+    musicSuppressed=true;
+    if(musicSwitchTimer){
+      window.clearTimeout(musicSwitchTimer);
+      musicSwitchTimer=null;
+    }
+    if(!backgroundMusic.paused) backgroundMusic.pause();
+    try{ backgroundMusic.currentTime=0; }catch(error){}
   }
 
   function advanceBackgroundMusic(){
@@ -174,7 +185,7 @@ export function createMotorAudio(cars){
   function setMusicVolume(value){
     musicVolume=clamp(Number(value) || 0,0,1);
     applyVolumes();
-    if(playbackAllowed && !paused && musicVolume>0 && backgroundMusic.paused) playBackgroundMusic();
+    if(playbackAllowed && !musicSuppressed && !paused && musicVolume>0 && backgroundMusic.paused) playBackgroundMusic();
   }
 
   function setSfxVolume(value){
@@ -195,6 +206,7 @@ export function createMotorAudio(cars){
   function setPlaybackAllowed(value){
     playbackAllowed=!!value;
     if(playbackAllowed){
+      musicSuppressed=false;
       sfxEnabled=true;
       ensureContext();
       if(context && context.state==="suspended") context.resume();
@@ -1055,6 +1067,34 @@ export function createMotorAudio(cars){
     body.stop(time+0.085);
   }
 
+  function speakRoboticSystemPhrase(text){
+    if("speechSynthesis" in window && "SpeechSynthesisUtterance" in window){
+      let utterance=new SpeechSynthesisUtterance(text);
+      utterance.volume=clamp(0.72*sfxVolume,0,1);
+      utterance.rate=0.88;
+      utterance.pitch=1.64;
+      let voices=window.speechSynthesis.getVoices ? window.speechSynthesis.getVoices() : [];
+      let preferred=voices.find(voice=>/en/i.test(voice.lang) && /samantha|victoria|karen|moira|tessa|serena|susan|zira|aria|jenny|female/i.test(voice.name))
+        || voices.find(voice=>/en/i.test(voice.lang) && /google.*english|compact|system/i.test(voice.name) && !/fred|daniel|alex|male/i.test(voice.name))
+        || voices.find(voice=>/en/i.test(voice.lang) && /fred|zarvox|trinoids|boing|cellos|bad news|good news|bells/i.test(voice.name))
+        || voices.find(voice=>/en/i.test(voice.lang))
+        || voices[0];
+      if(preferred) utterance.voice=preferred;
+      try{
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(utterance);
+      }catch(error){}
+    }
+  }
+
+  function playMissionInitiatedVoice(){
+    speakRoboticSystemPhrase("Mission. Initiated.");
+  }
+
+  function playLandingSequenceVoice(){
+    speakRoboticSystemPhrase("Landing. Sequence. Initiated.");
+  }
+
   function startMothershipHum(position=null){
     ensureContext();
     if(!context || !supported) return;
@@ -1413,6 +1453,7 @@ export function createMotorAudio(cars){
     setPaused,
     setSfxEnabled,
     setPlaybackAllowed,
+    stopMusic,
     getVolumeSettings,
     playRocketLaunch,
     playCannonFire,
@@ -1426,6 +1467,8 @@ export function createMotorAudio(cars){
     playPlayerLaserFire,
     playTerminalBleep,
     playMenuClick,
+    playMissionInitiatedVoice,
+    playLandingSequenceVoice,
     startMothershipHum,
     updateMothershipHum,
     stopMothershipHum,
