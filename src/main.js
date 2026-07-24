@@ -4,7 +4,7 @@ import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed
 import { createInput } from "./input.js?v=progressive-pointer-aim";
 import { createHud } from "./hud.js?v=adaptive-minimap-rate";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=stronger-directed-rain";
-import { createWorld } from "./world.js?v=stress-decor-culling";
+import { createWorld } from "./world.js?v=near-start-test-boss";
 import { createMotorAudio } from "./audio.js?v=boss-finale-delay";
 import { worldEnvironments } from "./environments.js?v=neon-city-terrain-color";
 import { difficultySettings } from "./gameConfig.js?v=ammo-caps";
@@ -3387,7 +3387,7 @@ function setupStartWorldPreview(){
   placeTradingOutpostNearStart(initialStartInfo);
   placeTestingTradingOutpostNearHomeBase();
   placeStartingCarsAtBaseEntrance("double",false);
-  world.placeTestBossBaseNearStart(playerCar.x,playerCar.z,playerCar.angle);
+  world.placeTestBossBaseNearStart(playerCar.x,playerCar.z,playerCar.angle,{nearStart:true});
   playerCar.cameraYaw=playerCar.angle;
   secondCar.cameraYaw=secondCar.angle;
   updateCameras();

@@ -1157,22 +1157,49 @@ function clearBossBases(){
   bossBaseColliders.length=0;
 }
 
-function placeTestBossBaseNearStart(startX,startZ,startAngle=0){
+function addBossBaseCollider(base){
+  if(!base) return;
+  bossBaseColliders.push({
+    x:base.x,
+    baseY:base.y,
+    y:base.y+18,
+    z:base.z,
+    r:base.r,
+    height:48,
+    visualRadius:base.r,
+    visualHeight:54,
+    type:"bossBase",
+    base,
+    indestructible:true,
+    object:base.group
+  });
+}
+
+function placeTestBossBaseNearStart(startX,startZ,startAngle=0,options={}){
   clearBossBases();
 
-  let minBossBaseStartDistance=5200;
+  let nearStart=!!(options && options.nearStart);
+  let minBossBaseStartDistance=nearStart ? 160 : 5200;
   let forwardX=Math.sin(startAngle);
   let forwardZ=Math.cos(startAngle);
   let rightX=Math.cos(startAngle);
   let rightZ=-Math.sin(startAngle);
   let best=null;
-  let offsets=[
-    {forward:5600,side:1180},
-    {forward:6400,side:-1320},
-    {forward:7200,side:880},
-    {forward:8050,side:-1460},
-    {forward:8900,side:1260}
-  ];
+  let offsets=nearStart
+    ? [
+      {forward:220,side:92},
+      {forward:260,side:-108},
+      {forward:310,side:72},
+      {forward:360,side:-126},
+      {forward:420,side:112}
+    ]
+    : [
+      {forward:5600,side:1180},
+      {forward:6400,side:-1320},
+      {forward:7200,side:880},
+      {forward:8050,side:-1460},
+      {forward:8900,side:1260}
+    ];
 
   for(let offset of offsets){
     for(let sideSign of [1,-1]){
@@ -1192,27 +1219,14 @@ function placeTestBossBaseNearStart(startX,startZ,startAngle=0){
 
   if(!best){
     best={
-      x:startX+forwardX*6200+rightX*1180,
-      z:startZ+forwardZ*6200+rightZ*1180
+      x:startX+forwardX*(nearStart ? 280 : 6200)+rightX*(nearStart ? 96 : 1180),
+      z:startZ+forwardZ*(nearStart ? 280 : 6200)+rightZ*(nearStart ? 96 : 1180)
     };
   }
 
   let base=makeBossBase(best.x,best.z,startAngle+Math.PI);
   bossBases.push(base);
-  bossBaseColliders.push({
-    x:base.x,
-    baseY:base.y,
-    y:base.y+18,
-    z:base.z,
-    r:base.r,
-    height:48,
-    visualRadius:base.r,
-    visualHeight:54,
-    type:"bossBase",
-    base,
-    indestructible:true,
-    object:base.group
-  });
+  addBossBaseCollider(base);
 
   return base;
 }
