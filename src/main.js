@@ -602,6 +602,28 @@ planetNameDisplay.style.cssText=[
   "user-select:none"
 ].join(";");
 document.body.appendChild(planetNameDisplay);
+let missionGoalDisplay=document.createElement("div");
+missionGoalDisplay.textContent="";
+missionGoalDisplay.style.cssText=[
+  "position:fixed",
+  "right:18px",
+  "top:46px",
+  "z-index:12",
+  "max-width:min(420px,46vw)",
+  `font-family:${gameFontFamily}`,
+  "font-size:clamp(11px,1.15vw,15px)",
+  "font-weight:900",
+  "line-height:1.28",
+  "letter-spacing:0.04em",
+  "color:rgba(232,255,247,0.82)",
+  "text-align:right",
+  "text-transform:uppercase",
+  "text-shadow:0 0 8px rgba(103,244,255,0.24),0 2px 0 rgba(0,0,0,0.72)",
+  "pointer-events:none",
+  "user-select:none",
+  "display:none"
+].join(";");
+document.body.appendChild(missionGoalDisplay);
 function updatePlanetNameDisplay(){
   if(!planetNameDisplay) return;
   planetNameDisplay.textContent=(currentEnvironment && currentEnvironment.name) || "";
@@ -1369,6 +1391,8 @@ let enemyWaveDelay=0;
 let enemyPatrolDelay=900;
 let enemySpawnSerial=0;
 let enemyBudgetRun=0;
+let missionEnemyGraceMs=120000;
+let missionEnemyGraceUntil=0;
 let mothership=null;
 let giantTestRobot=null;
 let mothershipHoverAltitude=56;
@@ -1408,7 +1432,7 @@ let bossBaseDamageMultiplier=0.38;
 let bossBaseClusterBombHits=5;
 let emberCommunicationMissionId="ember-communications";
 let emberCommunicationOutpostCount=3;
-let completedMissionsStorageKey="seed-completed-missions";
+let completedMissionsStorageKey="seed-completed-missions.v3";
 let villageBuildingUnitAmount=50;
 let villageClearedUnitAmount=100;
 let cityClearedUnitAmount=1500;
@@ -1420,6 +1444,7 @@ let rareTradingOutpostRejectedKeys=new Set();
 let scannedTradingOutposts=new Map();
 let scannedRadarOutposts=new Map();
 let missionCommunicationOutposts=[];
+let generatedPlanetMission=null;
 let completedMissionIds=readCompletedMissionIds();
 let refreshStartPlanetButtons=()=>{};
 let scannedLandingSpaces=new Map();
@@ -2016,6 +2041,10 @@ function activeEnemies(){
   return enemies.filter(enemy=>enemy.active && enemy.health>0);
 }
 
+function missionEnemyGraceActive(now=performance.now()){
+  return gameStarted && Number.isFinite(missionEnemyGraceUntil) && now<missionEnemyGraceUntil;
+}
+
 function enemyCountsTowardAmbientSpawn(enemy){
   if(!enemy || !enemy.active || enemy.health<=0) return false;
   if(enemy.missionOutpost && !enemy.missionOutpost.destroyed){
@@ -2574,11 +2603,14 @@ function activeCommunicationMissionOutposts(){
 function missionIdForEnvironment(environment){
   let planetName=((environment && environment.name) || "").toLowerCase();
   if(planetName==="ember badlands") return emberCommunicationMissionId;
-  return "boss-base";
+  let slug=planetName.replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"") || "planet";
+  return `test-${slug}`;
 }
 
 function readCompletedMissionIds(){
   try{
+    localStorage.removeItem("seed-completed-missions");
+    localStorage.removeItem("seed-completed-missions.v2");
     let raw=localStorage.getItem(completedMissionsStorageKey);
     let items=JSON.parse(raw || "[]");
     return new Set(Array.isArray(items) ? items.filter(item=>typeof item==="string") : []);
@@ -2606,16 +2638,210 @@ function environmentMissionCompleted(environment){
   return completedMissionIds.has(missionIdForEnvironment(environment));
 }
 
+function isNeonCityEnvironment(environment){
+  return ((environment && environment.name) || "").toLowerCase()==="neon city";
+}
+
+function neonCityUnlocked(){
+  return worldEnvironments
+    .filter(environment=>!isNeonCityEnvironment(environment))
+    .every(environment=>environmentMissionCompleted(environment));
+}
+
+function planetSelectable(environment){
+  return !isNeonCityEnvironment(environment) || neonCityUnlocked() || environmentMissionCompleted(environment);
+}
+
+function firstSelectablePlanetIndex(){
+  let index=worldEnvironments.findIndex(environment=>planetSelectable(environment));
+  return index>=0 ? index : 0;
+}
+
+function randomMissionTemplateForEnvironment(environment){
+  let planetName=((environment && environment.name) || "").toLowerCase();
+  if(planetName==="neon city"){
+    return {
+      type:"neonCity",
+      target:3,
+      cityTarget:2,
+      bossTarget:1,
+      title:"Collapse urban command",
+      goal:"Destroy two complete cities and the boss base.",
+      statusLabel:"Objectives",
+      lines:[
+        "Primary objective: destroy two complete cities and the boss base.",
+        "Clear every structure in each city sector to confirm control collapse.",
+        "Mission completion requires two city clears and one destroyed boss base."
+      ]
+    };
+  }
+
+  let templates=[
+    {
+      type:"enemy",
+      target:24,
+      title:"Suppress hostile patrols",
+      goal:"Eliminate twenty-four hostile units.",
+      statusLabel:"Hostiles",
+      lines:[
+        "Primary objective: eliminate hostile patrol units.",
+        "Threat report: enemy waves and field patrols are active.",
+        "Mission completion requires twenty-four confirmed takedowns."
+      ]
+    },
+    {
+      type:"treasure",
+      target:10,
+      title:"Recover field artifacts",
+      goal:"Recover ten treasure caches.",
+      statusLabel:"Caches",
+      lines:[
+        "Primary objective: recover field treasure caches.",
+        "Scanner sweeps and exploration will reveal nearby opportunities.",
+        "Mission completion requires ten recovered caches."
+      ]
+    },
+    {
+      type:"village",
+      target:4,
+      title:"Clear a hostile settlement",
+      goal:"Clear four hostile villages or city sectors.",
+      statusLabel:"Settlements",
+      lines:[
+        "Primary objective: clear four hostile settlements.",
+        "Destroy the settlement structures to secure the area.",
+        "Mission completion requires four confirmed settlement clears."
+      ]
+    },
+    {
+      type:"mothership",
+      target:4,
+      title:"Intercept mothership",
+      goal:"Destroy four motherships.",
+      statusLabel:"Motherships",
+      lines:[
+        "Primary objective: intercept and destroy four motherships.",
+        "Mothership arrival cadence is accelerated for testing.",
+        "Mission completion requires four mothership kills."
+      ]
+    },
+    {
+      type:"bossBase",
+      target:1,
+      title:"Destroy command base",
+      goal:"Destroy the local command base.",
+      statusLabel:"Bases",
+      lines:[
+        "Primary objective: destroy the local command base.",
+        "The base will call in defenders once attacked.",
+        "Mission completion requires one destroyed command base."
+      ]
+    },
+    {
+      type:"relay",
+      target:5,
+      title:"Disable signal relays",
+      goal:"Destroy five signal relay outposts.",
+      statusLabel:"Relays",
+      lines:[
+        "Primary objective: destroy signal relay outposts.",
+        "Scanner fire reveals relay bearings on the compass.",
+        "Mission completion requires five destroyed relay outposts."
+      ]
+    }
+  ];
+  let name=(environment && environment.name) || "planet";
+  let seed=0;
+  for(let i=0;i<name.length;i++) seed=(seed*31+name.charCodeAt(i))>>>0;
+  let index=Math.floor(Math.random()*templates.length+seed)%templates.length;
+  return templates[index];
+}
+
+function createGeneratedPlanetMission(environment){
+  let template=randomMissionTemplateForEnvironment(environment);
+  let mission={
+    ...template,
+    id:missionIdForEnvironment(environment),
+    progress:0,
+    completed:false
+  };
+  if(mission.type==="neonCity"){
+    mission.cityProgress=0;
+    mission.bossProgress=0;
+  }
+  return mission;
+}
+
+function generatedMissionDisplay(mission){
+  let progress=mission.type==="neonCity"
+    ? Math.min(mission.target || 1,(mission.cityProgress || 0)+(mission.bossProgress || 0))
+    : Math.max(0,Math.min(mission.target || 1,mission.progress || 0));
+  let target=Math.max(1,mission.target || 1);
+  let statusValue=mission.type==="neonCity"
+    ? `Cities ${mission.cityProgress || 0}/${mission.cityTarget || 2}  Base ${mission.bossProgress || 0}/${mission.bossTarget || 1}`
+    : `${progress}/${target}`;
+  return {
+    id:mission.id,
+    goal:mission.goal,
+    statusLabel:mission.statusLabel,
+    statusValue,
+    progress,
+    target,
+    remaining:Math.max(0,target-progress),
+    lines:mission.lines
+  };
+}
+
+function advanceGeneratedPlanetMission(type,amount=1,context={}){
+  if(!generatedPlanetMission || generatedPlanetMission.completed) return false;
+  if(generatedPlanetMission.type==="neonCity"){
+    if(type==="village"){
+      if(context && context.city===false) return false;
+      generatedPlanetMission.cityProgress=Math.min(
+        generatedPlanetMission.cityTarget,
+        (generatedPlanetMission.cityProgress || 0)+Math.max(0,amount || 0)
+      );
+    }else if(type==="bossBase"){
+      generatedPlanetMission.bossProgress=Math.min(
+        generatedPlanetMission.bossTarget,
+        (generatedPlanetMission.bossProgress || 0)+Math.max(0,amount || 0)
+      );
+    }else{
+      return false;
+    }
+    generatedPlanetMission.progress=(generatedPlanetMission.cityProgress || 0)+(generatedPlanetMission.bossProgress || 0);
+  }else{
+    if(generatedPlanetMission.type!==type) return false;
+
+    generatedPlanetMission.progress=Math.min(
+      generatedPlanetMission.target,
+      (generatedPlanetMission.progress || 0)+Math.max(0,amount || 0)
+    );
+  }
+  if(missionScreen) missionScreen.update();
+  updateMissionGoalDisplay();
+  if(generatedPlanetMission.progress<generatedPlanetMission.target) return false;
+
+  generatedPlanetMission.completed=true;
+  if(motorAudio && motorAudio.stopMusic) motorAudio.stopMusic();
+  showMissionAccomplished(generatedPlanetMission.id);
+  return true;
+}
+
 function currentPlanetMission(){
   if(missionIdForEnvironment(currentEnvironment)===emberCommunicationMissionId){
     let activeCount=missionCommunicationOutposts.length
       ? activeCommunicationMissionOutposts().length
       : emberCommunicationOutpostCount;
+    let progress=Math.max(0,emberCommunicationOutpostCount-activeCount);
     return {
       id:emberCommunicationMissionId,
       goal:"Destroy all satellite communication outposts.",
       statusLabel:"Comms outposts",
       statusValue:`${activeCount}/${emberCommunicationOutpostCount}`,
+      progress,
+      target:emberCommunicationOutpostCount,
+      remaining:activeCount,
       lines:[
         "Primary objective: destroy all satellite communication outposts.",
         "Mission area: three outposts within the local perimeter.",
@@ -2624,18 +2850,45 @@ function currentPlanetMission(){
     };
   }
 
+  if(generatedPlanetMission) return generatedMissionDisplay(generatedPlanetMission);
+
   let activeBossBases=(world && world.bossBases ? world.bossBases : []).filter(base=>base && base.active).length;
   return {
     id:"boss-base",
     goal:"Locate and destroy all active boss bases.",
     statusLabel:"Boss bases",
     statusValue:String(activeBossBases),
+    progress:0,
+    target:Math.max(1,activeBossBases),
+    remaining:activeBossBases,
     lines:[
       "Primary objective: locate and destroy active boss bases.",
       "Earn units by destroying hostile robots, collecting treasures, and clearing villages.",
       "Use field trading terminals to buy equipment and fuel."
     ]
   };
+}
+
+function updateMissionGoalDisplay(){
+  if(!missionGoalDisplay) return;
+  if(!gameStarted || gameOver){
+    missionGoalDisplay.style.display="none";
+    missionGoalDisplay.textContent="";
+    return;
+  }
+
+  let mission=currentPlanetMission();
+  if(!mission || !mission.goal){
+    missionGoalDisplay.style.display="none";
+    missionGoalDisplay.textContent="";
+    return;
+  }
+
+  let progress=Math.max(0,Math.floor(mission.progress || 0));
+  let target=Math.max(1,Math.floor(mission.target || Math.max(1,progress+(mission.remaining || 0))));
+  let remaining=Math.max(0,Math.floor(Number.isFinite(mission.remaining) ? mission.remaining : target-progress));
+  missionGoalDisplay.style.display="block";
+  missionGoalDisplay.textContent=`${mission.goal}\nDone ${progress}/${target}  Remaining ${remaining}`;
 }
 
 function createMissionScreen(){
@@ -3214,7 +3467,10 @@ function nearestBossBaseForCompass(state){
 function communicationOutpostsForCompass(){
   if(!scannerUnlocked() || !missionCompassScannerFired) return [];
   return Array.from(scannedRadarOutposts.values()).filter(outpost=>{
-    if(!outpost || outpost.missionId!==emberCommunicationMissionId) return false;
+    let activeMissionId=generatedPlanetMission && generatedPlanetMission.type==="relay"
+      ? generatedPlanetMission.id
+      : emberCommunicationMissionId;
+    if(!outpost || outpost.missionId!==activeMissionId) return false;
     for(let activeOutpost of activeCommunicationMissionOutposts()){
       let dx=activeOutpost.x-outpost.x;
       let dz=activeOutpost.z-outpost.z;
@@ -3771,7 +4027,9 @@ function clearStartWorldPreview(){
   clearTestingTradingOutpost();
   clearTestingRadarOutpost();
   missionCommunicationOutposts=[];
+  generatedPlanetMission=null;
   if(world.clearMissionRadarOutposts) world.clearMissionRadarOutposts();
+  updateMissionGoalDisplay();
   clearStartSequence();
   clearTerraformFinale();
   clearSurfaceScanPulses();
@@ -4065,6 +4323,7 @@ function selectStartEnvironment(index){
   if(gameStarted) return;
   let environment=worldEnvironments[index];
   if(!environment) return;
+  if(!planetSelectable(environment)) return;
   clearStartWorldPreview();
   applyWorldEnvironment(environment,{resetChunks:true,refreshNature:false});
   setupStartWorldPreview();
@@ -4368,6 +4627,7 @@ function updateTreasurePickups(){
 
     spawnTreasurePickupEffect(treasure);
     addUnits(treasureUnitAmount(treasure.type));
+    advanceGeneratedPlanetMission("treasure",1);
     hud.updateCompassHud();
   }
 }
@@ -4418,6 +4678,7 @@ function destroyWorldObstacle(obstacle){
   if(obstacle.village && world.isVillageCleared(obstacle.village) && !scoredVillages.has(obstacle.village)){
     scoredVillages.add(obstacle.village);
     addUnits(obstacle.village.city ? cityClearedUnitAmount : villageClearedUnitAmount);
+    advanceGeneratedPlanetMission("village",1,{city:!!obstacle.village.city});
   }
 
   return true;
@@ -4441,10 +4702,10 @@ function damageWorldObstacle(obstacle,amount=1){
   if(!Number.isFinite(obstacle.maxHealth)) obstacle.maxHealth=obstacleMaxHealth(obstacle);
   if(!Number.isFinite(obstacle.health)) obstacle.health=obstacle.maxHealth;
 
-  obstacle.health=Math.max(0,obstacle.health-amount);
-  if(obstacle.type==="radarOutpost" && obstacle.health>0){
+  if(obstacle.type==="radarOutpost"){
     requestMissionOutpostDefense(obstacle);
   }
+  obstacle.health=Math.max(0,obstacle.health-amount);
   if(obstacle.health>0) return false;
 
   return destroyWorldObstacle(obstacle);
@@ -4585,7 +4846,9 @@ function damageBossBaseObstacle(obstacle,x,y,z,amount){
       );
     }
     addUnits(bossBaseUnitAmount);
-    scheduleBossFinale(base,210);
+    if(!advanceGeneratedPlanetMission("bossBase",1)){
+      scheduleBossFinale(base,210);
+    }
   }
 
   return true;
@@ -4671,6 +4934,7 @@ function damageEnemy(enemy,amount,options={}){
     }
     scene.remove(enemy.group);
     if(!options.skipUnitReward) addUnits(enemyUnitReward(enemy));
+    if(!options.skipUnitReward) advanceGeneratedPlanetMission("enemy",1);
     spawnRocketExplosion(enemy.x,enemy.y+(enemy.isGiant ? 5.8 : 2.2),enemy.z);
   }
 }
@@ -8984,6 +9248,7 @@ function damageMothership(x,y,z,amount=1){
       );
     }
     addUnits(mothershipUnitAmount);
+    advanceGeneratedPlanetMission("mothership",1);
     removeMothership();
     scheduleNextMothership();
   }
@@ -9098,7 +9363,7 @@ function dropSpiderFromMothership(){
 
 function updateMothership(){
   if(!mothership){
-    if(!gameOver && gameStarted){
+    if(!gameOver && gameStarted && !missionEnemyGraceActive()){
       mothershipDelay--;
       if(mothershipDelay<=0 && !spawnMothership()) scheduleNextMothership();
     }
@@ -9590,6 +9855,10 @@ function updateEnemies(){
     }
   }
   enemies=enemies.filter(enemy=>enemy.active);
+
+  if(missionEnemyGraceActive()){
+    return;
+  }
 
   let ambientCount=ambientEnemyCount();
   if(ambientCount<=1){
@@ -14476,6 +14745,7 @@ function spawnBossBaseDefender(base,point,type="guard",aggressive=true){
 
 function requestBossBaseReinforcements(base,urgency=1){
   if(!base || !base.active || base.health<=0) return;
+  if(missionEnemyGraceActive()) return;
   if((base.reinforcementCooldown || 0)>0) return;
 
   let activeCount=activeBossBaseDefenders(base);
@@ -14579,7 +14849,8 @@ function spawnMissionOutpostGuardsForOutpost(outpost){
 }
 
 function requestMissionOutpostDefense(outpost){
-  if(!outpost || outpost.missionId!==emberCommunicationMissionId) return;
+  if(missionEnemyGraceActive()) return;
+  if(!outpost || outpost.type!=="radarOutpost") return;
   spawnMissionOutpostGuardsForOutpost(outpost);
 }
 
@@ -14599,32 +14870,73 @@ function seedMissionOutpostsOnMap(outposts){
 
 function setupCurrentPlanetMission(){
   missionCommunicationOutposts=[];
+  generatedPlanetMission=null;
   if(world.clearMissionRadarOutposts) world.clearMissionRadarOutposts();
 
-  if(currentPlanetMission().id!==emberCommunicationMissionId) return false;
-
   if(world.clearBossBases) world.clearBossBases();
-  missionCommunicationOutposts=world.placeMissionRadarOutpostsNearStart
-    ? world.placeMissionRadarOutpostsNearStart(
-      playerCar.x,
-      playerCar.z,
-      playerCar.angle,
-      emberCommunicationOutpostCount,
-      {missionId:emberCommunicationMissionId}
-    )
-    : [];
-  seedMissionOutpostsOnMap(missionCommunicationOutposts);
+
+  if(missionIdForEnvironment(currentEnvironment)===emberCommunicationMissionId){
+    missionCommunicationOutposts=world.placeMissionRadarOutpostsNearStart
+      ? world.placeMissionRadarOutpostsNearStart(
+        playerCar.x,
+        playerCar.z,
+        playerCar.angle,
+        emberCommunicationOutpostCount,
+        {missionId:emberCommunicationMissionId}
+      )
+      : [];
+    seedMissionOutpostsOnMap(missionCommunicationOutposts);
+    if(missionScreen) missionScreen.update();
+    updateMissionGoalDisplay();
+    return true;
+  }
+
+  generatedPlanetMission=createGeneratedPlanetMission(currentEnvironment);
+  if(generatedPlanetMission.type==="relay"){
+    missionCommunicationOutposts=world.placeMissionRadarOutpostsNearStart
+      ? world.placeMissionRadarOutpostsNearStart(
+        playerCar.x,
+        playerCar.z,
+        playerCar.angle,
+        generatedPlanetMission.target,
+        {missionId:generatedPlanetMission.id}
+      )
+      : [];
+    seedMissionOutpostsOnMap(missionCommunicationOutposts);
+  }else if(generatedPlanetMission.type==="bossBase" || generatedPlanetMission.type==="neonCity"){
+    world.placeTestBossBaseNearStart(playerCar.x,playerCar.z,playerCar.angle);
+  }
+
   if(missionScreen) missionScreen.update();
+  updateMissionGoalDisplay();
   return true;
 }
 
 function updatePlanetMissionAfterOutpostDestroyed(obstacle){
-  if(!obstacle || obstacle.missionId!==emberCommunicationMissionId) return;
-  if(missionScreen) missionScreen.update();
-  if(activeCommunicationMissionOutposts().length>0) return;
+  if(!obstacle) return;
+  if(obstacle.missionId===emberCommunicationMissionId){
+    if(missionScreen) missionScreen.update();
+    updateMissionGoalDisplay();
+    if(activeCommunicationMissionOutposts().length>0) return;
 
-  if(motorAudio.stopMusic) motorAudio.stopMusic();
-  showMissionAccomplished(emberCommunicationMissionId);
+    if(motorAudio.stopMusic) motorAudio.stopMusic();
+    showMissionAccomplished(emberCommunicationMissionId);
+    return;
+  }
+
+  if(generatedPlanetMission && generatedPlanetMission.type==="relay" && obstacle.missionId===generatedPlanetMission.id){
+    advanceGeneratedPlanetMission("relay",1);
+  }
+}
+
+function applyGeneratedMissionSpawnTiming(){
+  if(!generatedPlanetMission || generatedPlanetMission.completed) return;
+  if(generatedPlanetMission.type==="mothership"){
+    mothershipDelay=Math.min(mothershipDelay,420);
+  }else if(generatedPlanetMission.type==="enemy"){
+    enemyWaveDelay=0;
+    enemyPatrolDelay=60;
+  }
 }
 
 function startGame(mode,difficulty="medium",savedStatus=null){
@@ -14633,6 +14945,7 @@ function startGame(mode,difficulty="medium",savedStatus=null){
   currentGameFromSave=!!savedStatus;
   enemyBudgetRun++;
   gameStarted=true;
+  missionEnemyGraceUntil=performance.now()+missionEnemyGraceMs;
   gameIntroAudioStarted=false;
   setGameAudioAllowed(false);
   input.requestPointerLock(renderer.domElement);
@@ -14650,6 +14963,7 @@ function startGame(mode,difficulty="medium",savedStatus=null){
   clearTestingTradingOutpost();
   clearTestingRadarOutpost();
   missionCommunicationOutposts=[];
+  generatedPlanetMission=null;
   if(world.clearMissionRadarOutposts) world.clearMissionRadarOutposts();
   clearStartSequence();
   clearTerraformFinale();
@@ -14684,6 +14998,7 @@ function startGame(mode,difficulty="medium",savedStatus=null){
   scannerKeyDown=false;
   scannerReadyAt=0;
   missionCompassScannerFired=false;
+  updateMissionGoalDisplay();
   playerCar.damageZones=createRobotDamageState();
   secondCar.damageZones=createRobotDamageState();
   playerCar.damageFlashZones=createRobotDamageState();
@@ -14719,7 +15034,7 @@ function startGame(mode,difficulty="medium",savedStatus=null){
   }
   setCarActive(playerCar,true);
   setCarActive(secondCar,mode==="double");
-  if(!savedStatus) spawnTestingRocketBuggiesAtStart();
+  if(!savedStatus && !missionEnemyGraceActive()) spawnTestingRocketBuggiesAtStart();
   playerCar.cameraYaw=playerCar.angle;
   secondCar.cameraYaw=secondCar.angle;
   updateRendererPixelRatio();
@@ -14737,6 +15052,7 @@ function startGame(mode,difficulty="medium",savedStatus=null){
   let settings=currentDifficulty();
   enemyWaveDelay=scaledDelay(90,settings.waveDelay);
   enemyPatrolDelay=scaledDelay(900+Math.floor(Math.random()*420),settings.patrolDelay);
+  applyGeneratedMissionSpawnTiming();
   if(savedStatus){
     restoreSavedRuntimeStatus(savedStatus);
     hud.updateHealthHud();
@@ -14770,6 +15086,9 @@ if(startScreen){
         button.disabled=startPlanetLoading || !readSavedGameStatus();
       }else if(button.hasAttribute("data-mode")){
         button.disabled=startPlanetLoading || !startupAssetsReady;
+      }else if(button.hasAttribute("data-planet")){
+        let environment=worldEnvironments[Number(button.dataset.planet)];
+        button.disabled=startPlanetLoading || !planetSelectable(environment);
       }else{
         button.disabled=startPlanetLoading;
       }
@@ -14797,9 +15116,14 @@ if(startScreen){
       let index=Number(button.dataset.planet);
       let environment=worldEnvironments[index];
       let completed=environmentMissionCompleted(environment);
+      let selectable=planetSelectable(environment);
       button.classList.toggle("is-selected",index===selectedIndex);
       button.classList.toggle("is-completed",completed);
-      button.textContent=completed
+      button.classList.toggle("is-locked",!selectable);
+      button.disabled=!selectable;
+      button.textContent=!selectable
+        ? `${environment.name || `Planet ${index+1}`} - locked`
+        : completed
         ? `${environment.name || `Planet ${index+1}`} - completed`
         : environment.name || `Planet ${index+1}`;
     });
@@ -14811,16 +15135,26 @@ if(startScreen){
     planetOptions.textContent="";
     let selectedIndex=worldEnvironments.indexOf(currentEnvironment);
     if(selectedIndex<0) selectedIndex=0;
+    if(!planetSelectable(worldEnvironments[selectedIndex])){
+      selectedIndex=firstSelectablePlanetIndex();
+      currentEnvironment=worldEnvironments[selectedIndex] || currentEnvironment;
+      updatePlanetNameDisplay();
+    }
     worldEnvironments.forEach((environment,index)=>{
       let button=document.createElement("button");
       button.type="button";
       button.dataset.planet=String(index);
       let completed=environmentMissionCompleted(environment);
-      button.textContent=completed
+      let selectable=planetSelectable(environment);
+      button.textContent=!selectable
+        ? `${environment.name || `Planet ${index+1}`} - locked`
+        : completed
         ? `${environment.name || `Planet ${index+1}`} - completed`
         : environment.name || `Planet ${index+1}`;
       button.classList.toggle("is-selected",index===selectedIndex);
       button.classList.toggle("is-completed",completed);
+      button.classList.toggle("is-locked",!selectable);
+      button.disabled=!selectable;
       planetOptions.appendChild(button);
     });
     startScreen.dataset.environmentIndex=String(selectedIndex);
@@ -14849,7 +15183,7 @@ if(startScreen){
     if(clickedMenuButton && !clickedMenuButton.disabled) playMenuClickFeedback();
 
     let planetButton=event.target.closest("[data-planet]");
-    if(planetButton && !gameStarted && !startPlanetLoading){
+    if(planetButton && !planetButton.disabled && !gameStarted && !startPlanetLoading){
       let index=Number(planetButton.dataset.planet);
       if(Number.isFinite(index)){
         let loadingStartedAt=performance.now();
@@ -14883,6 +15217,11 @@ if(startScreen){
 
     let button=event.target.closest("[data-mode]");
     if(!button || button.disabled || gameStarted) return;
+    if(!planetSelectable(currentEnvironment)){
+      selectStartEnvironment(firstSelectablePlanetIndex());
+      refreshStartPlanetButtons();
+      return;
+    }
     showFullscreenTransitionOverlay();
     requestBrowserFullscreen();
     let difficulty=selectedStartDifficulty();
