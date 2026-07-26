@@ -2,10 +2,10 @@ import { THREE } from "./three.js";
 import { carRadius, gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize, viewDistance, mothershipDropCount, mothershipDropInterval, mothershipDropLineSpacing, mothershipHoverDistance, mothershipHoverFrames, mothershipMinDelay, mothershipRandomDelay, mothershipRocketHits } from "./constants.js";
 import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=no-roads";
 import { createInput } from "./input.js?v=progressive-pointer-aim";
-import { createHud } from "./hud.js?v=adaptive-minimap-rate";
+import { createHud } from "./hud.js?v=scanner-start-test";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=stronger-directed-rain";
-import { createWorld } from "./world.js?v=near-start-test-boss";
-import { createMotorAudio } from "./audio.js?v=boss-finale-delay";
+import { createWorld } from "./world.js?v=distant-mission-comms";
+import { createMotorAudio } from "./audio.js?v=mission-accomplished-voice";
 import { worldEnvironments } from "./environments.js?v=neon-city-terrain-color";
 import { difficultySettings } from "./gameConfig.js?v=ammo-caps";
 import { loadBackPackModel, loadBaseStationModel, loadCarModel, loadEnemyBattleShipModel, loadJetModel, loadLandingSpaceModel, loadTradingOutpostModel, loadTreasureChestModels, makeMechModel } from "./models.js?v=radar-performance-fix";
@@ -1030,7 +1030,7 @@ terraformFadeOverlay.style.cssText=[
 ].join(";");
 document.body.appendChild(terraformFadeOverlay);
 let terraformCompleteText=document.createElement("div");
-terraformCompleteText.textContent="Mission Accomplished";
+terraformCompleteText.textContent="Mission: Accomplished";
 terraformCompleteText.style.cssText=[
   "position:fixed",
   "left:50%",
@@ -1051,6 +1051,59 @@ terraformCompleteText.style.cssText=[
   "white-space:nowrap"
 ].join(";");
 document.body.appendChild(terraformCompleteText);
+let missionCompleteOverlay=document.createElement("div");
+missionCompleteOverlay.id="missionCompleteOverlay";
+missionCompleteOverlay.style.cssText=[
+  "position:fixed",
+  "inset:0",
+  "z-index:130",
+  "display:none",
+  "align-items:center",
+  "justify-content:center",
+  "background:rgba(0,0,0,0.86)",
+  "pointer-events:auto",
+  "user-select:none"
+].join(";");
+let missionCompleteText=document.createElement("div");
+missionCompleteText.textContent="Mission: Accomplished";
+missionCompleteText.style.cssText=[
+  `font-family:${gameFontFamily}`,
+  "font-size:clamp(36px,7vw,92px)",
+  "font-weight:900",
+  "letter-spacing:0.08em",
+  "text-transform:uppercase",
+  "color:rgba(232,255,238,0.98)",
+  "text-align:center",
+  "text-shadow:0 0 22px rgba(125,255,113,0.56),0 4px 0 rgba(0,0,0,0.9)",
+  "opacity:0",
+  "transform:scale(0.96)",
+  "transition:opacity 520ms ease,transform 520ms ease",
+  "white-space:nowrap"
+].join(";");
+let missionCompleteBackButton=document.createElement("button");
+missionCompleteBackButton.type="button";
+missionCompleteBackButton.textContent="Back to Main Menu";
+missionCompleteBackButton.style.cssText=[
+  "position:absolute",
+  "left:50%",
+  "bottom:52px",
+  "transform:translateX(-50%)",
+  "height:52px",
+  "min-width:260px",
+  "border:1px solid rgba(184,255,186,0.72)",
+  "background:#64d968",
+  "color:#071d10",
+  `font-family:${gameFontFamily}`,
+  "font-size:16px",
+  "font-weight:900",
+  "letter-spacing:0.04em",
+  "text-transform:uppercase",
+  "box-shadow:0 0 18px rgba(100,217,104,0.28)",
+  "pointer-events:auto"
+].join(";");
+missionCompleteOverlay.appendChild(missionCompleteText);
+missionCompleteOverlay.appendChild(missionCompleteBackButton);
+document.body.appendChild(missionCompleteOverlay);
 let missionStartText=document.createElement("div");
 missionStartText.textContent="Mission: Initiated";
 missionStartText.style.cssText=[
@@ -1302,6 +1355,9 @@ let cars=[];
 let gameStarted=false;
 let gamePaused=false;
 let controllerMenuButtonDown=false;
+let missionCompleteControllerButtonDown=false;
+let missionCompleteShownAt=0;
+let missionCompleteInputReadyAt=0;
 let tradingScreenOpen=false;
 let missionScreenOpen=false;
 let gameMode="single";
@@ -1331,7 +1387,7 @@ let currentStartInfo=null;
 let currentGameFromSave=false;
 let jetUnlocked=false;
 let initialUnits=500;
-let testingScannerAvailableFromStart=false;
+let testingScannerAvailableFromStart=true;
 let jetAvailableFromStart=true;
 let testingRocketBuggiesAtStart=true;
 let testingRocketBuggyStartCount=5;
@@ -1350,6 +1406,9 @@ let mothershipBeamOutFrames=118;
 let bossBaseUnitAmount=650;
 let bossBaseDamageMultiplier=0.38;
 let bossBaseClusterBombHits=5;
+let emberCommunicationMissionId="ember-communications";
+let emberCommunicationOutpostCount=3;
+let completedMissionsStorageKey="seed-completed-missions";
 let villageBuildingUnitAmount=50;
 let villageClearedUnitAmount=100;
 let cityClearedUnitAmount=1500;
@@ -1360,11 +1419,15 @@ let rareTradingOutposts=new Map();
 let rareTradingOutpostRejectedKeys=new Set();
 let scannedTradingOutposts=new Map();
 let scannedRadarOutposts=new Map();
+let missionCommunicationOutposts=[];
+let completedMissionIds=readCompletedMissionIds();
+let refreshStartPlanetButtons=()=>{};
 let scannedLandingSpaces=new Map();
 let scannedPortals=new Map();
 let scannerKeyDown=false;
 let scannerCooldownMs=10000;
 let scannerReadyAt=0;
+let missionCompassScannerFired=false;
 let robotDamageZoneNames=["head","torso","leftArm","rightArm","leftLeg","rightLeg"];
 let mechGroundMaxSpeed=0.4;
 let mechAirMaxSpeed=0.9;
@@ -1953,6 +2016,22 @@ function activeEnemies(){
   return enemies.filter(enemy=>enemy.active && enemy.health>0);
 }
 
+function enemyCountsTowardAmbientSpawn(enemy){
+  if(!enemy || !enemy.active || enemy.health<=0) return false;
+  if(enemy.missionOutpost && !enemy.missionOutpost.destroyed){
+    return playerDistanceSqForEnemy(enemy)<720*720;
+  }
+  return true;
+}
+
+function ambientEnemyCount(){
+  let count=0;
+  for(let enemy of enemies){
+    if(enemyCountsTowardAmbientSpawn(enemy)) count++;
+  }
+  return count;
+}
+
 function combatActors(){
   return [...activeCars(),...activeEnemies()];
 }
@@ -2488,6 +2567,77 @@ function makeTerminalCloseButton(onClose){
   return button;
 }
 
+function activeCommunicationMissionOutposts(){
+  return missionCommunicationOutposts.filter(outpost=>outpost && !outpost.destroyed);
+}
+
+function missionIdForEnvironment(environment){
+  let planetName=((environment && environment.name) || "").toLowerCase();
+  if(planetName==="ember badlands") return emberCommunicationMissionId;
+  return "boss-base";
+}
+
+function readCompletedMissionIds(){
+  try{
+    let raw=localStorage.getItem(completedMissionsStorageKey);
+    let items=JSON.parse(raw || "[]");
+    return new Set(Array.isArray(items) ? items.filter(item=>typeof item==="string") : []);
+  }catch(error){
+    return new Set();
+  }
+}
+
+function writeCompletedMissionIds(){
+  try{
+    localStorage.setItem(completedMissionsStorageKey,JSON.stringify(Array.from(completedMissionIds)));
+  }catch(error){
+    // Completion state is cosmetic; ignore storage failures.
+  }
+}
+
+function markMissionCompleted(missionId){
+  if(!missionId) return;
+  completedMissionIds.add(missionId);
+  writeCompletedMissionIds();
+  refreshStartPlanetButtons();
+}
+
+function environmentMissionCompleted(environment){
+  return completedMissionIds.has(missionIdForEnvironment(environment));
+}
+
+function currentPlanetMission(){
+  if(missionIdForEnvironment(currentEnvironment)===emberCommunicationMissionId){
+    let activeCount=missionCommunicationOutposts.length
+      ? activeCommunicationMissionOutposts().length
+      : emberCommunicationOutpostCount;
+    return {
+      id:emberCommunicationMissionId,
+      goal:"Destroy all satellite communication outposts.",
+      statusLabel:"Comms outposts",
+      statusValue:`${activeCount}/${emberCommunicationOutpostCount}`,
+      lines:[
+        "Primary objective: destroy all satellite communication outposts.",
+        "Mission area: three outposts within the local perimeter.",
+        "Threat report: each outpost is protected by reinforced armored patrols."
+      ]
+    };
+  }
+
+  let activeBossBases=(world && world.bossBases ? world.bossBases : []).filter(base=>base && base.active).length;
+  return {
+    id:"boss-base",
+    goal:"Locate and destroy all active boss bases.",
+    statusLabel:"Boss bases",
+    statusValue:String(activeBossBases),
+    lines:[
+      "Primary objective: locate and destroy active boss bases.",
+      "Earn units by destroying hostile robots, collecting treasures, and clearing villages.",
+      "Use field trading terminals to buy equipment and fuel."
+    ]
+  };
+}
+
 function createMissionScreen(){
   let overlay=document.createElement("div");
   overlay.id="missionTerminalOverlay";
@@ -2546,6 +2696,25 @@ function createMissionScreen(){
   ].join(";");
   panel.appendChild(subhead);
 
+  let activeMission=currentPlanetMission();
+  let goal=document.createElement("div");
+  goal.style.cssText=[
+    "border:1px solid rgba(154,248,255,0.2)",
+    "background:rgba(8,16,20,0.66)",
+    "padding:14px 16px",
+    "box-sizing:border-box",
+    "margin-bottom:16px"
+  ].join(";");
+  let goalLabel=document.createElement("div");
+  goalLabel.textContent="Mission Goal";
+  goalLabel.style.cssText="font-size:11px;font-weight:900;text-transform:uppercase;color:rgba(236,251,255,0.52);margin-bottom:7px";
+  let goalText=document.createElement("div");
+  goalText.textContent=activeMission.goal;
+  goalText.style.cssText="font-size:18px;font-weight:900;text-transform:uppercase;color:#efcf72;line-height:1.25";
+  goal.appendChild(goalLabel);
+  goal.appendChild(goalText);
+  panel.appendChild(goal);
+
   let status=document.createElement("div");
   status.style.cssText=[
     "display:grid",
@@ -2571,12 +2740,12 @@ function createMissionScreen(){
     cell.appendChild(labelEl);
     cell.appendChild(valueEl);
     status.appendChild(cell);
-    return valueEl;
+    return {labelEl,valueEl};
   }
 
-  let unitsEl=addStatus("Units",String(Math.max(0,Math.round(units || 0))));
-  let bossEl=addStatus("Boss bases",String((world.bossBases || []).filter(base=>base && base.active).length));
-  let scannerEl=addStatus("Scanner",scannerUnlocked() ? "Online" : "Locked");
+  let unitsStatus=addStatus("Units",String(Math.max(0,Math.round(units || 0))));
+  let objectiveStatus=addStatus(activeMission.statusLabel,activeMission.statusValue);
+  let scannerStatus=addStatus("Scanner",scannerUnlocked() ? "Online" : "Locked");
   panel.appendChild(status);
 
   let list=document.createElement("div");
@@ -2590,25 +2759,29 @@ function createMissionScreen(){
     "gap:12px"
   ].join(";");
 
-  for(let text of [
-    "Primary objective: locate and destroy active boss bases.",
-    "Earn units by destroying hostile robots, collecting treasures, and clearing villages.",
-    "Use field trading terminals to buy equipment and fuel."
-  ]){
-    let row=document.createElement("div");
-    row.textContent=text;
-    row.style.cssText="font-size:15px;font-weight:900;text-transform:uppercase;color:rgba(236,251,255,0.88)";
-    list.appendChild(row);
+  function setMissionLines(lines){
+    while(list.firstChild) list.removeChild(list.firstChild);
+    for(let text of lines){
+      let row=document.createElement("div");
+      row.textContent=text;
+      row.style.cssText="font-size:15px;font-weight:900;text-transform:uppercase;color:rgba(236,251,255,0.88)";
+      list.appendChild(row);
+    }
   }
+  setMissionLines(activeMission.lines);
   panel.appendChild(list);
 
   overlay.appendChild(panel);
   document.body.appendChild(overlay);
 
   function refresh(){
-    unitsEl.textContent=String(Math.max(0,Math.round(units || 0)));
-    bossEl.textContent=String((world.bossBases || []).filter(base=>base && base.active).length);
-    scannerEl.textContent=scannerUnlocked() ? "Online" : "Locked";
+    let mission=currentPlanetMission();
+    goalText.textContent=mission.goal;
+    unitsStatus.valueEl.textContent=String(Math.max(0,Math.round(units || 0)));
+    objectiveStatus.labelEl.textContent=mission.statusLabel;
+    objectiveStatus.valueEl.textContent=mission.statusValue;
+    scannerStatus.valueEl.textContent=scannerUnlocked() ? "Online" : "Locked";
+    setMissionLines(mission.lines);
   }
 
   function setVisible(visible){
@@ -3038,6 +3211,19 @@ function nearestBossBaseForCompass(state){
   return nearest;
 }
 
+function communicationOutpostsForCompass(){
+  if(!scannerUnlocked() || !missionCompassScannerFired) return [];
+  return Array.from(scannedRadarOutposts.values()).filter(outpost=>{
+    if(!outpost || outpost.missionId!==emberCommunicationMissionId) return false;
+    for(let activeOutpost of activeCommunicationMissionOutposts()){
+      let dx=activeOutpost.x-outpost.x;
+      let dz=activeOutpost.z-outpost.z;
+      if(dx*dx+dz*dz<16) return true;
+    }
+    return false;
+  });
+}
+
 let hud=createHud({
   getPerformanceMode:()=>gameMode==="double" ? "split" : "full",
   getPerformanceStressLevel:()=>currentFrameStressLevel,
@@ -3076,6 +3262,7 @@ let hud=createHud({
   getScannedPortals:()=>Array.from(scannedPortals.values()),
   getNearestTradingOutpost:nearestTradingOutpostForCompass,
   getNearestBossBase:nearestBossBaseForCompass,
+  getCompassRadarOutposts:communicationOutpostsForCompass,
   getTerrainHeight:(x,z)=>carSurfaceHeight(x,z),
   getStationState:()=>tradingOutpost ? ({
     x:tradingOutpost.position.x,
@@ -3106,6 +3293,136 @@ function showGameWon(source=null){
   hud.updateHealthHud();
   startTerraformFinale(source || playerCar);
 }
+
+function hideMissionCompleteOverlay(){
+  if(!missionCompleteOverlay) return;
+  missionCompleteOverlay.style.display="none";
+  missionCompleteControllerButtonDown=false;
+  missionCompleteShownAt=0;
+  missionCompleteInputReadyAt=0;
+  if(missionCompleteText){
+    missionCompleteText.style.opacity="0";
+    missionCompleteText.style.transform="scale(0.96)";
+  }
+}
+
+function missionCompleteOverlayVisible(){
+  return !!missionCompleteOverlay && missionCompleteOverlay.style.display!=="none";
+}
+
+function updateMissionCompleteReveal(now=performance.now()){
+  if(!missionCompleteShownAt) return false;
+  if(!missionCompleteOverlayVisible()){
+    if(now-missionCompleteShownAt<3000) return true;
+    gameOver=true;
+    gameWon=true;
+    freezeCarsForWin();
+    clearRockets();
+    clearEnemies();
+    hud.updateHealthHud();
+    if(motorAudio.stopMusic) motorAudio.stopMusic();
+    setGameAudioAllowed(false);
+    missionCompleteOverlay.style.display="flex";
+    missionCompleteText.style.opacity="0";
+    missionCompleteText.style.transform="scale(0.96)";
+    missionCompleteInputReadyAt=now+450;
+    missionCompleteControllerButtonDown=true;
+    if(document.pointerLockElement && document.exitPointerLock) document.exitPointerLock();
+    if(motorAudio.playMissionAccomplishedVoice) motorAudio.playMissionAccomplishedVoice();
+    return true;
+  }
+  if(missionCompleteText && missionCompleteText.style.opacity!=="1"){
+    missionCompleteText.style.opacity="1";
+    missionCompleteText.style.transform="scale(1)";
+  }
+  return true;
+}
+
+function returnToMainMenuAfterMission(){
+  if(!missionCompleteOverlayVisible()) return;
+  hideMissionCompleteOverlay();
+  if(document.pointerLockElement && document.exitPointerLock) document.exitPointerLock();
+  if(motorAudio.stopMusic) motorAudio.stopMusic();
+  setGameAudioAllowed(false);
+  motorAudio.setPaused(false);
+  gameStarted=false;
+  gameOver=false;
+  gameWon=false;
+  gamePaused=false;
+  tradingScreenOpen=false;
+  missionScreenOpen=false;
+  pauseMenu.setVisible(false);
+  missionScreen.setVisible(false);
+  tradingScreen.setVisible(false);
+  clearStartWorldPreview();
+  let startScreen=document.getElementById("startScreen");
+  if(startScreen){
+    startScreen.style.display="";
+    startScreen.classList.remove("is-fullscreen-transition");
+  }
+  setupStartWorldPreview();
+  refreshStartPlanetButtons();
+  updateStartupLoadingState();
+  updateLoadGameButton();
+  fixedAccumulator=0;
+  lastLoopTime=null;
+}
+
+function updateMissionCompleteInput(){
+  if(!missionCompleteShownAt){
+    missionCompleteControllerButtonDown=false;
+    return false;
+  }
+
+  let now=performance.now();
+  updateMissionCompleteReveal(now);
+  if(!missionCompleteOverlayVisible()) return false;
+  if(now<missionCompleteInputReadyAt) return true;
+
+  let controllerButton=activeCars().some(car=>{
+    let buttons=input.getGamepadFaceButtons(car.gamepadIndex);
+    return buttons.rightTrigger || buttons.rightBumper;
+  });
+  if(controllerButton && !missionCompleteControllerButtonDown){
+    returnToMainMenuAfterMission();
+  }
+  missionCompleteControllerButtonDown=controllerButton;
+  return true;
+}
+
+function showMissionAccomplished(missionId){
+  if(gameOver || missionCompleteShownAt) return;
+  markMissionCompleted(missionId);
+  if(missionCompleteOverlay){
+    let now=performance.now();
+    missionCompleteShownAt=now;
+    missionCompleteInputReadyAt=0;
+    missionCompleteControllerButtonDown=true;
+    missionCompleteOverlay.style.display="none";
+    missionCompleteText.style.opacity="0";
+    missionCompleteText.style.transform="scale(0.96)";
+  }
+}
+
+missionCompleteOverlay.addEventListener("click",event=>{
+  if(performance.now()<missionCompleteInputReadyAt) return;
+  if(event.target && event.target.closest && event.target.closest("#missionCompleteOverlay button")) return;
+  returnToMainMenuAfterMission();
+});
+missionCompleteBackButton.addEventListener("click",event=>{
+  event.preventDefault();
+  event.stopPropagation();
+  playMenuClickFeedback();
+  returnToMainMenuAfterMission();
+});
+window.addEventListener("pointerdown",event=>{
+  if(!missionCompleteOverlayVisible() || event.button!==0) return;
+  if(performance.now()<missionCompleteInputReadyAt) return;
+  if(event.target && event.target.closest && event.target.closest("#missionCompleteOverlay button")) return;
+  event.preventDefault();
+  event.stopPropagation();
+  returnToMainMenuAfterMission();
+},true);
 
 function freezeCarsForWin(){
   for(let car of activeCars()){
@@ -3453,6 +3770,8 @@ function clearStartWorldPreview(){
   clearTradingOutpost();
   clearTestingTradingOutpost();
   clearTestingRadarOutpost();
+  missionCommunicationOutposts=[];
+  if(world.clearMissionRadarOutposts) world.clearMissionRadarOutposts();
   clearStartSequence();
   clearTerraformFinale();
   clearSurfaceScanPulses();
@@ -3470,7 +3789,9 @@ function setupStartWorldPreview(){
   placeTradingOutpostNearStart(initialStartInfo);
   placeTestingTradingOutpostNearHomeBase();
   placeStartingCarsAtBaseEntrance("double",false);
-  world.placeTestBossBaseNearStart(playerCar.x,playerCar.z,playerCar.angle,{nearStart:true});
+  if(currentPlanetMission().id!==emberCommunicationMissionId){
+    world.placeTestBossBaseNearStart(playerCar.x,playerCar.z,playerCar.angle,{nearStart:true});
+  }
   playerCar.cameraYaw=playerCar.angle;
   secondCar.cameraYaw=secondCar.angle;
   updateCameras();
@@ -4091,6 +4412,7 @@ function destroyWorldObstacle(obstacle){
   if(obstacle.type==="radarOutpost"){
     forgetScannedRadarOutpost(obstacle);
     if(hud) hud.updateMapHud(true);
+    updatePlanetMissionAfterOutpostDestroyed(obstacle);
   }
 
   if(obstacle.village && world.isVillageCleared(obstacle.village) && !scoredVillages.has(obstacle.village)){
@@ -4102,7 +4424,7 @@ function destroyWorldObstacle(obstacle){
 }
 
 function obstacleMaxHealth(obstacle){
-  if(obstacle && obstacle.type==="radarOutpost") return 92;
+  if(obstacle && obstacle.type==="radarOutpost") return obstacle.missionId ? 520 : 92;
   if(!obstacle || obstacle.type!=="building") return 1;
 
   let height=obstacle.visualHeight || obstacle.height || 8;
@@ -4120,6 +4442,9 @@ function damageWorldObstacle(obstacle,amount=1){
   if(!Number.isFinite(obstacle.health)) obstacle.health=obstacle.maxHealth;
 
   obstacle.health=Math.max(0,obstacle.health-amount);
+  if(obstacle.type==="radarOutpost" && obstacle.health>0){
+    requestMissionOutpostDefense(obstacle);
+  }
   if(obstacle.health>0) return false;
 
   return destroyWorldObstacle(obstacle);
@@ -8665,7 +8990,7 @@ function damageMothership(x,y,z,amount=1){
 }
 
 function spawnMothership(){
-  if(mothership || gameOver || activeEnemies().length>10) return false;
+  if(mothership || gameOver || ambientEnemyCount()>10) return false;
 
   let center=playerCenter();
   let angle=Math.random()*Math.PI*2;
@@ -8722,7 +9047,7 @@ function spawnMothership(){
 }
 
 function dropSpiderFromMothership(){
-  if(!mothership || activeEnemies().length>14) return false;
+  if(!mothership || ambientEnemyCount()>14) return false;
 
   let rightX=Math.cos(mothership.group.rotation.y);
   let rightZ=-Math.sin(mothership.group.rotation.y);
@@ -8968,8 +9293,40 @@ function updateEnemy(enemy){
   }
   let desiredAngle=targetAngle;
   let desiredSpeed;
+  let missionOutpostActive=enemy.missionOutpost && !enemy.missionOutpost.destroyed;
 
-  if(enemy.isBuggy){
+  if(missionOutpostActive){
+    let homeX=Number.isFinite(enemy.guardX) ? enemy.guardX : enemy.missionOutpost.x;
+    let homeZ=Number.isFinite(enemy.guardZ) ? enemy.guardZ : enemy.missionOutpost.z;
+    let homeDx=homeX-enemy.x;
+    let homeDz=homeZ-enemy.z;
+    let homeDistance=Math.hypot(homeDx,homeDz);
+    let homeAngle=Math.atan2(homeDx,homeDz);
+    let outpostDx=enemy.missionOutpost.x-enemy.x;
+    let outpostDz=enemy.missionOutpost.z-enemy.z;
+    let outpostDistance=Math.hypot(outpostDx,outpostDz);
+    let engageDistance=enemy.isDrone ? 420 : enemy.isBuggy ? 360 : 320;
+    let leashDistance=enemy.isDrone ? 260 : 210;
+
+    if(distance<engageDistance && outpostDistance<leashDistance){
+      desiredAngle=targetAngle;
+      desiredSpeed=enemy.isDrone ? 0.3 : enemy.isBuggy ? 0.32 : 0.22;
+      if(distance<70){
+        desiredAngle=targetAngle+Math.PI+enemy.aiStrafe*0.28;
+        desiredSpeed=enemy.isBuggy ? 0.18 : 0.12;
+      }
+    }else if(homeDistance>18){
+      desiredAngle=homeAngle;
+      desiredSpeed=enemy.isDrone ? 0.24 : enemy.isBuggy ? 0.2 : 0.14;
+    }else{
+      let patrolTime=performance.now()*0.00045*(enemy.aiStrafe || 1)+enemy.guardPhase;
+      let radius=enemy.guardRadius || 86;
+      let patrolX=enemy.missionOutpost.x+Math.sin(patrolTime)*radius;
+      let patrolZ=enemy.missionOutpost.z+Math.cos(patrolTime)*radius;
+      desiredAngle=Math.atan2(patrolX-enemy.x,patrolZ-enemy.z);
+      desiredSpeed=enemy.isDrone ? 0.16 : enemy.isBuggy ? 0.12 : 0.07;
+    }
+  }else if(enemy.isBuggy){
     let minDistance=76;
     let preferredDistance=138;
     let farDistance=210;
@@ -9221,7 +9578,8 @@ function updateEnemies(){
       && ((enemy.lodFrame=(enemy.lodFrame || 0)+1)%farEnemyUpdateEvery!==0);
 
     if(!skipFarUpdate) updateEnemy(enemy);
-    if(enemy.active && distSq>720*720){
+    let missionGuardActive=enemy.missionOutpost && !enemy.missionOutpost.destroyed;
+    if(enemy.active && distSq>720*720 && !missionGuardActive){
       enemy.active=false;
       enemy.group.visible=false;
       if(enemy.shadow){
@@ -9233,7 +9591,8 @@ function updateEnemies(){
   }
   enemies=enemies.filter(enemy=>enemy.active);
 
-  if(activeEnemies().length<=1){
+  let ambientCount=ambientEnemyCount();
+  if(ambientCount<=1){
     if(enemyWaveDelay>0) enemyWaveDelay--;
     else{
       if(spawnEnemyWave()){
@@ -9246,7 +9605,7 @@ function updateEnemies(){
 
   if(enemyPatrolDelay>0) enemyPatrolDelay--;
   else{
-    if(activeEnemies().length<8 && spawnEnemyPatrol()){
+    if(ambientCount<8 && spawnEnemyPatrol()){
       enemyPatrolDelay=scaledDelay(1500+Math.floor(Math.random()*1200),settings.patrolDelay);
     }else{
       enemyPatrolDelay=scaledDelay(360,settings.patrolDelay);
@@ -13361,7 +13720,8 @@ function scanVisibleChunksForRadarOutposts(){
         scannedRadarOutposts.set(key,{
           x:obstacle.x,
           z:obstacle.z,
-          r:obstacle.r || 8
+          r:obstacle.r || 8,
+          missionId:obstacle.missionId || null
         });
         found=true;
       }
@@ -13677,6 +14037,7 @@ function updateScannerMode(){
   let scannerReady=now>=scannerReadyAt;
   if(scannerPressed && !scannerKeyDown && scannerReady && gameStarted && !gamePaused && !terminalOverlayOpen() && !gameOver){
     scannerReadyAt=now+scannerCooldownMs;
+    missionCompassScannerFired=true;
     if(motorAudio.playScannerPulse) motorAudio.playScannerPulse();
     for(let car of activeCars()) spawnSurfaceScanPulse(car);
     scanVisibleChunksForMapFeatures();
@@ -13822,6 +14183,12 @@ function loop(timestamp=performance.now()){
   }
 
   updateControllerMenuInput();
+  if(updateMissionCompleteInput()){
+    fixedAccumulator=0;
+    updateCameras();
+    renderGame();
+    return;
+  }
 
   if(gamePaused){
     fixedAccumulator=0;
@@ -14153,6 +14520,113 @@ function spawnBossBaseGuards(){
   }
 }
 
+function missionOutpostDefensePoint(outpost,index,count=3,dist=58){
+  let angle=(outpost && Number.isFinite(outpost.missionIndex) ? outpost.missionIndex*0.48 : 0)
+    +(index/count)*Math.PI*2
+    +Math.PI*0.18;
+  return {
+    x:outpost.x+Math.sin(angle)*dist,
+    z:outpost.z+Math.cos(angle)*dist,
+    angle
+  };
+}
+
+function spawnMissionOutpostGuard(outpost,index,count){
+  if(!outpost) return false;
+
+  let point=null;
+  for(let attempt=0;attempt<8 && !point;attempt++){
+    let dist=92+(attempt%4)*32+Math.floor(attempt/4)*22+(index%3)*12;
+    let candidate=missionOutpostDefensePoint(outpost,index+attempt*count,count,dist);
+    if(waterDepthAt(candidate.x,candidate.z)>1.2) continue;
+    if(world.collidesWithObstacles(candidate.x,candidate.z)) continue;
+    point=candidate;
+  }
+  if(!point) return false;
+
+  let type="guard";
+  if(index%4===1) type="buggy";
+  else if(index%5===3) type="drone";
+  else if(gameDifficulty==="hard" && index%7===5) type="giant";
+  let defender=createEnemyState(++enemySpawnSerial,point.x,point.z,type);
+  defender.isPatrol=true;
+  defender.missionOutpost=outpost;
+  defender.guardX=point.x;
+  defender.guardZ=point.z;
+  defender.guardRadius=84+(index%4)*18;
+  defender.guardPhase=Math.random()*Math.PI*2;
+  defender.angle=Math.atan2(outpost.x-point.x,outpost.z-point.z);
+  defender.velAngle=defender.angle;
+  defender.cannonCooldown=Math.min(defender.cannonCooldown || 90,18+Math.floor(Math.random()*38));
+  defender.group.position.set(defender.x,defender.y,defender.z);
+  defender.group.rotation.y=defender.angle;
+  if(defender.shadow) defender.shadow.update({carX:defender.x,carZ:defender.z,carY:defender.y,surfaceY:defender.y,carVelAngle:defender.angle});
+  enemies.push(defender);
+  spawnEnemyTeleportEffect(defender);
+  return true;
+}
+
+function spawnMissionOutpostGuardsForOutpost(outpost){
+  if(!outpost || outpost.destroyed || outpost.guardsSpawned) return 0;
+
+  let guardCount=gameDifficulty==="hard" ? 7 : gameDifficulty==="easy" ? 4 : 5;
+  let spawned=0;
+  for(let i=0;i<guardCount*5 && spawned<guardCount;i++){
+    if(spawnMissionOutpostGuard(outpost,i,guardCount*5)) spawned++;
+  }
+  if(spawned>0) outpost.guardsSpawned=true;
+  return spawned;
+}
+
+function requestMissionOutpostDefense(outpost){
+  if(!outpost || outpost.missionId!==emberCommunicationMissionId) return;
+  spawnMissionOutpostGuardsForOutpost(outpost);
+}
+
+function seedMissionOutpostsOnMap(outposts){
+  for(let i=0;i<outposts.length;i++){
+    let outpost=outposts[i];
+    if(!outpost) continue;
+    scannedRadarOutposts.set(`mission:${outpost.missionId || "outpost"}:${i}`,{
+      x:outpost.x,
+      z:outpost.z,
+      r:outpost.r || 8,
+      missionId:outpost.missionId || null
+    });
+  }
+  if(hud) hud.updateMapHud(true);
+}
+
+function setupCurrentPlanetMission(){
+  missionCommunicationOutposts=[];
+  if(world.clearMissionRadarOutposts) world.clearMissionRadarOutposts();
+
+  if(currentPlanetMission().id!==emberCommunicationMissionId) return false;
+
+  if(world.clearBossBases) world.clearBossBases();
+  missionCommunicationOutposts=world.placeMissionRadarOutpostsNearStart
+    ? world.placeMissionRadarOutpostsNearStart(
+      playerCar.x,
+      playerCar.z,
+      playerCar.angle,
+      emberCommunicationOutpostCount,
+      {missionId:emberCommunicationMissionId}
+    )
+    : [];
+  seedMissionOutpostsOnMap(missionCommunicationOutposts);
+  if(missionScreen) missionScreen.update();
+  return true;
+}
+
+function updatePlanetMissionAfterOutpostDestroyed(obstacle){
+  if(!obstacle || obstacle.missionId!==emberCommunicationMissionId) return;
+  if(missionScreen) missionScreen.update();
+  if(activeCommunicationMissionOutposts().length>0) return;
+
+  if(motorAudio.stopMusic) motorAudio.stopMusic();
+  showMissionAccomplished(emberCommunicationMissionId);
+}
+
 function startGame(mode,difficulty="medium",savedStatus=null){
   gameMode=mode;
   gameDifficulty=difficultySettings[difficulty] ? difficulty : "medium";
@@ -14175,6 +14649,8 @@ function startGame(mode,difficulty="medium",savedStatus=null){
   clearTradingOutpost();
   clearTestingTradingOutpost();
   clearTestingRadarOutpost();
+  missionCommunicationOutposts=[];
+  if(world.clearMissionRadarOutposts) world.clearMissionRadarOutposts();
   clearStartSequence();
   clearTerraformFinale();
   pendingBossFinale=null;
@@ -14207,6 +14683,7 @@ function startGame(mode,difficulty="medium",savedStatus=null){
   tradingPlaceCollisions=[];
   scannerKeyDown=false;
   scannerReadyAt=0;
+  missionCompassScannerFired=false;
   playerCar.damageZones=createRobotDamageState();
   secondCar.damageZones=createRobotDamageState();
   playerCar.damageFlashZones=createRobotDamageState();
@@ -14236,8 +14713,10 @@ function startGame(mode,difficulty="medium",savedStatus=null){
   placeTradingOutpostNearStart(startInfo);
   placeTestingTradingOutpostNearHomeBase();
   if(!savedStatus) placeStartingCarsAtBaseEntrance(mode,!testingSkipIntro);
-  world.placeTestBossBaseNearStart(playerCar.x,playerCar.z,playerCar.angle);
-  spawnBossBaseGuards();
+  if(!setupCurrentPlanetMission()){
+    world.placeTestBossBaseNearStart(playerCar.x,playerCar.z,playerCar.angle);
+    spawnBossBaseGuards();
+  }
   setCarActive(playerCar,true);
   setCarActive(secondCar,mode==="double");
   if(!savedStatus) spawnTestingRocketBuggiesAtStart();
@@ -14315,7 +14794,14 @@ if(startScreen){
   }
   function updatePlanetSelectionButtons(selectedIndex){
     startScreen.querySelectorAll("[data-planet]").forEach(button=>{
-      button.classList.toggle("is-selected",Number(button.dataset.planet)===selectedIndex);
+      let index=Number(button.dataset.planet);
+      let environment=worldEnvironments[index];
+      let completed=environmentMissionCompleted(environment);
+      button.classList.toggle("is-selected",index===selectedIndex);
+      button.classList.toggle("is-completed",completed);
+      button.textContent=completed
+        ? `${environment.name || `Planet ${index+1}`} - completed`
+        : environment.name || `Planet ${index+1}`;
     });
     startScreen.dataset.environmentIndex=String(selectedIndex);
   }
@@ -14329,12 +14815,21 @@ if(startScreen){
       let button=document.createElement("button");
       button.type="button";
       button.dataset.planet=String(index);
-      button.textContent=environment.name || `Planet ${index+1}`;
+      let completed=environmentMissionCompleted(environment);
+      button.textContent=completed
+        ? `${environment.name || `Planet ${index+1}`} - completed`
+        : environment.name || `Planet ${index+1}`;
       button.classList.toggle("is-selected",index===selectedIndex);
+      button.classList.toggle("is-completed",completed);
       planetOptions.appendChild(button);
     });
     startScreen.dataset.environmentIndex=String(selectedIndex);
   }
+  refreshStartPlanetButtons=()=>{
+    let selectedIndex=Number(startScreen.dataset.environmentIndex);
+    if(!Number.isFinite(selectedIndex)) selectedIndex=worldEnvironments.indexOf(currentEnvironment);
+    updatePlanetSelectionButtons(selectedIndex);
+  };
   initPlanetSelectionMenu();
   startPlanetPreview=initStartPlanetPreview();
   if(startPlanetPreview) startPlanetPreview.setEnvironment(currentEnvironment);

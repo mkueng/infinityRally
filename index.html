@@ -805,6 +805,13 @@
       box-shadow: 0 0 14px rgba(103,244,255,0.34);
     }
 
+    .planet-actions button.is-completed {
+      background: #64d968;
+      border-color: #b8ffba;
+      color: #071d10;
+      box-shadow: 0 0 14px rgba(100,217,104,0.34);
+    }
+
     .asset-loading,
     .planet-loading {
       display: flex;
@@ -940,7 +947,7 @@
       top: 0;
       width: 34px;
       height: 42px;
-      z-index: 45;
+      z-index: 160;
       pointer-events: none;
       transform: translate3d(calc(50vw - 17px), calc(50vh - 21px), 0);
       filter: drop-shadow(0 7px 10px rgba(0,0,0,0.38));
@@ -1140,13 +1147,16 @@
       return startScreen.style.display !== "none"
         || visibleMenuElement("pauseMenuOverlay")
         || visibleMenuElement("missionTerminalOverlay")
-        || visibleMenuElement("tradingTerminalOverlay");
+        || visibleMenuElement("tradingTerminalOverlay")
+        || visibleMenuElement("missionCompleteOverlay");
     }
 
     function activeMenuRoot() {
+      const missionComplete = visibleMenuElement("missionCompleteOverlay");
       const tradingTerminal = visibleMenuElement("tradingTerminalOverlay");
       const missionTerminal = visibleMenuElement("missionTerminalOverlay");
       const pauseMenu = visibleMenuElement("pauseMenuOverlay");
+      if (missionComplete) return missionComplete;
       if (tradingTerminal) return tradingTerminal;
       if (missionTerminal) return missionTerminal;
       if (pauseMenu) return pauseMenu;
@@ -1180,7 +1190,11 @@
 
     window.addEventListener("pointermove", event => {
       if (!menuVisible()) return;
-      setCursorPosition(event.clientX, event.clientY);
+      if (document.pointerLockElement) {
+        setCursorPosition(cursorX + (event.movementX || 0), cursorY + (event.movementY || 0));
+      } else {
+        setCursorPosition(event.clientX, event.clientY);
+      }
       updateCursorVisibility();
     });
 
@@ -1255,7 +1269,7 @@
     }
   }
 </script>
-<script type="module" src="./src/main.js?v=car-first-person-cockpit"></script>
+<script type="module" src="./src/main.js?v=tougher-comms-outposts"></script>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js";
   import { getAnalytics, isSupported } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-analytics.js";

@@ -13,6 +13,7 @@ export function createWorld(scene,options={}){
   let bossBases=[];
   let bossBaseColliders=[];
   let testingRadarOutpost=null;
+  let missionRadarOutposts=[];
   let landingSpaceModel=null;
   let treasureChestModels=[];
   let treasureHoleChance=0.24;
@@ -1462,10 +1463,10 @@ function destroyObstacle(obstacle){
   return true;
 }
 
-function clearTestingRadarOutpost(){
-  if(!testingRadarOutpost) return;
+function disposeRadarOutpostRecord(record){
+  if(!record) return;
 
-  let {object,collider,chunk}=testingRadarOutpost;
+  let {object,collider,chunk}=record;
   if(chunk && chunk.colliders){
     let colliderIndex=chunk.colliders.indexOf(collider);
     if(colliderIndex>=0) chunk.colliders.splice(colliderIndex,1);
@@ -1482,13 +1483,23 @@ function clearTestingRadarOutpost(){
   if(object && object.parent) object.parent.remove(object);
   else if(object) scene.remove(object);
   disposeRadarOutpostObject(object);
+}
 
+function clearTestingRadarOutpost(){
+  if(!testingRadarOutpost) return;
+
+  disposeRadarOutpostRecord(testingRadarOutpost);
   testingRadarOutpost=null;
 }
 
-function placeTestRadarOutpost(x,z,angle=0){
-  clearTestingRadarOutpost();
+function clearMissionRadarOutposts(){
+  for(let record of missionRadarOutposts){
+    disposeRadarOutpostRecord(record);
+  }
+  missionRadarOutposts.length=0;
+}
 
+function createRadarOutpostRecord(x,z,angle=0,options={}){
   if(!Number.isFinite(x) || !Number.isFinite(z)) return null;
 
   let cx=Math.floor(x/chunkSize);
@@ -1503,6 +1514,7 @@ function placeTestRadarOutpost(x,z,angle=0){
 
   let y=groundHeight(x,z);
   let outpost=makeRadarOutpost(x,y,z,angle);
+  let health=options.missionId ? 520 : 92;
   let collider={
     x,
     baseY:y,
@@ -1514,9 +1526,14 @@ function placeTestRadarOutpost(x,z,angle=0){
     visualHeight:23.7,
     type:"radarOutpost",
     object:outpost,
-    health:92,
-    maxHealth:92
+    health,
+    maxHealth:health
   };
+  if(options.missionId){
+    collider.missionId=options.missionId;
+    collider.missionTarget=true;
+    collider.missionIndex=Number.isFinite(options.missionIndex) ? options.missionIndex : 0;
+  }
 
   outpost.userData.collider=collider;
   chunk.colliders=chunk.colliders || [];
@@ -1524,8 +1541,101 @@ function placeTestRadarOutpost(x,z,angle=0){
   chunk.colliders.push(collider);
   chunk.radarOutposts.push(outpost);
   chunk.root.add(outpost);
-  testingRadarOutpost={object:outpost,collider,chunk};
-  return collider;
+
+  return {object:outpost,collider,chunk};
+}
+
+function placeTestRadarOutpost(x,z,angle=0){
+  clearTestingRadarOutpost();
+
+  let record=createRadarOutpostRecord(x,z,angle);
+  if(!record) return null;
+
+  testingRadarOutpost=record;
+  return record.collider;
+}
+
+function placeMissionRadarOutpostsNearStart(startX,startZ,startAngle=0,count=3,options={}){
+  clearMissionRadarOutposts();
+
+  if(!Number.isFinite(startX) || !Number.isFinite(startZ)) return [];
+  count=Math.max(1,Math.floor(count || 1));
+
+  let forwardX=Math.sin(startAngle);
+  let forwardZ=Math.cos(startAngle);
+  let rightX=Math.cos(startAngle);
+  let rightZ=-Math.sin(startAngle);
+  let offsets=[
+    {forward:8200,side:-900},
+    {forward:9000,side:2100},
+    {forward:10350,side:-1600},
+    {forward:8400,side:-3100},
+    {forward:9600,side:3400},
+    {forward:11600,side:800},
+    {forward:8900,side:4300},
+    {forward:10800,side:-3600},
+    {forward:8100,side:2900},
+    {forward:11900,side:-1200},
+    {forward:9700,side:-4600},
+    {forward:11200,side:2500}
+  ];
+  let candidates=offsets.map(offset=>({
+    x:startX+forwardX*offset.forward+rightX*offset.side,
+    z:startZ+forwardZ*offset.forward+rightZ*offset.side,
+    angle:startAngle+Math.PI+(offset.side<0 ? -0.18 : 0.18)
+  }));
+
+  updateChunksForCenters(candidates.map(candidate=>({
+    x:candidate.x,
+    z:candidate.z,
+    viewDistance:1
+  })));
+  processChunkQueue(240,true);
+
+  let placed=[];
+  let minOutpostSpacing=1100;
+  let minOutpostSpacingSq=minOutpostSpacing*minOutpostSpacing;
+  function farEnoughFromPlaced(candidate){
+    return placed.every(outpost=>{
+      let dx=outpost.x-candidate.x;
+      let dz=outpost.z-candidate.z;
+      return dx*dx+dz*dz>=minOutpostSpacingSq;
+    });
+  }
+
+  for(let candidate of candidates){
+    if(placed.length>=count) break;
+    if(!farEnoughFromPlaced(candidate)) continue;
+
+    let y=groundHeight(candidate.x,candidate.z);
+    if(y<waterLevel+2.6 || y>42) continue;
+    if(collidesWithObstacles(candidate.x,candidate.z)) continue;
+
+    let record=createRadarOutpostRecord(candidate.x,candidate.z,candidate.angle,{
+      missionId:options.missionId,
+      missionIndex:placed.length
+    });
+    if(!record) continue;
+
+    missionRadarOutposts.push(record);
+    placed.push(record.collider);
+  }
+
+  for(let candidate of candidates){
+    if(placed.length>=count) break;
+    if(!farEnoughFromPlaced(candidate)) continue;
+
+    let record=createRadarOutpostRecord(candidate.x,candidate.z,candidate.angle,{
+      missionId:options.missionId,
+      missionIndex:placed.length
+    });
+    if(!record) continue;
+
+    missionRadarOutposts.push(record);
+    placed.push(record.collider);
+  }
+
+  return placed;
 }
 
 function isVillageCleared(village){
@@ -2830,7 +2940,8 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   }
 
   let radarRoll=r01(cx*3181+29,cz*2417-53);
-  let radarOutpostTarget=buildChunkFeatures && radarRoll<(cityMode ? 0.03 : 0.07) ? 1 : 0;
+  let disableProceduralRadarOutposts=((currentEnvironment && currentEnvironment.name) || "").toLowerCase()==="ember badlands";
+  let radarOutpostTarget=buildChunkFeatures && !disableProceduralRadarOutposts && radarRoll<(cityMode ? 0.03 : 0.07) ? 1 : 0;
   for(let i=0;i<radarOutpostTarget;i++){
     for(let attempt=0;attempt<16;attempt++){
       let rx=r01(cx*1973+i*131+attempt*17,cz*2657-i*61-attempt*23);
@@ -2937,6 +3048,23 @@ function updateChunksForCenters(centers){
           chunkQueue.push({cx,cz,key});
         }
       }
+    }
+  }
+
+  for(let record of missionRadarOutposts){
+    let collider=record && record.collider;
+    if(!collider || collider.destroyed) continue;
+
+    let cx=Math.floor(collider.x/chunkSize);
+    let cz=Math.floor(collider.z/chunkSize);
+    let key=chunkKey(cx,cz);
+    neededChunks.add(key);
+    if(!chunkDetails.has(key)){
+      chunkDetails.set(key,{treeDensity:0.18,partDensity:0.28,grassDensity:0.18,featureDensity:1});
+    }
+    if(!chunks.has(key) && !queuedChunks.has(key)){
+      queuedChunks.add(key);
+      chunkQueue.push({cx,cz,key});
     }
   }
 
@@ -3522,6 +3650,9 @@ function holeSurfaceHeightAt(x,z){
     isVillageCleared,
     placeTestRadarOutpost,
     clearTestingRadarOutpost,
+    missionRadarOutposts,
+    placeMissionRadarOutpostsNearStart,
+    clearMissionRadarOutposts,
     placeTestBossBaseNearStart,
     clearBossBases,
     findCityDistrictNearRoad,

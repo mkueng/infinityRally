@@ -1091,6 +1091,10 @@ export function createMotorAudio(cars){
     speakRoboticSystemPhrase("Mission. Initiated.");
   }
 
+  function playMissionAccomplishedVoice(){
+    speakRoboticSystemPhrase("Mission. Accomplished.");
+  }
+
   function playLandingSequenceVoice(){
     speakRoboticSystemPhrase("Landing. Sequence. Initiated.");
   }
@@ -1468,6 +1472,7 @@ export function createMotorAudio(cars){
     playTerminalBleep,
     playMenuClick,
     playMissionInitiatedVoice,
+    playMissionAccomplishedVoice,
     playLandingSequenceVoice,
     startMothershipHum,
     updateMothershipHum,

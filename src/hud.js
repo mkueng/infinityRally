@@ -18,7 +18,7 @@ const compassArcStroke="rgba(178,187,188,0.62)";
 const compassArcMajorStroke="rgba(216,222,222,0.78)";
 const compassArcMinorStroke="rgba(178,187,188,0.42)";
 
-export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStationState=()=>null,getNearestTradingOutpost=()=>null,getNearestBossBase=()=>null,getScannedBossBases=()=>[],getScannedTradingOutposts=()=>[],getScannedRadarOutposts=()=>[],getScannedLandingSpaces=()=>[],getScannedPortals=()=>[],getPerformanceMode=()=>"full",getPerformanceStressLevel=()=>0,getFirstPersonMode=()=>false,getEnvironment=()=>({}),getTerrainHeight=()=>0}){
+export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStationState=()=>null,getNearestTradingOutpost=()=>null,getNearestBossBase=()=>null,getCompassRadarOutposts=()=>[],getScannedBossBases=()=>[],getScannedTradingOutposts=()=>[],getScannedRadarOutposts=()=>[],getScannedLandingSpaces=()=>[],getScannedPortals=()=>[],getPerformanceMode=()=>"full",getPerformanceStressLevel=()=>0,getFirstPersonMode=()=>false,getEnvironment=()=>({}),getTerrainHeight=()=>0}){
   let panels=[];
   let gameOverOverlay;
   let mapUpdateFrame=0;
@@ -1084,15 +1084,16 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
         p.y=Math.max(margin,Math.min(size-margin,p.y));
       }
 
-      let dishRadius=7.2+pulse*1.2;
+      let markerScale=outpost.missionId ? 1.55 : 1.18;
+      let dishRadius=(7.2+pulse*1.2)*markerScale;
       mapCtx.save();
       mapCtx.translate(p.x,p.y);
       mapCtx.globalAlpha=offMap ? 0.7 : 1;
       mapCtx.shadowColor=palette.scannedRadarStroke;
-      mapCtx.shadowBlur=5+pulse*5;
+      mapCtx.shadowBlur=(5+pulse*5)*markerScale;
       mapCtx.strokeStyle=palette.scannedRadarStroke;
       mapCtx.fillStyle=palette.scannedRadarFill;
-      mapCtx.lineWidth=1.7;
+      mapCtx.lineWidth=1.7*markerScale;
       mapCtx.beginPath();
       mapCtx.arc(0,-1,dishRadius,Math.PI*1.05,Math.PI*1.95);
       mapCtx.lineTo(0,-1);
@@ -1103,15 +1104,15 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       mapCtx.shadowBlur=0;
       mapCtx.beginPath();
       mapCtx.moveTo(0,-1);
-      mapCtx.lineTo(0,8);
-      mapCtx.moveTo(-5,8);
-      mapCtx.lineTo(5,8);
+      mapCtx.lineTo(0,8*markerScale);
+      mapCtx.moveTo(-5*markerScale,8*markerScale);
+      mapCtx.lineTo(5*markerScale,8*markerScale);
       mapCtx.stroke();
 
       mapCtx.strokeStyle=`rgba(245,255,249,${0.34+pulse*0.3})`;
-      mapCtx.lineWidth=1.05;
+      mapCtx.lineWidth=1.05*markerScale;
       for(let i=0;i<3;i++){
-        let wave=dishRadius+3+i*3+pulse*2;
+        let wave=dishRadius+(3+i*3+pulse*2)*markerScale;
         mapCtx.beginPath();
         mapCtx.arc(0,-1,wave,Math.PI*1.16,Math.PI*1.84);
         mapCtx.stroke();
@@ -1412,6 +1413,66 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     ctx.restore();
   }
 
+  function drawCompassRadarOutpostMarkers(ctx,state,cx,cy,radius,arcHalf,viewHalf,palette){
+    let outposts=getCompassRadarOutposts(state);
+    if(!outposts || !outposts.length) return;
+
+    let heading=state.carVelAngle || 0;
+    let pulse=0.5+0.5*Math.sin(performance.now()*0.0072);
+    for(let outpost of outposts){
+      if(!outpost) continue;
+
+      let dx=outpost.x-state.carX;
+      let dz=outpost.z-state.carZ;
+      if(dx*dx+dz*dz<1) continue;
+
+      let outpostAngle=Math.atan2(dx,dz);
+      let delta=normalizeAngle(outpostAngle-heading);
+      let inView=Math.abs(delta)<=viewHalf;
+      let t=Math.max(-1,Math.min(1,delta/viewHalf));
+      let theta=-Math.PI/2+t*arcHalf;
+      let markerRadius=radius-22;
+      let x=cx+Math.cos(theta)*markerRadius;
+      let y=cy+Math.sin(theta)*markerRadius;
+      let scale=outpost.missionId ? 1.16 : 1;
+      let alpha=inView ? 0.82+pulse*0.16 : 0.46+pulse*0.16;
+      let dishRadius=(7+pulse*1.2)*scale;
+
+      ctx.save();
+      ctx.translate(x,y);
+      ctx.globalAlpha=alpha;
+      ctx.shadowColor=palette.scannedRadarStroke;
+      ctx.shadowBlur=5+pulse*6;
+      ctx.strokeStyle=palette.scannedRadarStroke;
+      ctx.fillStyle=palette.scannedRadarFill;
+      ctx.lineWidth=1.7*scale;
+      ctx.beginPath();
+      ctx.arc(0,-3*scale,dishRadius,Math.PI*1.06,Math.PI*1.94);
+      ctx.lineTo(0,-3*scale);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.shadowBlur=0;
+
+      ctx.beginPath();
+      ctx.moveTo(0,-3*scale);
+      ctx.lineTo(0,8*scale);
+      ctx.moveTo(-5.2*scale,8*scale);
+      ctx.lineTo(5.2*scale,8*scale);
+      ctx.stroke();
+
+      ctx.strokeStyle=`rgba(245,255,249,${0.34+pulse*0.34})`;
+      ctx.lineWidth=1.05*scale;
+      for(let i=0;i<2;i++){
+        let wave=dishRadius+(3+i*3+pulse*2)*scale;
+        ctx.beginPath();
+        ctx.arc(0,-3*scale,wave,Math.PI*1.18,Math.PI*1.82);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+
   function drawCompassPlayerMarker(ctx,state,allStates,cx,cy,radius,arcHalf,viewHalf){
     if(!state || !Array.isArray(allStates) || allStates.length<2) return;
 
@@ -1536,6 +1597,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
 
     drawCompassStationMarker(ctx,state,cx,cy,radius,arcHalf,viewHalf,palette);
     drawCompassBossBaseMarker(ctx,state,cx,cy,radius,arcHalf,viewHalf,palette);
+    drawCompassRadarOutpostMarkers(ctx,state,cx,cy,radius,arcHalf,viewHalf,palette);
     drawCompassTradingOutpostMarker(ctx,state,cx,cy,radius,arcHalf,viewHalf,palette);
     drawCompassPlayerMarker(ctx,state,allStates,cx,cy,radius,arcHalf,viewHalf);
 
