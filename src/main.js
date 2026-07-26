@@ -828,39 +828,49 @@ function createFirstPersonVisorPane(left,width){
   ]);
   addVisorPart(carLayer,[
     "position:absolute",
+    "left:0",
+    "right:0",
+    "bottom:0",
+    "height:21%",
+    "background:linear-gradient(0deg, rgba(5,8,10,0.74), rgba(10,16,18,0.44) 58%, rgba(10,16,18,0.03) 100%)",
+    "clip-path:polygon(0 58%, 10% 42%, 34% 35%, 50% 40%, 66% 35%, 90% 42%, 100% 58%, 100% 100%, 0 100%)"
+  ]);
+  addVisorPart(carLayer,[
+    "position:absolute",
     "left:5%",
     "right:5%",
     "top:6%",
-    "height:4%",
-    "background:linear-gradient(180deg, rgba(0,0,0,0.7), rgba(0,0,0,0.18))",
+    "height:5.4%",
+    "background:linear-gradient(180deg, rgba(0,0,0,0.82), rgba(0,0,0,0.22), rgba(0,0,0,0))",
     "clip-path:polygon(3% 0, 97% 0, 100% 100%, 0 100%)"
   ]);
   addVisorPart(carLayer,[
     "position:absolute",
-    "left:4.5%",
-    "top:8%",
-    "bottom:21%",
-    "width:9%",
-    "background:linear-gradient(100deg, rgba(0,0,0,0.8), rgba(0,0,0,0.42) 48%, rgba(0,0,0,0))",
-    "clip-path:polygon(0 0, 70% 0, 100% 100%, 0 100%)"
+    "left:3.5%",
+    "top:7%",
+    "bottom:17%",
+    "width:13%",
+    "background:linear-gradient(101deg, rgba(0,0,0,0.84), rgba(0,0,0,0.58) 45%, rgba(8,14,16,0.16) 78%, rgba(0,0,0,0))",
+    "clip-path:polygon(0 0, 56% 0, 100% 100%, 0 100%)"
   ]);
   addVisorPart(carLayer,[
     "position:absolute",
-    "right:4.5%",
-    "top:8%",
-    "bottom:21%",
-    "width:9%",
-    "background:linear-gradient(260deg, rgba(0,0,0,0.8), rgba(0,0,0,0.42) 48%, rgba(0,0,0,0))",
-    "clip-path:polygon(30% 0, 100% 0, 100% 100%, 0 100%)"
+    "right:3.5%",
+    "top:7%",
+    "bottom:17%",
+    "width:13%",
+    "background:linear-gradient(259deg, rgba(0,0,0,0.84), rgba(0,0,0,0.58) 45%, rgba(8,14,16,0.16) 78%, rgba(0,0,0,0))",
+    "clip-path:polygon(44% 0, 100% 0, 100% 100%, 0 100%)"
   ]);
   addVisorPart(carLayer,[
     "position:absolute",
-    "left:10%",
-    "right:10%",
-    "bottom:0",
-    "height:9%",
-    "background:linear-gradient(0deg, rgba(0,0,0,0.62), rgba(6,13,15,0.34) 58%, rgba(6,13,15,0) 100%)",
-    "clip-path:polygon(0 55%, 100% 40%, 100% 100%, 0 100%)"
+    "left:13%",
+    "right:13%",
+    "bottom:12.5%",
+    "height:3.8%",
+    "background:linear-gradient(90deg, rgba(16,26,29,0), rgba(20,30,34,0.82) 18%, rgba(42,54,54,0.76) 50%, rgba(20,30,34,0.82) 82%, rgba(16,26,29,0))",
+    "clip-path:polygon(0 80%, 18% 28%, 50% 0, 82% 28%, 100% 80%, 100% 100%, 0 100%)",
+    "box-shadow:0 -1px 8px rgba(174,230,228,0.06)"
   ]);
   addVisorPart(carLayer,[
     "position:absolute",
@@ -872,6 +882,79 @@ function createFirstPersonVisorPane(left,width){
     "border-left:1px solid rgba(183,231,225,0.16)",
     "border-right:1px solid rgba(183,231,225,0.16)",
     "clip-path:polygon(4% 0, 96% 0, 100% 100%, 0 100%)"
+  ]);
+  addVisorPart(carLayer,[
+    "position:absolute",
+    "left:43%",
+    "right:43%",
+    "top:7%",
+    "height:2.5%",
+    "background:linear-gradient(180deg, rgba(0,0,0,0.72), rgba(18,26,28,0.64))",
+    "border:1px solid rgba(200,234,232,0.18)",
+    "box-shadow:0 2px 10px rgba(0,0,0,0.36)"
+  ]);
+  addVisorPart(carLayer,[
+    "position:absolute",
+    "left:18%",
+    "top:14%",
+    "width:22%",
+    "height:1px",
+    "background:linear-gradient(90deg, rgba(210,255,249,0), rgba(210,255,249,0.16), rgba(210,255,249,0))",
+    "transform:rotate(-17deg)",
+    "opacity:0.72"
+  ]);
+  addVisorPart(carLayer,[
+    "position:absolute",
+    "right:18%",
+    "top:17%",
+    "width:18%",
+    "height:1px",
+    "background:linear-gradient(90deg, rgba(210,255,249,0), rgba(210,255,249,0.13), rgba(210,255,249,0))",
+    "transform:rotate(15deg)",
+    "opacity:0.62"
+  ]);
+  addVisorPart(carLayer,[
+    "position:absolute",
+    "left:50%",
+    "bottom:-8.5%",
+    "width:min(28%,230px)",
+    "aspect-ratio:1",
+    "transform:translateX(-50%)",
+    "border:4px solid rgba(3,6,8,0.84)",
+    "border-top-color:rgba(19,30,33,0.9)",
+    "border-radius:50%",
+    "box-shadow:inset 0 0 0 2px rgba(180,220,218,0.06), 0 0 18px rgba(0,0,0,0.42)"
+  ]);
+  addVisorPart(carLayer,[
+    "position:absolute",
+    "left:50%",
+    "bottom:2.8%",
+    "width:min(9%,72px)",
+    "height:2.2%",
+    "transform:translateX(-50%)",
+    "background:rgba(2,5,6,0.76)",
+    "clip-path:polygon(12% 0, 88% 0, 100% 100%, 0 100%)",
+    "box-shadow:0 0 8px rgba(0,0,0,0.32)"
+  ]);
+  addVisorPart(carLayer,[
+    "position:absolute",
+    "left:24%",
+    "bottom:4.8%",
+    "width:10%",
+    "height:2.4%",
+    "background:linear-gradient(90deg, rgba(0,0,0,0), rgba(13,21,24,0.52), rgba(0,0,0,0))",
+    "clip-path:polygon(0 35%, 100% 0, 92% 100%, 8% 100%)",
+    "opacity:0.86"
+  ]);
+  addVisorPart(carLayer,[
+    "position:absolute",
+    "right:24%",
+    "bottom:4.8%",
+    "width:10%",
+    "height:2.4%",
+    "background:linear-gradient(90deg, rgba(0,0,0,0), rgba(13,21,24,0.52), rgba(0,0,0,0))",
+    "clip-path:polygon(0 0, 100% 35%, 92% 100%, 8% 100%)",
+    "opacity:0.86"
   ]);
   addVisorPart(carLayer,[
     "position:absolute",
