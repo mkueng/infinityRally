@@ -87,6 +87,15 @@ function colorComponents(hex){
   ];
 }
 
+function mixColorComponents(a,b,amount){
+  let t=Math.max(0,Math.min(1,amount));
+  return [
+    a[0]+(b[0]-a[0])*t,
+    a[1]+(b[1]-a[1])*t,
+    a[2]+(b[2]-a[2])*t
+  ];
+}
+
 function writeColor(colors,index,base,target=null,amount=0){
   let offset=index*3;
   if(target){
@@ -221,6 +230,8 @@ function buildTerrainChunk(message){
   let midColor=colorComponents(envColors.mid ?? 0x5a3b70);
   let highColor=colorComponents(envColors.high ?? 0x3f3456);
   let shoreColor=colorComponents(envColors.shore ?? 0xd6b25a);
+  let waterColor=colorComponents(envColors.water ?? 0x20ffd4);
+  let wetShoreColor=mixColorComponents(shoreColor,waterColor,0.42);
   let underwaterColor=colorComponents(envColors.underwater ?? 0x8f5a6c);
   let holeColor=colorComponents(0x09070a);
 
@@ -272,10 +283,13 @@ function buildTerrainChunk(message){
       let wallShade=0.18+Math.min(0.82,holeAmount)*0.22;
       writeColor(colors,index,holeColor,lowColor,wallShade);
     }else if(h<waterLevel) writeColor(colors,index,underwaterColor);
-    else if(h<waterLevel+2.7) writeColor(colors,index,shoreColor);
-    else if(h<waterLevel+5.4){
-      let t=(h-(waterLevel+2.7))/2.7;
-      writeColor(colors,index,shoreColor,lowColor,t);
+    else if(h<waterLevel+1.8){
+      let t=waterSmoothstep01((h-waterLevel)/1.8);
+      writeColor(colors,index,wetShoreColor,shoreColor,t*0.35);
+    }
+    else if(h<waterLevel+12){
+      let t=waterSmoothstep01((h-(waterLevel+1.8))/10.2);
+      writeColor(colors,index,wetShoreColor,lowColor,t);
     }
     else if(h<15) writeColor(colors,index,lowColor);
     else if(h<30) writeColor(colors,index,midColor);

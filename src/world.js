@@ -90,6 +90,7 @@ export function createWorld(scene,options={}){
   };
 let currentEnvironment={...defaultEnvironment,...(options.getEnvironment ? options.getEnvironment() : {})};
   const roadsEnabled=false;
+  const waterSurfaceVisualLift=0.62;
 
 let landMat;
 let rockMat;
@@ -161,6 +162,10 @@ landMat.onBeforeCompile=shader=>{
   shader.uniforms.terrainDetailMap={value:terrainDetailTexture};
   shader.uniforms.terrainDetailScale={value:0.024};
   shader.uniforms.terrainDetailStrength={value:0.54};
+  shader.uniforms.landWetWaterLevel={value:waterLevel+waterSurfaceVisualLift};
+  shader.uniforms.landWetShoreColor={value:new THREE.Color(0xd6b25a)};
+  shader.uniforms.landWetWaterColor={value:new THREE.Color(0x20ffd4)};
+  shader.uniforms.landWetStrength={value:0.46};
   landMat.userData.shader=shader;
   shader.vertexShader=shader.vertexShader.replace(
     "#include <common>",
@@ -184,6 +189,10 @@ landMat.onBeforeCompile=shader=>{
       "uniform sampler2D terrainDetailMap;",
       "uniform float terrainDetailScale;",
       "uniform float terrainDetailStrength;",
+      "uniform float landWetWaterLevel;",
+      "uniform vec3 landWetShoreColor;",
+      "uniform vec3 landWetWaterColor;",
+      "uniform float landWetStrength;",
       "float landHash(vec2 p){",
       "  p=fract(p*vec2(127.1,311.7));",
       "  p+=dot(p,p+74.7);",
@@ -226,6 +235,12 @@ landMat.onBeforeCompile=shader=>{
       "vec3 terrainDetailColorTone=terrainDetailRgb*1.18;",
       "vec3 terrainDetailResult=gl_FragColor.rgb*mix(terrainDetailTone,terrainDetailColorTone,0.2);",
       "gl_FragColor.rgb=mix(gl_FragColor.rgb,terrainDetailResult,terrainDetailStrength*terrainDetailMask*terrainDetailFade);",
+      "float wetHeight=vLandWorldPosition.y-landWetWaterLevel;",
+      "float wetBand=(1.0-smoothstep(1.0,9.5,wetHeight))*smoothstep(-1.4,0.85,wetHeight);",
+      "float wetBreakup=landNoise(vLandWorldPosition.xz*0.043+vec2(9.3,-4.7));",
+      "wetBand*=0.68+wetBreakup*0.32;",
+      "vec3 wetColor=mix(landWetWaterColor,landWetShoreColor,smoothstep(0.0,7.0,max(wetHeight,0.0)));",
+      "gl_FragColor.rgb=mix(gl_FragColor.rgb,wetColor,wetBand*landWetStrength);",
       "float mountainTintMask=smoothstep(18.0,46.0,vLandWorldPosition.y);",
       "if(mountainTintMask>0.001){",
       "  float crag=landNoise(vLandWorldPosition.xz*0.055+vec2(vLandWorldPosition.y*0.017,-vLandWorldPosition.y*0.013));",
@@ -254,9 +269,69 @@ let waterMat=new THREE.MeshStandardMaterial({
   emissive:0x036f6d,
   emissiveIntensity:0.38,
   transparent:true,
-  opacity:.5,
-  depthWrite:false
+  opacity:.56,
+  depthWrite:false,
+  depthTest:true,
+  side:THREE.DoubleSide
 });
+let shoreBandMat=new THREE.MeshBasicMaterial({
+  color:0x8feee7,
+  transparent:true,
+  opacity:0.22,
+  depthWrite:false,
+  depthTest:true,
+  side:THREE.DoubleSide
+});
+shoreBandMat.onBeforeCompile=shader=>{
+  shader.vertexShader=shader.vertexShader.replace(
+    "#include <common>",
+    [
+      "#include <common>",
+      "attribute float shoreBandAlpha;",
+      "varying float vShoreBandAlpha;",
+      "varying vec3 vShoreBandWorldPosition;"
+    ].join("\n")
+  );
+  shader.vertexShader=shader.vertexShader.replace(
+    "#include <begin_vertex>",
+    [
+      "#include <begin_vertex>",
+      "vShoreBandAlpha=shoreBandAlpha;",
+      "vShoreBandWorldPosition=(modelMatrix*vec4(transformed,1.0)).xyz;"
+    ].join("\n")
+  );
+  shader.fragmentShader=shader.fragmentShader.replace(
+    "#include <common>",
+    [
+      "#include <common>",
+      "varying float vShoreBandAlpha;",
+      "varying vec3 vShoreBandWorldPosition;",
+      "float shoreBandHash(vec2 p){",
+      "  p=fract(p*vec2(123.34,345.45));",
+      "  p+=dot(p,p+34.21);",
+      "  return fract(p.x*p.y);",
+      "}",
+      "float shoreBandNoise(vec2 p){",
+      "  vec2 i=floor(p);",
+      "  vec2 f=fract(p);",
+      "  vec2 u=f*f*(3.0-2.0*f);",
+      "  float a=shoreBandHash(i);",
+      "  float b=shoreBandHash(i+vec2(1.0,0.0));",
+      "  float c=shoreBandHash(i+vec2(0.0,1.0));",
+      "  float d=shoreBandHash(i+vec2(1.0,1.0));",
+      "  return mix(mix(a,b,u.x),mix(c,d,u.x),u.y);",
+      "}"
+    ].join("\n")
+  );
+  shader.fragmentShader=shader.fragmentShader.replace(
+    "#include <dithering_fragment>",
+    [
+      "float shoreBandBreakup=shoreBandNoise(vShoreBandWorldPosition.xz*0.055);",
+      "gl_FragColor.a*=vShoreBandAlpha*(0.5+shoreBandBreakup*0.5);",
+      "#include <dithering_fragment>"
+    ].join("\n")
+  );
+};
 let waterLevel=-20;
 let underwaterVisualDropBase=1.55;
 let underwaterVisualDropScale=0.62;
@@ -406,7 +481,8 @@ function makeWaterGeometryFromTerrain(terrainPositions){
   let uvs=[];
   let indices=[];
   let vertexMap=new Map();
-  let waterMargin=0.42;
+  let waterMargin=0.3;
+  let waterThreshold=waterLevel+waterMargin;
 
   function terrainIndex(ix,iz){
     return iz*gridSize+ix;
@@ -420,16 +496,169 @@ function makeWaterGeometryFromTerrain(terrainPositions){
     return (iz/segments-0.5)*chunkSize;
   }
 
-  function vertexIndex(ix,iz){
-    let key=ix+","+iz;
+  function addVertex(vertex){
+    let index=positions.length/3;
+    positions.push(vertex.x,waterLevel,vertex.z);
+    normals.push(0,1,0);
+    uvs.push(vertex.u,vertex.v);
+    return index;
+  }
+
+  function addCachedVertex(vertex){
+    let key=vertex.gx+","+vertex.gz;
     let existing=vertexMap.get(key);
     if(existing!==undefined) return existing;
+    let index=addVertex(vertex);
+    vertexMap.set(key,index);
+    return index;
+  }
 
+  function gridHeight(gx,gz){
+    let x0=Math.max(0,Math.min(segments,Math.floor(gx)));
+    let z0=Math.max(0,Math.min(segments,Math.floor(gz)));
+    let x1=Math.min(segments,x0+1);
+    let z1=Math.min(segments,z0+1);
+    let tx=Math.max(0,Math.min(1,gx-x0));
+    let tz=Math.max(0,Math.min(1,gz-z0));
+    let h00=terrainPositions.getY(terrainIndex(x0,z0));
+    let h10=terrainPositions.getY(terrainIndex(x1,z0));
+    let h01=terrainPositions.getY(terrainIndex(x0,z1));
+    let h11=terrainPositions.getY(terrainIndex(x1,z1));
+    let h0=h00+(h10-h00)*tx;
+    let h1=h01+(h11-h01)*tx;
+    return h0+(h1-h0)*tz;
+  }
+
+  function terrainVertex(gx,gz){
+    return {
+      x:localX(gx),
+      z:localZ(gz),
+      h:gridHeight(gx,gz),
+      u:gx/segments,
+      v:gz/segments,
+      gx,
+      gz
+    };
+  }
+
+  function shoreVertex(a,b){
+    let denom=b.h-a.h;
+    let t=Math.abs(denom)<0.0001 ? 0.5 : (waterThreshold-a.h)/denom;
+    t=Math.max(0,Math.min(1,t));
+    return {
+      x:a.x+(b.x-a.x)*t,
+      z:a.z+(b.z-a.z)*t,
+      h:waterThreshold,
+      u:a.u+(b.u-a.u)*t,
+      v:a.v+(b.v-a.v)*t
+    };
+  }
+
+  function addWaterTriangle(a,b,c){
+    let input=[a,b,c];
+    let clipped=[];
+
+    for(let i=0;i<input.length;i++){
+      let current=input[i];
+      let previous=input[(i+input.length-1)%input.length];
+      let currentWet=current.h<=waterThreshold;
+      let previousWet=previous.h<=waterThreshold;
+
+      if(currentWet){
+        if(!previousWet) clipped.push(shoreVertex(previous,current));
+        clipped.push(current);
+      }else if(previousWet){
+        clipped.push(shoreVertex(previous,current));
+      }
+    }
+
+    if(clipped.length<3) return;
+
+    let first=addVertex(clipped[0]);
+    for(let i=1;i<clipped.length-1;i++){
+      let i1=addVertex(clipped[i]);
+      let i2=addVertex(clipped[i+1]);
+      indices.push(first,i1,i2);
+    }
+  }
+
+  for(let iz=0;iz<segments;iz++){
+    for(let ix=0;ix<segments;ix++){
+      let v00=terrainVertex(ix,iz);
+      let v10=terrainVertex(ix+1,iz);
+      let v01=terrainVertex(ix,iz+1);
+      let v11=terrainVertex(ix+1,iz+1);
+      let wetCount=(v00.h<=waterThreshold ? 1 : 0)+(v10.h<=waterThreshold ? 1 : 0)+(v01.h<=waterThreshold ? 1 : 0)+(v11.h<=waterThreshold ? 1 : 0);
+      if(wetCount===0) continue;
+
+      if(wetCount===4){
+        let i00=addCachedVertex(v00);
+        let i10=addCachedVertex(v10);
+        let i01=addCachedVertex(v01);
+        let i11=addCachedVertex(v11);
+        indices.push(i00,i01,i10,i10,i01,i11);
+        continue;
+      }
+
+      addWaterTriangle(v00,v01,v10);
+      addWaterTriangle(v10,v01,v11);
+    }
+  }
+
+  if(indices.length===0) return null;
+
+  let geo=new THREE.BufferGeometry();
+  geo.setAttribute("position",new THREE.Float32BufferAttribute(positions,3));
+  geo.setAttribute("normal",new THREE.Float32BufferAttribute(normals,3));
+  geo.setAttribute("uv",new THREE.Float32BufferAttribute(uvs,2));
+  geo.setIndex(indices);
+  geo.computeBoundingSphere();
+  return geo;
+}
+
+function makeWaterPlaneGeometry(){
+  let geo=new THREE.PlaneGeometry(chunkSize,chunkSize,1,1);
+  geo.rotateX(-Math.PI/2);
+  return geo;
+}
+
+function makeShoreBandGeometryFromTerrain(terrainPositions){
+  if(!terrainPositions) return null;
+
+  let gridSize=segments+1;
+  let positions=[];
+  let normals=[];
+  let uvs=[];
+  let alphas=[];
+  let indices=[];
+  let shoreLow=waterLevel-2.8;
+  let shoreHigh=waterLevel+6.2;
+  let y=waterLevel+0.08;
+
+  function terrainIndex(ix,iz){
+    return iz*gridSize+ix;
+  }
+
+  function localX(ix){
+    return (ix/segments-0.5)*chunkSize;
+  }
+
+  function localZ(iz){
+    return (iz/segments-0.5)*chunkSize;
+  }
+
+  function alphaForHeight(h){
+    let below=waterSmoothstep01((h-shoreLow)/(waterLevel-shoreLow));
+    let above=1-waterSmoothstep01((h-waterLevel)/(shoreHigh-waterLevel));
+    return Math.max(0,Math.min(1,Math.min(below,above)));
+  }
+
+  function addVertex(ix,iz,h){
     let index=positions.length/3;
-    positions.push(localX(ix),waterLevel,localZ(iz));
+    positions.push(localX(ix),y,localZ(iz));
     normals.push(0,1,0);
     uvs.push(ix/segments,iz/segments);
-    vertexMap.set(key,index);
+    alphas.push(alphaForHeight(h));
     return index;
   }
 
@@ -439,12 +668,15 @@ function makeWaterGeometryFromTerrain(terrainPositions){
       let h10=terrainPositions.getY(terrainIndex(ix+1,iz));
       let h01=terrainPositions.getY(terrainIndex(ix,iz+1));
       let h11=terrainPositions.getY(terrainIndex(ix+1,iz+1));
-      if(Math.min(h00,h10,h01,h11)>waterLevel+waterMargin) continue;
+      let minH=Math.min(h00,h10,h01,h11);
+      let maxH=Math.max(h00,h10,h01,h11);
+      if(minH>shoreHigh || maxH<shoreLow) continue;
+      if(maxH<waterLevel-5.5 || minH>waterLevel+8.5) continue;
 
-      let i00=vertexIndex(ix,iz);
-      let i10=vertexIndex(ix+1,iz);
-      let i01=vertexIndex(ix,iz+1);
-      let i11=vertexIndex(ix+1,iz+1);
+      let i00=addVertex(ix,iz,h00);
+      let i10=addVertex(ix+1,iz,h10);
+      let i01=addVertex(ix,iz+1,h01);
+      let i11=addVertex(ix+1,iz+1,h11);
       indices.push(i00,i01,i10,i10,i01,i11);
     }
   }
@@ -455,6 +687,7 @@ function makeWaterGeometryFromTerrain(terrainPositions){
   geo.setAttribute("position",new THREE.Float32BufferAttribute(positions,3));
   geo.setAttribute("normal",new THREE.Float32BufferAttribute(normals,3));
   geo.setAttribute("uv",new THREE.Float32BufferAttribute(uvs,2));
+  geo.setAttribute("shoreBandAlpha",new THREE.Float32BufferAttribute(alphas,1));
   geo.setIndex(indices);
   geo.computeBoundingSphere();
   return geo;
@@ -568,6 +801,7 @@ let turretHeadMat=new THREE.MeshStandardMaterial({color:0x554163,emissive:0x1609
 let turretBarrelMat=new THREE.MeshStandardMaterial({color:0x151923,emissive:0x06162d,emissiveIntensity:0.32,roughness:0.56,metalness:0.7});
 let chunkSharedMaterials=new Set([
   buildingShadowMat,
+  shoreBandMat,
   radarOutpostBaseMat,
   radarOutpostDishMat,
   radarOutpostGlowMat
@@ -725,6 +959,14 @@ function applyEnvironment(environment={}){
   landMat.map=makeGroundTexture(currentEnvironment);
   landMat.needsUpdate=true;
   setMaterialColor(waterMat,displayWaterColor(colors.water),displayWaterEmissive(colors.waterEmissive || colors.water));
+  if(landMat.userData.shader){
+    let shader=landMat.userData.shader;
+    if(shader.uniforms.landWetWaterLevel) shader.uniforms.landWetWaterLevel.value=waterLevel+waterSurfaceVisualLift;
+    if(shader.uniforms.landWetShoreColor) shader.uniforms.landWetShoreColor.value.set(mixHexColor(colors.shore || colors.low,colors.low || colors.shore,0.24));
+    if(shader.uniforms.landWetWaterColor) shader.uniforms.landWetWaterColor.value.set(mixHexColor(displayWaterColor(colors.water),colors.shore || colors.water,0.34));
+    if(shader.uniforms.landWetStrength) shader.uniforms.landWetStrength.value=0.46;
+  }
+  if(shoreBandMat.color) shoreBandMat.color.set(mixHexColor(displayWaterColor(colors.water),colors.shore || colors.water,0.42));
   setMaterialColor(barkMat,colors.bark,colors.barkEmissive);
   setMaterialColor(leafMat,colors.leaf,colors.leafEmissive);
   setMaterialColor(podMat,colors.pod,colors.podEmissive);
@@ -762,7 +1004,7 @@ function createChunkWorker(){
   if(options.disableChunkWorker || typeof Worker==="undefined") return null;
 
   try{
-    let worker=new Worker(new URL("./chunkWorker.js?v=no-roads",import.meta.url),{type:"module"});
+    let worker=new Worker(new URL("./chunkWorker.js?v=soft-wet-shore-color",import.meta.url),{type:"module"});
     let template=makeTerrainVertexTemplate();
     worker.postMessage({
       type:"setTerrainTemplate",
@@ -2047,6 +2289,8 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   let pos=geo.attributes.position;
   let vertexColor=new THREE.Color();
   let lowColor=new THREE.Color(envColors.low);
+  let shoreColor=new THREE.Color(envColors.shore);
+  let wetShoreColor=shoreColor.clone().lerp(new THREE.Color(displayWaterColor(envColors.water || 0x20ffd4)),0.42);
   let holeColor=new THREE.Color(0x09070a);
 
   if(precomputedTerrain && precomputedTerrain.heights && precomputedTerrain.colors){
@@ -2098,10 +2342,12 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
         let wallShade=0.18+Math.min(0.82,holeAmount)*0.22;
         vertexColor.set(holeColor).lerp(lowColor,wallShade);
       }else if(h<waterLevel) vertexColor.set(envColors.underwater);
-      else if(h<waterLevel+2.7) vertexColor.set(envColors.shore);
-      else if(h<waterLevel+5.4){
-        let t=(h-(waterLevel+2.7))/2.7;
-        vertexColor.set(envColors.shore).lerp(lowColor,t);
+      else if(h<waterLevel+1.8){
+        let t=waterSmoothstep01((h-waterLevel)/1.8);
+        vertexColor.copy(wetShoreColor).lerp(shoreColor,t*0.35);
+      }else if(h<waterLevel+12){
+        let t=waterSmoothstep01((h-(waterLevel+1.8))/10.2);
+        vertexColor.copy(wetShoreColor).lerp(lowColor,t);
       }
       else if(h<15) vertexColor.set(envColors.low);
       else if(h<30) vertexColor.set(envColors.mid);
@@ -2130,11 +2376,12 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
 
   let road=new THREE.Object3D();
   let water=new THREE.Object3D();
+  let shoreBand=new THREE.Object3D();
   if(chunkHasWater){
-    let waterGeo=makeWaterGeometryFromTerrain(pos);
+    let waterGeo=makeWaterPlaneGeometry();
     if(waterGeo){
       water=new THREE.Mesh(waterGeo,waterMat);
-      water.position.set(cx*chunkSize,0,cz*chunkSize);
+      water.position.set(cx*chunkSize,waterLevel+waterSurfaceVisualLift,cz*chunkSize);
       water.renderOrder=2;
       freezeStaticObject(water);
       chunkRoot.add(water);
@@ -3099,7 +3346,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
 
   scene.add(chunkRoot);
 
-  return {cx,cz,root:chunkRoot,land,road,water,trunks,crowns,pods,grasses,rocks,rockShadows,gravel,holeMeshes,treasureChests,radarOutposts,buildingShadows,buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,cityStreets,cityStreetDetails,cityTechDetails,landingSpaces,landingSurfaces,landingRings,villageCenters,colliders,holes:localHoles};
+  return {cx,cz,root:chunkRoot,land,road,water,shoreBand,trunks,crowns,pods,grasses,rocks,rockShadows,gravel,holeMeshes,treasureChests,radarOutposts,buildingShadows,buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,cityStreets,cityStreetDetails,cityTechDetails,landingSpaces,landingSurfaces,landingRings,villageCenters,colliders,holes:localHoles};
 }
 
 function updateChunksForCenters(centers){
@@ -3224,6 +3471,7 @@ function disposeChunk(chunk){
     chunk.land,
     chunk.road,
     chunk.water,
+    chunk.shoreBand,
     chunk.trunks,
     chunk.crowns,
     chunk.pods,
@@ -3254,6 +3502,7 @@ function disposeChunk(chunk){
   chunk.land.geometry.dispose();
   if(chunk.road.geometry) chunk.road.geometry.dispose();
   if(chunk.water && chunk.water.geometry) chunk.water.geometry.dispose();
+  if(chunk.shoreBand && chunk.shoreBand.geometry) chunk.shoreBand.geometry.dispose();
   chunk.trunks.dispose();
   chunk.crowns.dispose();
   chunk.pods.dispose();
@@ -3463,6 +3712,7 @@ function applyChunkRenderStress(chunk,stressLevel,centers){
   setChunkObjectVisible(chunk.cityTechDetails,!hideDecor);
   setChunkObjectVisible(chunk.landingRings,!hideDecor);
   setChunkObjectVisible(chunk.water,!hideFarWater);
+  setChunkObjectVisible(chunk.shoreBand,!hideFarWater);
 }
 
 function setRenderStressLevel(stressLevel=0,centers=[]){
