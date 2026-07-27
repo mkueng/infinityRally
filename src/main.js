@@ -2,7 +2,7 @@ import { THREE } from "./three.js";
 import { carRadius, gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize, viewDistance, mothershipDropCount, mothershipDropInterval, mothershipDropLineSpacing, mothershipHoverDistance, mothershipHoverFrames, mothershipMinDelay, mothershipRandomDelay, mothershipRocketHits } from "./constants.js";
 import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=no-roads";
 import { createInput } from "./input.js?v=progressive-pointer-aim";
-import { createHud } from "./hud.js?v=adaptive-perf-spike-guard";
+import { createHud } from "./hud.js?v=larger-compass-unit-labels";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=stronger-directed-rain";
 import { createWorld } from "./world.js?v=registered-rock-chunks";
 import { createMotorAudio } from "./audio.js?v=mission-accomplished-voice";
@@ -597,8 +597,10 @@ let planetNameDisplay=document.createElement("div");
 planetNameDisplay.textContent="";
 planetNameDisplay.style.cssText=[
   "position:fixed",
-  "right:18px",
-  "top:14px",
+  "left:20px",
+  "right:auto",
+  "top:auto",
+  "bottom:74px",
   "z-index:12",
   `font-family:${gameFontFamily}`,
   "font-size:clamp(18px,2.1vw,28px)",
@@ -606,7 +608,7 @@ planetNameDisplay.style.cssText=[
   "line-height:1",
   "letter-spacing:0.08em",
   "color:rgba(232,255,247,0.9)",
-  "text-align:right",
+  "text-align:left",
   "text-transform:uppercase",
   "text-shadow:0 0 10px rgba(103,244,255,0.32),0 2px 0 rgba(0,0,0,0.72)",
   "pointer-events:none",
@@ -617,8 +619,10 @@ let missionGoalDisplay=document.createElement("div");
 missionGoalDisplay.textContent="";
 missionGoalDisplay.style.cssText=[
   "position:fixed",
-  "right:18px",
-  "top:46px",
+  "left:20px",
+  "right:auto",
+  "top:auto",
+  "bottom:18px",
   "z-index:12",
   "max-width:min(420px,46vw)",
   `font-family:${gameFontFamily}`,
@@ -627,7 +631,7 @@ missionGoalDisplay.style.cssText=[
   "line-height:1.28",
   "letter-spacing:0.04em",
   "color:rgba(232,255,247,0.82)",
-  "text-align:right",
+  "text-align:left",
   "text-transform:uppercase",
   "text-shadow:0 0 8px rgba(103,244,255,0.24),0 2px 0 rgba(0,0,0,0.72)",
   "pointer-events:none",
@@ -635,6 +639,7 @@ missionGoalDisplay.style.cssText=[
   "display:none"
 ].join(";");
 document.body.appendChild(missionGoalDisplay);
+let objectiveHudLayoutSignature="";
 function updatePlanetNameDisplay(){
   if(!planetNameDisplay) return;
   planetNameDisplay.textContent=(currentEnvironment && currentEnvironment.name) || "";
@@ -1015,6 +1020,46 @@ function firstPersonViewActive(){
     && !terminalOverlayOpen()
     && !startSequence
     && !(terraformFinale && terraformFinale.active);
+}
+
+function updateObjectiveHudLayout(){
+  if(!planetNameDisplay || !missionGoalDisplay) return;
+
+  let firstPerson=firstPersonViewActive();
+  let signature=(firstPerson ? "fp" : "tp")+"|"+gameMode;
+  if(signature===objectiveHudLayoutSignature) return;
+  objectiveHudLayoutSignature=signature;
+
+  if(firstPerson){
+    planetNameDisplay.style.left="auto";
+    planetNameDisplay.style.right="18px";
+    planetNameDisplay.style.top="14px";
+    planetNameDisplay.style.bottom="auto";
+    planetNameDisplay.style.textAlign="right";
+    planetNameDisplay.style.maxWidth="min(420px,46vw)";
+
+    missionGoalDisplay.style.left="auto";
+    missionGoalDisplay.style.right="18px";
+    missionGoalDisplay.style.top="46px";
+    missionGoalDisplay.style.bottom="auto";
+    missionGoalDisplay.style.textAlign="right";
+    missionGoalDisplay.style.maxWidth="min(420px,46vw)";
+    return;
+  }
+
+  planetNameDisplay.style.left=gameMode==="double" ? "18px" : "20px";
+  planetNameDisplay.style.right="auto";
+  planetNameDisplay.style.top="auto";
+  planetNameDisplay.style.bottom=gameMode==="double" ? "70px" : "74px";
+  planetNameDisplay.style.textAlign="left";
+  planetNameDisplay.style.maxWidth=gameMode==="double" ? "min(360px,44vw)" : "min(520px,50vw)";
+
+  missionGoalDisplay.style.left=gameMode==="double" ? "18px" : "20px";
+  missionGoalDisplay.style.right="auto";
+  missionGoalDisplay.style.top="auto";
+  missionGoalDisplay.style.bottom=gameMode==="double" ? "16px" : "18px";
+  missionGoalDisplay.style.textAlign="left";
+  missionGoalDisplay.style.maxWidth=gameMode==="double" ? "min(360px,44vw)" : "min(520px,50vw)";
 }
 
 function firstPersonPaneCarAmount(paneIndex){
@@ -1472,6 +1517,7 @@ let morphTransitionRate=0.075;
 let jetTransitionRate=0.075;
 let jetMaxSpeed=2.4;
 let jetExitGroundClearance=5.5;
+let jetLandingMorphClearance=7.2;
 let mechStrideLength=2.35;
 let rocketSpeed=1.75;
 let longRangeRocketSpeed=2.85;
@@ -1574,18 +1620,20 @@ let surfaceScanPulses=[];
 let surfaceScanRingSegments=168;
 let surfaceScanSpokeCount=16;
 let surfaceScanMat=new THREE.LineBasicMaterial({
-  color:0x8dfff2,
+  color:0x63ff8c,
   transparent:true,
   opacity:0.92,
   depthWrite:false,
-  blending:THREE.AdditiveBlending
+  blending:THREE.AdditiveBlending,
+  toneMapped:false
 });
 let surfaceScanGlowMat=new THREE.LineBasicMaterial({
-  color:0xffffff,
+  color:0xbaff72,
   transparent:true,
-  opacity:0.48,
+  opacity:0.58,
   depthWrite:false,
-  blending:THREE.AdditiveBlending
+  blending:THREE.AdditiveBlending,
+  toneMapped:false
 });
 let bossLaserMat=new THREE.LineBasicMaterial({
   color:0xff4fc8,
@@ -2212,6 +2260,7 @@ function createCarState(id,lateralOffset,controls,camera,gamepadIndex){
     shadow:createCarShadow(scene),
     x:0,
     y:20,
+    renderY:20,
     z:0,
     collisionRadius:3.45,
     aimRadius:4.6,
@@ -2250,6 +2299,8 @@ function createCarState(id,lateralOffset,controls,camera,gamepadIndex){
     jetProgress:0,
     jetBank:0,
     jetAltitudeTarget:20,
+    jetLandingTransformLift:0,
+    jetLandingTransformStartLift:0,
     landingReleaseFrames:0,
     landedOnPad:false,
     jetAutoLandToRobot:false,
@@ -3955,6 +4006,7 @@ function restoreCarStatus(car,saved){
   car.x=finiteOr(saved.x,car.x);
   car.z=finiteOr(saved.z,car.z);
   car.y=finiteOr(saved.y,drivingSurfaceHeight(car.x,car.z));
+  car.renderY=car.y;
   car.angle=finiteOr(saved.angle,car.angle);
   car.velAngle=finiteOr(saved.velAngle,car.angle);
   car.speed=finiteOr(saved.speed,0);
@@ -3968,6 +4020,8 @@ function restoreCarStatus(car,saved){
   car.jetProgress=Math.max(0,Math.min(1,finiteOr(saved.jetProgress,car.jetMode ? 1 : 0)));
   car.jetBank=finiteOr(saved.jetBank,0);
   car.jetAltitudeTarget=finiteOr(saved.jetAltitudeTarget,car.y+8);
+  car.jetLandingTransformLift=0;
+  car.jetLandingTransformStartLift=0;
   car.landedOnPad=!!saved.landedOnPad;
   car.jetAutoLandToRobot=!!saved.jetAutoLandToRobot;
   if(car.jetAutoLandToRobot){
@@ -7331,7 +7385,7 @@ function rocketLaunchPointForCar(car){
   car.rocketLauncherSide=-side;
 
   if(car.carModel){
-    car.group.position.set(car.x,car.y,car.z);
+    car.group.position.set(car.x,Number.isFinite(car.renderY) ? car.renderY : car.y,car.z);
     car.group.rotation.y=car.angle+car.trickYaw;
     car.group.rotation.x=car.pitch+car.trickPitch;
     car.group.rotation.z=car.trickRoll+(car.jetBank || 0);
@@ -12708,6 +12762,45 @@ function updateMorphVisual(car){
   car.lastMorphProgress=p;
 }
 
+function beginJetLandingTransform(car,surfaceY){
+  if(!car || car.jetProgress<0.2) return;
+  let visualY=Number.isFinite(car.renderY)
+    ? car.renderY
+    : car.group && Number.isFinite(car.group.position.y)
+    ? car.group.position.y
+    : car.y;
+  let referenceY=Math.max(Number.isFinite(visualY) ? visualY : car.y,Number.isFinite(car.y) ? car.y : 0);
+  let clearance=Number.isFinite(surfaceY) ? Math.max(0,referenceY-surfaceY) : 0;
+  let lift=clamp(clearance,0.7,5.2);
+  car.jetLandingTransformLift=Math.max(car.jetLandingTransformLift || 0,lift);
+  car.jetLandingTransformStartLift=Math.max(car.jetLandingTransformStartLift || 0,lift);
+}
+
+function updateJetLandingTransformLift(car){
+  if(!car) return 0;
+  let current=Math.max(0,car.jetLandingTransformLift || 0);
+  if(current<=0.001){
+    car.jetLandingTransformLift=0;
+    return 0;
+  }
+  if(car.jetMode){
+    car.jetLandingTransformLift=0;
+    return 0;
+  }
+
+  let startLift=Math.max(current,car.jetLandingTransformStartLift || 0);
+  let jetBlend=smoothStep(clamp((car.jetProgress || 0)/0.82,0,1));
+  let target=startLift*jetBlend;
+  let follow=target<current ? 0.105 : 0.055;
+  current+=(target-current)*follow;
+  if((car.jetProgress || 0)<0.06 && current<0.08){
+    current=0;
+    car.jetLandingTransformStartLift=0;
+  }
+  car.jetLandingTransformLift=current;
+  return current;
+}
+
 function updateMechAnimation(car){
   let model=car.mechModel || car.group.children[0];
   let parts=model && model.userData ? model.userData.walkParts : null;
@@ -13114,9 +13207,9 @@ function updateCar(car){
   if(flying) emitFlightExhaust(car);
   rechargeHoverBoost(car);
   let jetHovering=car.jetMode || car.jetProgress>0.65;
-  let autoLanding=jetHovering && landingSurface && car.jetProgress>0.82 && !(car.landingReleaseFrames>0);
-  let fuelAutoLanding=jetHovering && fuelEmpty && !autoLanding;
-  let manualAutoLanding=jetHovering && car.jetAutoLandToRobot && !autoLanding && !fuelAutoLanding;
+  let autoLanding=car.jetMode && jetHovering && landingSurface && car.jetProgress>0.82 && !(car.landingReleaseFrames>0);
+  let fuelAutoLanding=car.jetMode && jetHovering && fuelEmpty && !autoLanding;
+  let manualAutoLanding=car.jetMode && jetHovering && car.jetAutoLandToRobot && !autoLanding && !fuelAutoLanding;
   if(autoLanding || fuelAutoLanding || manualAutoLanding) announceLandingSequence(car);
   let groundAutoLanded=false;
   let autoLandingApproachY=autoLanding ? landingSurface.y+12 : null;
@@ -13142,7 +13235,9 @@ function updateCar(car){
       car.x+=dx*pullStrength;
       car.z+=dz*pullStrength;
       car.speed*=0.82+0.08*(1-padCentering);
-      autoLandingDeckY=centeredOnPad ? landingSurface.y+2.4 : autoLandingApproachY;
+      autoLandingDeckY=centeredOnPad
+        ? landingSurface.y+2.4+(car.jetAutoLandToRobot ? jetLandingMorphClearance : 0)
+        : autoLandingApproachY;
       car.jetAltitudeTarget=approach(car.jetAltitudeTarget,autoLandingDeckY,centeredOnPad ? 0.72 : 0.48);
     }else if(manualAutoLanding){
       car.speed=approach(car.speed,0,0.032);
@@ -13162,7 +13257,7 @@ function updateCar(car){
     if(autoLanding || fuelAutoLanding || manualAutoLanding){
       let landingTargetY=autoLanding && Number.isFinite(autoLandingDeckY)
         ? autoLandingDeckY
-        : surfaceY+(manualAutoLanding ? 1.08 : 1.1);
+        : surfaceY+(manualAutoLanding ? jetLandingMorphClearance : 1.1);
       let landingClearance=Math.max(0,car.y-landingTargetY);
       let nearGround=1-clamp((landingClearance-1.5)/18,0,1);
       maxDescentSpeed=0.62-nearGround*0.46;
@@ -13219,8 +13314,25 @@ function updateCar(car){
     }
   }
 
-  if(!gameOver && !carDisabled && (fuelAutoLanding || manualAutoLanding) && car.y<=surfaceY+1.12){
+  if(!gameOver && !carDisabled && manualAutoLanding && car.y<=surfaceY+jetLandingMorphClearance+0.12){
+    car.y=Math.max(car.y,surfaceY+jetLandingMorphClearance);
+    car.renderY=car.y;
+    car.jetLandingTransformLift=0;
+    car.jetLandingTransformStartLift=0;
+    car.vy=-0.035;
+    car.speed=0;
+    car.jetMode=false;
+    car.jetAltitudeTarget=surfaceY+8;
+    car.landingReleaseFrames=0;
+    car.landedOnPad=false;
+    car.landingSequenceVoicePlayed=false;
+    car.morphed=false;
+    car.jetAutoLandToRobot=false;
+  }else if(!gameOver && !carDisabled && fuelAutoLanding && car.y<=surfaceY+1.12){
     car.y=surfaceY;
+    car.renderY=car.y;
+    car.jetLandingTransformLift=0;
+    car.jetLandingTransformStartLift=0;
     car.vy=0;
     car.speed=0;
     car.jetMode=false;
@@ -13228,10 +13340,6 @@ function updateCar(car){
     car.landingReleaseFrames=0;
     car.landedOnPad=false;
     car.landingSequenceVoicePlayed=false;
-    if(manualAutoLanding){
-      car.morphed=false;
-      car.jetAutoLandToRobot=false;
-    }
     groundAutoLanded=true;
   }
 
@@ -13244,14 +13352,20 @@ function updateCar(car){
       car.vy=0;
       car.jetAltitudeTarget=autoLandingApproachY;
     }
-    if(Number.isFinite(landingDeckY) && car.y<=landingDeckY+0.08){
+    let deckTransitionY=Number.isFinite(landingDeckY)
+      ? landingDeckY+(car.jetAutoLandToRobot ? jetLandingMorphClearance : 0)
+      : null;
+    if(Number.isFinite(deckTransitionY) && car.y<=deckTransitionY+0.08){
       car.x=landingPadSurface.x;
       car.z=landingPadSurface.z;
-      car.y=landingDeckY;
-      car.vy=0;
+      car.y=deckTransitionY;
+      car.renderY=car.y;
+      car.jetLandingTransformLift=0;
+      car.jetLandingTransformStartLift=0;
+      car.vy=car.jetAutoLandToRobot ? -0.035 : 0;
       car.speed*=0.82;
-      car.jetAltitudeTarget=landingDeckY;
-      car.landedOnPad=true;
+      car.jetAltitudeTarget=deckTransitionY;
+      car.landedOnPad=!car.jetAutoLandToRobot;
       car.landingSequenceVoicePlayed=false;
       if(car.jetAutoLandToRobot){
         car.jetMode=false;
@@ -13350,7 +13464,9 @@ function updateCar(car){
   let jetBankTarget=jetHovering ? clamp((car.turnInputEase || 0)*-0.46+(car.turnVelocity || 0)*-4.4,-0.58,0.58) : 0;
   car.jetBank+=(jetBankTarget-(car.jetBank || 0))*(jetHovering ? 0.07 : 0.18);
 
-  car.group.position.set(car.x,car.y,car.z);
+  let renderY=car.y+updateJetLandingTransformLift(car);
+  car.renderY=renderY;
+  car.group.position.set(car.x,renderY,car.z);
   car.group.rotation.y=car.angle+car.trickYaw;
   car.group.rotation.x=car.pitch+car.trickPitch;
   car.group.rotation.z=car.trickRoll+(car.jetBank || 0);
@@ -13441,6 +13557,7 @@ function updateRobotHeadLookYaw(car,robotAmount=1){
 
 function updateCameraForCar(car){
   car.cameraYaw+=normalizeAngle(car.velAngle-car.cameraYaw)*0.075;
+  let cameraBaseY=Number.isFinite(car.renderY) ? car.renderY : car.y;
 
   if(firstPersonViewActive()){
     car.cameraYaw+=normalizeAngle(car.angle-car.cameraYaw)*0.28;
@@ -13476,7 +13593,7 @@ function updateCameraForCar(car){
     let sideOffset=gameMode==="double" ? (car===playerCar ? -0.24 : 0.24) : 0;
     let camX=car.x+forwardX*forwardOffset+rightX*sideOffset+rightX*screenShakeOffset.x*0.32;
     let camZ=car.z+forwardZ*forwardOffset+rightZ*sideOffset+rightZ*screenShakeOffset.x*0.32;
-    let camY=car.y+eyeHeight+screenShakeOffset.y*0.35;
+    let camY=cameraBaseY+eyeHeight+screenShakeOffset.y*0.35;
     let walkingFirstPerson=robotMode && car.onGround && car.health>0 && Math.abs(car.speed || 0)>0.018;
     let targetWalkMotion=walkingFirstPerson ? clamp(Math.abs(car.speed || 0)/Math.max(0.001,mechGroundMaxSpeed),0,1)*robotViewAmount : 0;
     if(!Number.isFinite(car.firstPersonWalkMotion)) car.firstPersonWalkMotion=0;
@@ -13550,7 +13667,7 @@ function updateCameraForCar(car){
   let camHeight=cameraFollowHeight+cameraDownhillExtraHeight*car.cameraDownhillAmount;
   let camX=car.x-Math.sin(car.cameraYaw)*camDist;
   let camZ=car.z-Math.cos(car.cameraYaw)*camDist;
-  let targetCamY=car.y+camHeight;
+  let targetCamY=cameraBaseY+camHeight;
   let carMode=car.morphProgress>0.72 && car.jetProgress<0.35;
   if(!Number.isFinite(car.cameraY) || !carMode){
     car.cameraY=targetCamY;
@@ -13569,7 +13686,7 @@ function updateCameraForCar(car){
   camY=Math.max(camY,drivingSurfaceHeight(camX,camZ)+cameraTerrainClearance);
 
   let lookX=car.x+Math.sin(car.cameraYaw)*lookAhead;
-  let lookY=car.y+3.8;
+  let lookY=cameraBaseY+3.8;
   let lookZ=car.z+Math.cos(car.cameraYaw)*lookAhead;
   lookY+=updateCameraPitchOffset(car,cameraPitchTargetFromAim(car));
 
@@ -14419,10 +14536,10 @@ function updateSurfaceScanPulses(deltaSeconds){
     let fade=Math.pow(1-t,1.35);
     let spin=pulse.phase+pulse.age*0.72;
 
-    pulse.rings[0].material.opacity=0.32*fade;
-    pulse.rings[1].material.opacity=0.88*fade;
-    pulse.rings[2].material.opacity=0.34*fade;
-    pulse.spokes.material.opacity=0.28*fade;
+    pulse.rings[0].material.opacity=0.48*fade;
+    pulse.rings[1].material.opacity=0.96*fade;
+    pulse.rings[2].material.opacity=0.42*fade;
+    pulse.spokes.material.opacity=0.34*fade;
 
     writeSurfaceScanRing(pulse.rings[0],pulse.x,pulse.z,radius*1.012,spin,0.38);
     writeSurfaceScanRing(pulse.rings[1],pulse.x,pulse.z,radius,spin,0.36);
@@ -14583,6 +14700,7 @@ function loop(timestamp=performance.now()){
   updateFpsDisplay(timestamp);
   updateMissionStartTitle(timestamp);
   updateFirstPersonVisorOverlay();
+  updateObjectiveHudLayout();
 
   if(!gameStarted){
     fixedAccumulator=0;
@@ -15504,6 +15622,8 @@ function placeCarOnOpenField(car,startInfo){
   car.jetProgress=0;
   car.jetBank=0;
   car.jetAltitudeTarget=drivingSurfaceHeight(car.x,car.z)+8;
+  car.jetLandingTransformLift=0;
+  car.jetLandingTransformStartLift=0;
   car.landingReleaseFrames=0;
   car.landedOnPad=false;
   car.jetAutoLandToRobot=false;
@@ -15550,6 +15670,7 @@ function placeCarOnOpenField(car,startInfo){
   car.lastWalkX=car.x;
   car.lastWalkZ=car.z;
   car.y=drivingSurfaceHeight(car.x,car.z);
+  car.renderY=car.y;
   car.group.position.set(car.x,car.y,car.z);
   car.group.rotation.y=car.angle;
   car.group.rotation.x=0;
@@ -15656,6 +15777,9 @@ function setCarAtStartPoint(car,point,beamIntro=false){
   car.x=point.x;
   car.z=point.z;
   car.y=beamIntro ? startY : finalY;
+  car.renderY=car.y;
+  car.jetLandingTransformLift=0;
+  car.jetLandingTransformStartLift=0;
   car.angle=point.angle;
   car.velAngle=point.angle;
   car.cameraYaw=point.angle;
@@ -15763,6 +15887,9 @@ function moveCarToBaseStart(car,lateralSlot=0){
   car.x=chosen.x;
   car.z=chosen.z;
   car.y=drivingSurfaceHeight(car.x,car.z);
+  car.renderY=car.y;
+  car.jetLandingTransformLift=0;
+  car.jetLandingTransformStartLift=0;
   let terminalWorld=tradingOutpostCollision.terminal
     ? tradingOutpostLocalToWorld(tradingOutpostCollision.terminal,tradingOutpostCollision)
     : null;
@@ -15840,6 +15967,9 @@ function updateStartSequence(){
     car.x=entry.x;
     car.z=entry.z;
     car.y=y;
+    car.renderY=car.y;
+    car.jetLandingTransformLift=0;
+    car.jetLandingTransformStartLift=0;
     car.speed=0;
     car.vy=0;
     car.throttleEase=0;

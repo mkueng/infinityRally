@@ -700,6 +700,30 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     return panel.side==="left" ? "calc(4.5vw + 18px)" : "calc(50vw + 4.5vw + 18px)";
   }
 
+  function thirdPersonSpeedLeft(panel){
+    if(panel.side==="full") return "calc(50vw - 551px)";
+    return panel.side==="left" ? "8px" : "calc(50vw + 8px)";
+  }
+
+  function thirdPersonSpeedTransform(panel){
+    if(panel.side==="full") return `perspective(430px) ${sideTilt(panel)} scale(0.96)`;
+    return "scale(0.96)";
+  }
+
+  function thirdPersonMapLeft(panel){
+    if(panel.side==="full") return "calc(50vw + 250px)";
+    return panel.side==="left" ? "calc(25vw + 176px)" : "calc(75vw + 176px)";
+  }
+
+  function thirdPersonMapTop(panel){
+    return panel.side==="full" ? "18px" : "72px";
+  }
+
+  function thirdPersonMapSizeFor(panel){
+    if(panel.side==="full") return mapHudCssSizeFor(panel);
+    return "clamp(132px,calc(50vw - 336px),184px)";
+  }
+
   function applyNavigationHudLayout(){
     let firstPerson=!!getFirstPersonMode();
     let signature=(firstPerson ? "fp" : "tp")+"|"+panels.map(panel=>panel.side).join(",");
@@ -708,12 +732,13 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
 
     for(let panel of panels){
       if(panel.speedHud){
-        panel.speedHud.style.top=firstPerson ? "auto" : "58px";
+        panel.speedHud.style.top=firstPerson ? "auto" : (panel.side==="full" ? "18px" : "66px");
         panel.speedHud.style.bottom=firstPerson ? "calc(8vh + 18px)" : "auto";
-        panel.speedHud.style.left=firstPerson ? firstPersonSpeedLeft(panel) : `calc(${panelOffset(panel)} + ${speedHudInset(panel)})`;
+        panel.speedHud.style.left=firstPerson ? firstPersonSpeedLeft(panel) : thirdPersonSpeedLeft(panel);
+        panel.speedHud.style.right="auto";
         panel.speedHud.style.transform=firstPerson
           ? "scale(1.104)"
-          : speedHudTransform(panel);
+          : thirdPersonSpeedTransform(panel);
         panel.speedHud.style.transformOrigin=sideTransformOrigin(panel);
         panel.speedHud.style.zIndex=firstPerson ? "76" : "10";
         panel.speedHud.style.opacity=firstPerson ? "0.94" : "1";
@@ -721,13 +746,13 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       if(panel.mapHud){
         panel.mapHud.style.setProperty("--map-size",firstPerson
           ? (panel.side==="full" ? "333px" : "min(288px,calc(50vw - 52px))")
-          : mapHudCssSizeFor(panel)
+          : thirdPersonMapSizeFor(panel)
         );
-        panel.mapHud.style.top=firstPerson ? "auto" : "112px";
+        panel.mapHud.style.top=firstPerson ? "auto" : thirdPersonMapTop(panel);
         panel.mapHud.style.bottom=firstPerson ? "calc(8vh + 18px)" : "auto";
-        panel.mapHud.style.left=firstPerson ? "auto" : panelCenterLeft(panel);
+        panel.mapHud.style.left=firstPerson ? "auto" : thirdPersonMapLeft(panel);
         panel.mapHud.style.right=firstPerson ? firstPersonMapRight(panel) : "auto";
-        panel.mapHud.style.transform=firstPerson ? "none" : "translateX(-50%)";
+        panel.mapHud.style.transform="none";
         panel.mapHud.style.zIndex=firstPerson ? "76" : "10";
         panel.mapHud.style.opacity=firstPerson ? "0.92" : "1";
       }
@@ -788,10 +813,10 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       accent,
       accentGlow,
       text,
-      trackBackground:rgba(shadow,0.18,0x041018),
+      trackBackground:rgba(shadow,0.28,0x041018),
       panelSheen:`linear-gradient(115deg,${rgba(accent,0.16,0x8dfff2)},transparent 24%,transparent 68%,${rgba(accentGlow,0.1,0x67f4ff)}),repeating-linear-gradient(0deg,${rgba(accent,0.07,0x8dfff2)} 0 1px,transparent 1px 18px)`,
-      barFill:`linear-gradient(90deg,${rgba(low,0.16,0x687064)},${rgba(mid,0.24,0x8c9696)},${rgba(high,0.18,0xdde8e6)})`,
-      barShadow:`inset 0 0 10px ${rgba(accentGlow,0.08,0x67f4ff)}`,
+      barFill:`linear-gradient(90deg,${rgba(low,0.58,0x687064)},${rgba(mid,0.78,0x8c9696)},${rgba(high,0.64,0xdde8e6)})`,
+      barShadow:`inset 0 0 12px ${rgba(accentGlow,0.22,0x67f4ff)},0 0 9px ${rgba(accentGlow,0.2,0x67f4ff)}`,
       grid:`repeating-linear-gradient(90deg,${rgba(accent,0.16,0x8dfff2)} 0 1px,transparent 1px 16px)`,
       border:"0",
       softBorder:"0",
@@ -1278,19 +1303,56 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     return angle;
   }
 
+  function compassArcT(delta,viewHalf){
+    return Math.max(-1,Math.min(1,delta/viewHalf));
+  }
+
+  function compassBearing(dx,dz){
+    return Math.atan2(dx,dz);
+  }
+
+  function formatCompassDistance(distance){
+    if(!Number.isFinite(distance)) return "";
+    if(distance>=1000){
+      let value=distance/1000;
+      return `${value>=10 ? Math.round(value) : value.toFixed(1)}ku`;
+    }
+    return `${Math.max(1,Math.round(distance))}u`;
+  }
+
+  function drawCompassMarkerDistance(ctx,x,y,distance,alpha=1,color="rgba(232,255,247,0.86)"){
+    let label=formatCompassDistance(distance);
+    if(!label) return;
+
+    ctx.save();
+    ctx.translate(x,y);
+    ctx.font=`900 15px "Astor", Arial`;
+    ctx.textAlign="center";
+    ctx.textBaseline="middle";
+    ctx.globalAlpha=Math.max(0.34,Math.min(1,alpha));
+    ctx.strokeStyle="rgba(18,7,43,0.88)";
+    ctx.lineWidth=3.8;
+    ctx.strokeText(label,0,0);
+    ctx.fillStyle=color;
+    ctx.fillText(label,0,0);
+    ctx.restore();
+  }
+
   function drawCompassStationMarker(ctx,state,cx,cy,radius,arcHalf,viewHalf,palette){
     let station=getStationState();
     if(!station) return;
 
     let dx=station.x-state.carX;
     let dz=station.z-state.carZ;
-    if(dx*dx+dz*dz<1) return;
+    let distSq=dx*dx+dz*dz;
+    if(distSq<1) return;
+    let distance=Math.sqrt(distSq);
 
     let heading=state.carVelAngle || 0;
-    let stationAngle=Math.atan2(dx,dz);
+    let stationAngle=compassBearing(dx,dz);
     let delta=normalizeAngle(stationAngle-heading);
     let inView=Math.abs(delta)<=viewHalf;
-    let t=Math.max(-1,Math.min(1,delta/viewHalf));
+    let t=compassArcT(delta,viewHalf);
     let theta=-Math.PI/2+t*arcHalf;
     let markerRadius=radius-10;
     let x=cx+Math.cos(theta)*markerRadius;
@@ -1327,6 +1389,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     ctx.fillRect(-2.2,-2.2,4.4,4.4);
 
     ctx.restore();
+    drawCompassMarkerDistance(ctx,x,y+17,distance,alpha);
   }
 
   function drawCompassTradingOutpostMarker(ctx,state,cx,cy,radius,arcHalf,viewHalf,palette){
@@ -1335,13 +1398,15 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
 
     let dx=outpost.x-state.carX;
     let dz=outpost.z-state.carZ;
-    if(dx*dx+dz*dz<1) return;
+    let distSq=dx*dx+dz*dz;
+    if(distSq<1) return;
+    let distance=Math.sqrt(distSq);
 
     let heading=state.carVelAngle || 0;
-    let outpostAngle=Math.atan2(dx,dz);
+    let outpostAngle=compassBearing(dx,dz);
     let delta=normalizeAngle(outpostAngle-heading);
     let inView=Math.abs(delta)<=viewHalf;
-    let t=Math.max(-1,Math.min(1,delta/viewHalf));
+    let t=compassArcT(delta,viewHalf);
     let theta=-Math.PI/2+t*arcHalf;
     let markerRadius=radius-10;
     let x=cx+Math.cos(theta)*markerRadius;
@@ -1365,6 +1430,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     ctx.arc(0,0,9+pulse*1.4,0,Math.PI*2);
     ctx.stroke();
     ctx.restore();
+    drawCompassMarkerDistance(ctx,x,y+17,distance,alpha,`rgba(239,207,114,${Math.min(0.9,alpha)})`);
   }
 
   function drawCompassBossBaseMarker(ctx,state,cx,cy,radius,arcHalf,viewHalf,palette){
@@ -1373,13 +1439,15 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
 
     let dx=base.x-state.carX;
     let dz=base.z-state.carZ;
-    if(dx*dx+dz*dz<1) return;
+    let distSq=dx*dx+dz*dz;
+    if(distSq<1) return;
+    let distance=Math.sqrt(distSq);
 
     let heading=state.carVelAngle || 0;
-    let baseAngle=Math.atan2(dx,dz);
+    let baseAngle=compassBearing(dx,dz);
     let delta=normalizeAngle(baseAngle-heading);
     let inView=Math.abs(delta)<=viewHalf;
-    let t=Math.max(-1,Math.min(1,delta/viewHalf));
+    let t=compassArcT(delta,viewHalf);
     let theta=-Math.PI/2+t*arcHalf;
     let markerRadius=radius-10;
     let x=cx+Math.cos(theta)*markerRadius;
@@ -1411,6 +1479,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     ctx.closePath();
     ctx.stroke();
     ctx.restore();
+    drawCompassMarkerDistance(ctx,x,y+18,distance,alpha,`rgba(255,142,207,${Math.min(0.9,alpha)})`);
   }
 
   function drawCompassRadarOutpostMarkers(ctx,state,cx,cy,radius,arcHalf,viewHalf,palette){
@@ -1424,12 +1493,14 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
 
       let dx=outpost.x-state.carX;
       let dz=outpost.z-state.carZ;
-      if(dx*dx+dz*dz<1) continue;
+      let distSq=dx*dx+dz*dz;
+      if(distSq<1) continue;
+      let distance=Math.sqrt(distSq);
 
-      let outpostAngle=Math.atan2(dx,dz);
+      let outpostAngle=compassBearing(dx,dz);
       let delta=normalizeAngle(outpostAngle-heading);
       let inView=Math.abs(delta)<=viewHalf;
-      let t=Math.max(-1,Math.min(1,delta/viewHalf));
+      let t=compassArcT(delta,viewHalf);
       let theta=-Math.PI/2+t*arcHalf;
       let markerRadius=radius-22;
       let x=cx+Math.cos(theta)*markerRadius;
@@ -1470,6 +1541,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
         ctx.stroke();
       }
       ctx.restore();
+      drawCompassMarkerDistance(ctx,x,y+18*scale,distance,alpha,`rgba(108,255,180,${Math.min(0.92,alpha)})`);
     }
   }
 
@@ -1484,11 +1556,12 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       let dz=other.carZ-state.carZ;
       let distSq=dx*dx+dz*dz;
       if(distSq<4) continue;
+      let distance=Math.sqrt(distSq);
 
-      let playerAngle=Math.atan2(dx,dz);
+      let playerAngle=compassBearing(dx,dz);
       let delta=normalizeAngle(playerAngle-heading);
       let inView=Math.abs(delta)<=viewHalf;
-      let t=Math.max(-1,Math.min(1,delta/viewHalf));
+      let t=compassArcT(delta,viewHalf);
       let theta=-Math.PI/2+t*arcHalf;
       let markerRadius=radius-24;
       let x=cx+Math.cos(theta)*markerRadius;
@@ -1526,6 +1599,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       ctx.globalAlpha=alpha;
       ctx.fillText(other.label || "P",0,0);
       ctx.restore();
+      drawCompassMarkerDistance(ctx,x,y+27,distance,alpha,`rgba(245,255,249,${Math.min(0.9,alpha)})`);
     }
   }
 
@@ -1537,7 +1611,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     let width=canvas.width;
     let height=canvas.height;
     let cx=width*0.5;
-    let arcHalf=0.54;
+    let arcHalf=0.768;
     let radius=(width-26)/(2*Math.sin(arcHalf));
     let cy=radius+12;
     let viewHalf=Math.PI*0.82;
@@ -1569,9 +1643,9 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
 
     let cardinals=[
       {label:"N",angle:0},
-      {label:"E",angle:Math.PI/2},
+      {label:"E",angle:-Math.PI/2},
       {label:"S",angle:Math.PI},
-      {label:"W",angle:-Math.PI/2}
+      {label:"W",angle:Math.PI/2}
     ];
 
     ctx.textAlign="center";
@@ -1580,7 +1654,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       let delta=normalizeAngle(dir.angle-heading);
       if(Math.abs(delta)>viewHalf) continue;
 
-      let t=delta/viewHalf;
+      let t=compassArcT(delta,viewHalf);
       let theta=-Math.PI/2+t*arcHalf;
       let x=cx+Math.cos(theta)*(radius-10);
       let y=cy+Math.sin(theta)*(radius-10);
