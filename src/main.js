@@ -8843,6 +8843,79 @@ function nearestActivePlayer(enemy,targetableCars=enemyTargetableCars()){
   return best;
 }
 
+function smartEnemyTarget(enemy,targetableCars=enemyTargetableCars()){
+  if(!enemy || !targetableCars.length) return null;
+
+  let current=enemy.aiTarget && targetableCars.includes(enemy.aiTarget) && enemy.aiTarget.health>0
+    ? enemy.aiTarget
+    : null;
+  let currentScore=Infinity;
+  let best=null;
+  let bestScore=Infinity;
+
+  for(let car of targetableCars){
+    let dx=car.x-enemy.x;
+    let dz=car.z-enemy.z;
+    let distSq=dx*dx+dz*dz;
+    let healthBias=clamp((100-(car.health || 100))/100,0,0.55);
+    let score=distSq*(1-healthBias*0.18);
+    if(car===current){
+      score*=0.72;
+      currentScore=score;
+    }
+    if(score<bestScore){
+      best=car;
+      bestScore=score;
+    }
+  }
+
+  if(current && currentScore<bestScore*1.38) return current;
+  return best;
+}
+
+function predictedTargetPointForEnemy(enemy,target,distance){
+  let lead=enemy.isBuggy ? 26 : enemy.isDrone ? 14 : enemy.isGiant ? 10 : enemy.isGuard ? 12 : enemy.isBoss ? 12 : 8;
+  lead*=clamp(distance/180,0.35,1.85);
+  let moveAngle=Number.isFinite(target.velAngle) ? target.velAngle : target.angle || 0;
+  let targetSpeed=Number.isFinite(target.speed) ? target.speed : 0;
+  return {
+    x:target.x+Math.sin(moveAngle)*targetSpeed*lead,
+    z:target.z+Math.cos(moveAngle)*targetSpeed*lead
+  };
+}
+
+function updateEnemyTacticalState(enemy,distance,targetAngle){
+  enemy.aiThink=Math.max(0,(enemy.aiThink || 0)-1);
+  if(enemy.aiThink<=0){
+    enemy.aiThink=36+Math.floor(Math.random()*54);
+    if(Math.random()<0.28) enemy.aiStrafe*=-1;
+    enemy.aiAggression=0.82+Math.random()*0.42;
+    enemy.aiPreferredRange=enemy.isBuggy
+      ? 136+Math.random()*42
+      : enemy.isDrone
+      ? 76+Math.random()*28
+      : enemy.isGiant
+      ? 78+Math.random()*26
+      : enemy.isGuard
+      ? 58+Math.random()*24
+      : 48+Math.random()*22;
+  }
+
+  if(enemy.blockedFrames>10){
+    enemy.avoidFrames=Math.max(enemy.avoidFrames || 0,34+Math.floor(Math.random()*34));
+    enemy.avoidAngle=normalizeAngle(enemy.angle+enemy.aiStrafe*(0.72+Math.random()*0.72));
+    enemy.aiStrafe*=-1;
+    enemy.blockedFrames=0;
+  }
+
+  if((enemy.avoidFrames || 0)>0){
+    enemy.avoidFrames--;
+    return enemy.avoidAngle;
+  }
+
+  return targetAngle;
+}
+
 function playerSpawnDistanceSq(x,z){
   let best=Infinity;
   for(let car of activeCars()){
@@ -9720,7 +9793,7 @@ function updateEnemy(enemy,settings=currentDifficulty(),targetableCars=enemyTarg
   if(!enemy.active || enemy.health<=0) return;
   if(enemy.cannonCooldown>0) enemy.cannonCooldown--;
 
-  let target=nearestActivePlayer(enemy,targetableCars);
+  let target=smartEnemyTarget(enemy,targetableCars);
   if(!target){
     enemy.speed*=0.9;
     return;
@@ -9731,11 +9804,14 @@ function updateEnemy(enemy,settings=currentDifficulty(),targetableCars=enemyTarg
   let dz=target.z-enemy.z;
   let distance=Math.max(0.001,Math.hypot(dx,dz));
   let targetAngle=Math.atan2(dx,dz);
+  let predictedTarget=predictedTargetPointForEnemy(enemy,target,distance);
+  let aimTargetAngle=Math.atan2(predictedTarget.x-enemy.x,predictedTarget.z-enemy.z);
+  let tacticalTargetAngle=updateEnemyTacticalState(enemy,distance,aimTargetAngle);
   if(enemy.isBoat){
-    updateBoatEnemy(enemy,target,distance,targetAngle,settings);
+    updateBoatEnemy(enemy,target,distance,aimTargetAngle,settings);
     return;
   }
-  let desiredAngle=targetAngle;
+  let desiredAngle=tacticalTargetAngle;
   let desiredSpeed;
   let missionOutpostActive=enemy.missionOutpost && !enemy.missionOutpost.destroyed;
 
@@ -9753,10 +9829,10 @@ function updateEnemy(enemy,settings=currentDifficulty(),targetableCars=enemyTarg
     let leashDistance=enemy.isDrone ? 260 : 210;
 
     if(distance<engageDistance && outpostDistance<leashDistance){
-      desiredAngle=targetAngle;
-      desiredSpeed=enemy.isDrone ? 0.3 : enemy.isBuggy ? 0.32 : 0.22;
+      desiredAngle=tacticalTargetAngle;
+      desiredSpeed=(enemy.isDrone ? 0.3 : enemy.isBuggy ? 0.32 : 0.22)*(enemy.aiAggression || 1);
       if(distance<70){
-        desiredAngle=targetAngle+Math.PI+enemy.aiStrafe*0.28;
+        desiredAngle=tacticalTargetAngle+Math.PI+enemy.aiStrafe*0.28;
         desiredSpeed=enemy.isBuggy ? 0.18 : 0.12;
       }
     }else if(homeDistance>18){
@@ -9772,22 +9848,22 @@ function updateEnemy(enemy,settings=currentDifficulty(),targetableCars=enemyTarg
     }
   }else if(enemy.isBuggy){
     let minDistance=76;
-    let preferredDistance=138;
-    let farDistance=210;
+    let preferredDistance=enemy.aiPreferredRange || 138;
+    let farDistance=preferredDistance+74;
     if(distance<minDistance){
       let escapeStrength=clamp((minDistance-distance)/minDistance,0,1);
-      desiredAngle=targetAngle+Math.PI+enemy.aiStrafe*(0.12+escapeStrength*0.22);
+      desiredAngle=tacticalTargetAngle+Math.PI+enemy.aiStrafe*(0.12+escapeStrength*0.22);
       desiredSpeed=0.16+escapeStrength*0.12;
     }else if(distance>farDistance){
-      desiredAngle=targetAngle+enemy.aiStrafe*0.045;
-      desiredSpeed=0.42;
+      desiredAngle=tacticalTargetAngle+enemy.aiStrafe*0.07;
+      desiredSpeed=0.42*(enemy.aiAggression || 1);
     }else{
       let orbit=0.12+Math.sin(performance.now()*0.00065+enemy.guardPhase)*0.035;
-      desiredAngle=targetAngle+enemy.aiStrafe*orbit;
+      desiredAngle=tacticalTargetAngle+enemy.aiStrafe*orbit;
       desiredSpeed=distance>preferredDistance ? 0.26 : 0.12;
     }
     if(distance>78 && distance<186 && enemy.cannonCooldown<20){
-      desiredAngle=targetAngle+enemy.aiStrafe*0.025;
+      desiredAngle=tacticalTargetAngle+enemy.aiStrafe*0.025;
     }
   }else if(enemy.isSpider){
     if(distance<22){
@@ -9796,25 +9872,25 @@ function updateEnemy(enemy,settings=currentDifficulty(),targetableCars=enemyTarg
     desiredSpeed=distance>18 ? 0.28 : 0.12;
   }else if(enemy.isDrone){
     let minAimableDistance=48;
-    let preferredDistance=74;
-    let farDistance=104;
+    let preferredDistance=enemy.aiPreferredRange || 74;
+    let farDistance=preferredDistance+34;
     if(distance<minAimableDistance){
       let escapeStrength=clamp((minAimableDistance-distance)/minAimableDistance,0,1);
-      desiredAngle=targetAngle+Math.PI+enemy.aiStrafe*(0.34+escapeStrength*0.7);
+      desiredAngle=tacticalTargetAngle+Math.PI+enemy.aiStrafe*(0.34+escapeStrength*0.7);
       desiredSpeed=0.24+escapeStrength*0.22;
     }else if(distance<preferredDistance){
       let ringT=clamp((preferredDistance-distance)/(preferredDistance-minAimableDistance),0,1);
-      desiredAngle=targetAngle+enemy.aiStrafe*(0.68+ringT*0.42);
+      desiredAngle=tacticalTargetAngle+enemy.aiStrafe*(0.68+ringT*0.42);
       desiredSpeed=0.12+ringT*0.08;
     }else if(distance>farDistance){
-      desiredAngle=targetAngle+enemy.aiStrafe*0.22;
-      desiredSpeed=0.34;
+      desiredAngle=tacticalTargetAngle+enemy.aiStrafe*0.22;
+      desiredSpeed=0.34*(enemy.aiAggression || 1);
     }else{
-      desiredAngle=targetAngle+enemy.aiStrafe*(0.82+Math.sin(performance.now()*0.0016+enemy.guardPhase)*0.14);
+      desiredAngle=tacticalTargetAngle+enemy.aiStrafe*(0.82+Math.sin(performance.now()*0.0016+enemy.guardPhase)*0.14);
       desiredSpeed=0.12;
     }
     if(distance>=minAimableDistance && distance<=farDistance && enemy.cannonCooldown<18){
-      desiredAngle=targetAngle+enemy.aiStrafe*0.18;
+      desiredAngle=tacticalTargetAngle+enemy.aiStrafe*0.18;
     }
   }else if(enemy.isGuard){
     if(distance<44){
@@ -9835,7 +9911,7 @@ function updateEnemy(enemy,settings=currentDifficulty(),targetableCars=enemyTarg
     let homeAngle=Math.atan2(homeDx,homeDz);
 
     if(distance>74 && homeDistance<18){
-      desiredAngle=targetAngle;
+      desiredAngle=tacticalTargetAngle;
       desiredSpeed=0.035;
     }else if(homeDistance>24){
       desiredAngle=homeAngle;
@@ -9844,7 +9920,7 @@ function updateEnemy(enemy,settings=currentDifficulty(),targetableCars=enemyTarg
       desiredAngle=homeAngle;
       desiredSpeed=0.055;
     }else{
-      desiredAngle=targetAngle+enemy.aiStrafe*0.18*Math.sin(performance.now()*0.0015+enemy.guardPhase);
+      desiredAngle=tacticalTargetAngle+enemy.aiStrafe*0.18*Math.sin(performance.now()*0.0015+enemy.guardPhase);
       desiredSpeed=0.012*Math.sin(performance.now()*0.002+enemy.guardPhase);
     }
   }else{
@@ -9886,11 +9962,22 @@ function updateEnemy(enemy,settings=currentDifficulty(),targetableCars=enemyTarg
     enemy.angle=normalizeAngle(enemy.angle+(Math.random()<0.5 ? -1 : 1)*(enemy.isBuggy ? 0.22 : 0.55));
     if(enemy.isBuggy) enemy.steadyDesiredAngle=enemy.angle;
     enemy.aiStrafe*=-1;
+    enemy.blockedFrames=(enemy.blockedFrames || 0)+6;
     if((enemy.isSpider || enemy.isGiant) && collision.otherCar && enemy.contactCooldown<=0){
       damageCar(collision.otherCar,enemy.isGiant ? 8 : 4);
       rattleActor(collision.otherCar,enemy.isGiant ? 1.1 : 0.6);
       enemy.contactCooldown=42;
     }
+  }else if(!enemy.isDrone && Math.abs(enemy.speed)>0.045){
+    let movedSq=(enemy.x-prevX)*(enemy.x-prevX)+(enemy.z-prevZ)*(enemy.z-prevZ);
+    let blockedThreshold=Math.max(0.02,Math.abs(enemy.speed)*0.18);
+    if(movedSq<blockedThreshold*blockedThreshold){
+      enemy.blockedFrames=(enemy.blockedFrames || 0)+1;
+    }else{
+      enemy.blockedFrames=Math.max(0,(enemy.blockedFrames || 0)-1);
+    }
+  }else{
+    enemy.blockedFrames=Math.max(0,(enemy.blockedFrames || 0)-1);
   }
   if(enemy.contactCooldown>0) enemy.contactCooldown--;
 
@@ -9979,7 +10066,7 @@ function updateEnemy(enemy,settings=currentDifficulty(),targetableCars=enemyTarg
       }
     }
     if(enemy.buggyModel.userData.launcher){
-      let localAim=clamp(normalizeAngle(targetAngle-enemy.angle),-0.64,0.64);
+      let localAim=clamp(normalizeAngle(aimTargetAngle-enemy.angle),-0.64,0.64);
       enemy.buggyModel.userData.launcher.rotation.y+=(localAim-enemy.buggyModel.userData.launcher.rotation.y)*0.16;
       enemy.buggyModel.userData.launcher.rotation.x=-0.08-Math.min(0.24,Math.max(0,(distance-70)/360));
     }
@@ -9987,7 +10074,7 @@ function updateEnemy(enemy,settings=currentDifficulty(),targetableCars=enemyTarg
 
   let fireRange=enemy.isBuggy ? 190 : enemy.isDrone ? 118 : enemy.isGiant ? 132 : enemy.isGuard ? 96 : enemy.isBoss ? 112 : 82;
   let fireArc=enemy.isBuggy ? 0.76 : enemy.isDrone ? 0.82 : enemy.isGiant ? 0.58 : enemy.isGuard ? 0.62 : enemy.isBoss ? 0.68 : 0.52;
-  if(!enemy.isSpider && distance<fireRange && Math.abs(normalizeAngle(targetAngle-enemy.angle))<fireArc){
+  if(!enemy.isSpider && distance<fireRange && Math.abs(normalizeAngle(aimTargetAngle-enemy.angle))<fireArc){
     if(enemy.isBuggy ? (distance>58 && fireEnemyBuggyRocket(enemy,target)) : fireCannon(enemy)){
       let baseDelay=enemy.isBuggy ? 138+Math.floor(Math.random()*84) : enemy.isDrone ? 54+Math.floor(Math.random()*42) : enemy.isGiant ? 92+Math.floor(Math.random()*46) : enemy.isGuard ? 64+Math.floor(Math.random()*36) : enemy.isBoss ? 44+Math.floor(Math.random()*36) : 78+Math.floor(Math.random()*58);
       enemy.cannonCooldown=scaledDelay(baseDelay,settings.fireDelay);
@@ -11902,7 +11989,14 @@ function createEnemyState(index,x,z,type="mech"){
     health:baseHealth,
     aiTarget:null,
     aiStrafe:Math.random()<0.5 ? -1 : 1,
-    aiThink:0,
+    aiThink:Math.floor(Math.random()*45),
+    aiAggression:0.9+Math.random()*0.28,
+    aiPreferredRange:0,
+    avoidAngle:0,
+    avoidFrames:0,
+    blockedFrames:0,
+    lastAiX:x,
+    lastAiZ:z,
     guardPhase:Math.random()*Math.PI*2,
     boatHomeX:isBoat ? x : 0,
     boatHomeZ:isBoat ? z : 0,
