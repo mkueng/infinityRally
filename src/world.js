@@ -88,17 +88,80 @@ export function createWorld(scene,options={}){
       grassClusterRadius:10
     }
   };
-  let currentEnvironment={...defaultEnvironment,...(options.getEnvironment ? options.getEnvironment() : {})};
+let currentEnvironment={...defaultEnvironment,...(options.getEnvironment ? options.getEnvironment() : {})};
   const roadsEnabled=false;
 
-let landMat=new THREE.MeshStandardMaterial({
+let landMat;
+let rockMat;
+const terrainDetailTexture=new THREE.TextureLoader().load(
+  "./assets/textures/Ground056.png?v=terrain-detail-ground056",
+  ()=>{
+    if(landMat) landMat.needsUpdate=true;
+  },
+  undefined,
+  error=>console.warn("Ground terrain texture failed to load",error)
+);
+terrainDetailTexture.wrapS=THREE.RepeatWrapping;
+terrainDetailTexture.wrapT=THREE.RepeatWrapping;
+terrainDetailTexture.anisotropy=4;
+if(THREE.SRGBColorSpace) terrainDetailTexture.colorSpace=THREE.SRGBColorSpace;
+
+const terrainNormalTexture=new THREE.TextureLoader().load(
+  "./assets/textures/Ground056_1K-JPG_NormalGL.jpg?v=terrain-normal-ground056",
+  ()=>{
+    if(landMat) landMat.needsUpdate=true;
+  },
+  undefined,
+  error=>console.warn("Ground normal texture failed to load",error)
+);
+terrainNormalTexture.wrapS=THREE.RepeatWrapping;
+terrainNormalTexture.wrapT=THREE.RepeatWrapping;
+terrainNormalTexture.repeat.set(12,12);
+terrainNormalTexture.anisotropy=4;
+if(THREE.NoColorSpace) terrainNormalTexture.colorSpace=THREE.NoColorSpace;
+
+const rockTexture=new THREE.TextureLoader().load(
+  "./assets/textures/rocks/Rock050.png?v=rock050-color",
+  ()=>{
+    if(rockMat) rockMat.needsUpdate=true;
+  },
+  undefined,
+  error=>console.warn("Rock texture failed to load",error)
+);
+rockTexture.wrapS=THREE.RepeatWrapping;
+rockTexture.wrapT=THREE.RepeatWrapping;
+rockTexture.repeat.set(1.7,1.7);
+rockTexture.anisotropy=4;
+if(THREE.SRGBColorSpace) rockTexture.colorSpace=THREE.SRGBColorSpace;
+
+const rockNormalTexture=new THREE.TextureLoader().load(
+  "./assets/textures/rocks/Rock050_1K-PNG_NormalGL.png?v=rock050-normal",
+  ()=>{
+    if(rockMat) rockMat.needsUpdate=true;
+  },
+  undefined,
+  error=>console.warn("Rock normal texture failed to load",error)
+);
+rockNormalTexture.wrapS=THREE.RepeatWrapping;
+rockNormalTexture.wrapT=THREE.RepeatWrapping;
+rockNormalTexture.repeat.set(1.7,1.7);
+rockNormalTexture.anisotropy=4;
+if(THREE.NoColorSpace) rockNormalTexture.colorSpace=THREE.NoColorSpace;
+
+landMat=new THREE.MeshStandardMaterial({
   map:makeGroundTexture(currentEnvironment),
+  normalMap:terrainNormalTexture,
+  normalScale:new THREE.Vector2(0.38,0.38),
   vertexColors:true,
   side:THREE.DoubleSide,
   roughness:0.92,
   metalness:0.04
 });
 landMat.onBeforeCompile=shader=>{
+  shader.uniforms.terrainDetailMap={value:terrainDetailTexture};
+  shader.uniforms.terrainDetailScale={value:0.024};
+  shader.uniforms.terrainDetailStrength={value:0.54};
+  landMat.userData.shader=shader;
   shader.vertexShader=shader.vertexShader.replace(
     "#include <common>",
     [
@@ -118,6 +181,9 @@ landMat.onBeforeCompile=shader=>{
     [
       "#include <common>",
       "varying vec3 vLandWorldPosition;",
+      "uniform sampler2D terrainDetailMap;",
+      "uniform float terrainDetailScale;",
+      "uniform float terrainDetailStrength;",
       "float landHash(vec2 p){",
       "  p=fract(p*vec2(127.1,311.7));",
       "  p+=dot(p,p+74.7);",
@@ -132,12 +198,34 @@ landMat.onBeforeCompile=shader=>{
       "  float c=landHash(i+vec2(0.0,1.0));",
       "  float d=landHash(i+vec2(1.0,1.0));",
       "  return mix(mix(a,b,u.x),mix(c,d,u.x),u.y);",
+      "}",
+      "vec4 terrainDetailSample(vec2 uv){",
+      "  vec2 tile=floor(uv);",
+      "  vec2 f=fract(uv);",
+      "  f=mix(f,1.0-f,mod(tile,2.0));",
+      "  return texture2D(terrainDetailMap,f*0.46+vec2(0.27));",
       "}"
     ].join("\n")
   );
   shader.fragmentShader=shader.fragmentShader.replace(
     "#include <dithering_fragment>",
     [
+      "vec2 terrainDetailUvA=vLandWorldPosition.xz*terrainDetailScale;",
+      "vec2 terrainDetailUvB=vec2(terrainDetailUvA.x*0.54-terrainDetailUvA.y*0.84,terrainDetailUvA.x*0.84+terrainDetailUvA.y*0.54)*1.73+vec2(0.37,0.19);",
+      "vec4 terrainDetailA=terrainDetailSample(terrainDetailUvA);",
+      "vec4 terrainDetailB=terrainDetailSample(terrainDetailUvB);",
+      "float terrainBreakup=landNoise(vLandWorldPosition.xz*0.006+vec2(17.4,-9.2));",
+      "vec3 terrainDetailRgb=mix(terrainDetailA.rgb,terrainDetailB.rgb,0.45+terrainBreakup*0.24);",
+      "float terrainDetailLuma=dot(terrainDetailRgb,vec3(0.299,0.587,0.114));",
+      "float terrainDetailContrast=(terrainDetailLuma-0.5)*2.0;",
+      "float terrainFine=landNoise(vLandWorldPosition.xz*0.044+vec2(terrainBreakup*6.1,terrainBreakup*-4.3));",
+      "float terrainDetailMask=0.68+terrainBreakup*0.24+terrainFine*0.14;",
+      "float terrainDetailDistance=distance(cameraPosition,vLandWorldPosition);",
+      "float terrainDetailFade=1.0-smoothstep(950.0,2100.0,terrainDetailDistance);",
+      "vec3 terrainDetailTone=vec3(1.0+terrainDetailContrast*0.58);",
+      "vec3 terrainDetailColorTone=terrainDetailRgb*1.18;",
+      "vec3 terrainDetailResult=gl_FragColor.rgb*mix(terrainDetailTone,terrainDetailColorTone,0.2);",
+      "gl_FragColor.rgb=mix(gl_FragColor.rgb,terrainDetailResult,terrainDetailStrength*terrainDetailMask*terrainDetailFade);",
       "float mountainTintMask=smoothstep(18.0,46.0,vLandWorldPosition.y);",
       "if(mountainTintMask>0.001){",
       "  float crag=landNoise(vLandWorldPosition.xz*0.055+vec2(vLandWorldPosition.y*0.017,-vLandWorldPosition.y*0.013));",
@@ -244,7 +332,6 @@ let barkMat=new THREE.MeshStandardMaterial({color:0x24133a,emissive:0x12061f,emi
 let leafMat=new THREE.MeshStandardMaterial({color:0xb66cff,emissive:0x5a22c9,emissiveIntensity:0.48,roughness:0.64});
 let podMat=new THREE.MeshStandardMaterial({color:0xff6bd6,emissive:0xff2ca8,emissiveIntensity:0.78,roughness:0.52});
 let waterShimmerShader=null;
-let grassWindShader=null;
 let grassMat=new THREE.MeshStandardMaterial({color:0x9df58d,emissive:0x173d18,emissiveIntensity:0.12,roughness:0.84});
 waterMat.onBeforeCompile=shader=>{
   shader.uniforms.waterShimmerTime={value:0};
@@ -373,43 +460,14 @@ function makeWaterGeometryFromTerrain(terrainPositions){
   return geo;
 }
 
-grassMat.onBeforeCompile=shader=>{
-  shader.uniforms.windTime={value:0};
-  shader.uniforms.windStrength={value:1};
-  grassWindShader=shader;
-  shader.vertexShader=shader.vertexShader.replace(
-    "#include <common>",
-    [
-      "#include <common>",
-      "uniform float windTime;",
-      "uniform float windStrength;"
-    ].join("\n")
-  );
-  shader.vertexShader=shader.vertexShader.replace(
-    "#include <begin_vertex>",
-    [
-      "#include <begin_vertex>",
-      "float bladeHeight=clamp((position.y+0.6)/1.2,0.0,1.0);",
-      "vec3 windWorld=normalize(vec3(0.86,0.0,0.5));",
-      "#ifdef USE_INSTANCING",
-      "vec3 instanceX=instanceMatrix[0].xyz;",
-      "vec3 instanceY=instanceMatrix[1].xyz;",
-      "vec3 instanceZ=instanceMatrix[2].xyz;",
-      "vec3 windLocal=vec3(",
-      "  dot(windWorld,normalize(instanceX))/max(length(instanceX),0.0001),",
-      "  dot(windWorld,normalize(instanceY))/max(length(instanceY),0.0001),",
-      "  dot(windWorld,normalize(instanceZ))/max(length(instanceZ),0.0001)",
-      ");",
-      "#else",
-      "vec3 windLocal=windWorld;",
-      "#endif",
-      "float gust=(0.18+sin(windTime*1.35)*0.07+sin(windTime*2.1)*0.035)*windStrength;",
-      "float windBend=bladeHeight*bladeHeight*gust;",
-      "transformed+=windLocal*windBend;"
-    ].join("\n")
-  );
-};
-let rockMat=new THREE.MeshStandardMaterial({color:0x3f334b,roughness:1,metalness:0.12});
+rockMat=new THREE.MeshStandardMaterial({
+  color:0x3f334b,
+  map:rockTexture,
+  normalMap:rockNormalTexture,
+  normalScale:new THREE.Vector2(1.05,1.05),
+  roughness:0.84,
+  metalness:0.03
+});
 let gravelMat=new THREE.MeshStandardMaterial({color:0x5a5164,roughness:1,metalness:0.02});
 let buildingWallMat=new THREE.MeshStandardMaterial({color:0x5a526d,roughness:0.9,metalness:0.16});
 let buildingRoofMat=new THREE.MeshStandardMaterial({color:0x322b45,roughness:0.92,metalness:0.18});
@@ -432,6 +490,17 @@ let buildingShadowMat=new THREE.MeshBasicMaterial({
   polygonOffsetFactor:-1,
   polygonOffsetUnits:-1
 });
+let rockShadowMat=new THREE.MeshBasicMaterial({
+  map:makeCarShadowTexture(),
+  color:0x000000,
+  transparent:true,
+  opacity:0.42,
+  depthWrite:false,
+  depthTest:true,
+  polygonOffset:true,
+  polygonOffsetFactor:-1,
+  polygonOffsetUnits:-1
+});
 let radarOutpostBaseMat=new THREE.MeshStandardMaterial({color:0x363f4a,roughness:0.74,metalness:0.48});
 let radarOutpostDishMat=new THREE.MeshStandardMaterial({color:0x9fb1bd,roughness:0.48,metalness:0.62,side:THREE.DoubleSide});
 let radarOutpostGlowMat=new THREE.MeshBasicMaterial({color:0x8dfff2,transparent:true,opacity:0.9,depthWrite:false,depthTest:true});
@@ -442,8 +511,30 @@ let bossBaseGlowMat=new THREE.MeshBasicMaterial({color:0xff4fc8,transparent:true
 let trunkGeo=new THREE.CylinderGeometry(.28,1.08,10.5,6);
 let crownGeo=new THREE.IcosahedronGeometry(2.35,1);
 let podGeo=new THREE.SphereGeometry(.72,8,6);
-let grassGeo=new THREE.ConeGeometry(.04,1.2,2);
-let rockGeo=new THREE.DodecahedronGeometry(1,0);
+let grassGeo=new THREE.ConeGeometry(.065,1.2,2);
+function makeRockGeometry(){
+  let geo=new THREE.DodecahedronGeometry(1,1);
+  let pos=geo.attributes.position;
+  let normal=new THREE.Vector3();
+
+  for(let i=0;i<pos.count;i++){
+    normal.set(pos.getX(i),pos.getY(i),pos.getZ(i)).normalize();
+    let x=normal.x;
+    let y=normal.y;
+    let z=normal.z;
+    let ridge=
+      1+
+      Math.sin(x*8.7+y*3.1+z*5.9)*0.09+
+      Math.sin(x*14.3-y*9.4+z*4.2)*0.055+
+      Math.sin((x+y-z)*19.0)*0.035;
+    pos.setXYZ(i,x*ridge,y*ridge,z*ridge);
+  }
+
+  geo.computeVertexNormals();
+  geo.computeBoundingSphere();
+  return geo;
+}
+let rockGeo=makeRockGeometry();
 let gravelGeo=new THREE.DodecahedronGeometry(1,0);
 let buildingGeo=new THREE.BoxGeometry(1,1,1);
 let buildingRoofGeo=new THREE.CylinderGeometry(1.05,1.25,1,4);
@@ -638,7 +729,7 @@ function applyEnvironment(environment={}){
   setMaterialColor(leafMat,colors.leaf,colors.leafEmissive);
   setMaterialColor(podMat,colors.pod,colors.podEmissive);
   setMaterialColor(grassMat,colors.grass,colors.grassEmissive);
-  setMaterialColor(rockMat,colors.rock);
+  setMaterialColor(rockMat,mixHexColor(colors.rock,0xffffff,0.32));
   setMaterialColor(gravelMat,mixHexColor(colors.rock,colors.shore,0.36));
   setMaterialColor(buildingWallMat,colors.wall);
   setMaterialColor(buildingRoofMat,colors.roof);
@@ -2188,7 +2279,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
 
   let grassClusterCount=Math.max(0,Math.ceil(vegetation.grassClusters*detail.grassDensity));
   let grassPerCluster=Math.max(1,Math.ceil(vegetation.grassPerCluster*detail.grassDensity));
-  let grassClusterRadius=vegetation.grassClusterRadius;
+  let grassClusterRadius=vegetation.grassClusterRadius*0.74;
   let maxGrasses=grassClusterCount*grassPerCluster;
 
   let grasses=new THREE.InstancedMesh(grassGeo,grassMat,maxGrasses);
@@ -2221,7 +2312,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
 
       dummy.position.set(wx,wy+1.2*scale,wz);
       dummy.rotation.set(0,rand(i*3,cx+cz)*Math.PI*2,0);
-      dummy.scale.set(scale,.7+scale,scale);
+      dummy.scale.set(scale*1.12,.7+scale,scale*1.12);
       dummy.updateMatrix();
 
       grasses.setMatrixAt(grassUsed,dummy.matrix);
@@ -2239,6 +2330,8 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
 
   let rockCount=Math.max(1,Math.floor((cityMode ? 6 : 30)*Math.max(0.18,featureDensity)));
   let rocks=new THREE.InstancedMesh(rockGeo,rockMat,rockCount);
+  let rockShadows=new THREE.InstancedMesh(buildingShadowGeo,rockShadowMat,rockCount);
+  rockShadows.renderOrder=1;
   let rockUsed=0;
 
   for(let i=0;i<rockCount;i++){
@@ -2267,6 +2360,17 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
       instances:[{mesh:rocks,index:rockUsed}]
     });
 
+    let shadowAngle=-0.72+rand(i*17+3,cx-cz)*0.18;
+    let shadowDirX=Math.sin(shadowAngle);
+    let shadowDirZ=Math.cos(shadowAngle);
+    let shadowLength=scale*(1.95+rand(i*29,cx+cz)*0.36);
+    let shadowWidth=scale*(1.28+rand(i*31,cx-cz)*0.28);
+    let shadowOffset=scale*(0.28+rand(i*37,cz-cx)*0.14);
+    dummy.position.set(wx+shadowDirX*shadowOffset,wy+0.12,wz+shadowDirZ*shadowOffset);
+    dummy.rotation.set(-Math.PI*0.5,0,shadowAngle);
+    dummy.scale.set(shadowWidth,shadowLength,1);
+    dummy.updateMatrix();
+    rockShadows.setMatrixAt(rockUsed,dummy.matrix);
 
     dummy.position.set(wx,wy+scale*.5,wz);
     dummy.rotation.set(
@@ -2282,9 +2386,12 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   }
 
   rocks.count=rockUsed;
+  rockShadows.count=rockUsed;
   rocks.instanceMatrix.needsUpdate=true;
+  rockShadows.instanceMatrix.needsUpdate=true;
   freezeStaticObject(rocks);
-  chunkRoot.add(rocks);
+  freezeStaticObject(rockShadows);
+  chunkRoot.add(rockShadows,rocks);
   yield;
 
   let gravelCount=Math.max(0,Math.floor((cityMode ? 55 : 120)*detail.grassDensity));
@@ -2992,7 +3099,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
 
   scene.add(chunkRoot);
 
-  return {cx,cz,root:chunkRoot,land,road,water,trunks,crowns,pods,grasses,rocks,gravel,holeMeshes,treasureChests,radarOutposts,buildingShadows,buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,cityStreets,cityStreetDetails,cityTechDetails,landingSpaces,landingSurfaces,landingRings,villageCenters,colliders,holes:localHoles};
+  return {cx,cz,root:chunkRoot,land,road,water,trunks,crowns,pods,grasses,rocks,rockShadows,gravel,holeMeshes,treasureChests,radarOutposts,buildingShadows,buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,cityStreets,cityStreetDetails,cityTechDetails,landingSpaces,landingSurfaces,landingRings,villageCenters,colliders,holes:localHoles};
 }
 
 function updateChunksForCenters(centers){
@@ -3121,6 +3228,7 @@ function disposeChunk(chunk){
     chunk.crowns,
     chunk.pods,
     chunk.grasses,
+    chunk.rockShadows,
     chunk.rocks,
     chunk.gravel,
     ...(chunk.holeMeshes || []),
@@ -3150,6 +3258,7 @@ function disposeChunk(chunk){
   chunk.crowns.dispose();
   chunk.pods.dispose();
   chunk.grasses.dispose();
+  if(chunk.rockShadows) chunk.rockShadows.dispose();
   chunk.rocks.dispose();
   if(chunk.gravel) chunk.gravel.dispose();
   if(chunk.buildingShadows) chunk.buildingShadows.dispose();
@@ -3440,9 +3549,6 @@ function updateWind(time,rainIntensity=0,dayAmount=1,nightAmount=0){
     if(waterShimmerShader.uniforms.waterRainIntensity) waterShimmerShader.uniforms.waterRainIntensity.value=rain;
   }
 
-  if(!grassWindShader) return;
-  if(grassWindShader.uniforms.windTime) grassWindShader.uniforms.windTime.value=time*0.001*(1+rain*0.55);
-  if(grassWindShader.uniforms.windStrength) grassWindShader.uniforms.windStrength.value=1+rain*2.4;
 }
 
 function resetChunks(){

@@ -1,5 +1,161 @@
 import { MTLLoader, OBJLoader, THREE } from "./three.js";
 
+const carDustTexture=new THREE.TextureLoader().load(
+  "assets/textures/cars/Rock009.png?v=car-dust-patches",
+  undefined,
+  undefined,
+  error=>console.warn("Car dust texture failed to load",error)
+);
+carDustTexture.wrapS=THREE.RepeatWrapping;
+carDustTexture.wrapT=THREE.RepeatWrapping;
+carDustTexture.anisotropy=4;
+if(THREE.SRGBColorSpace) carDustTexture.colorSpace=THREE.SRGBColorSpace;
+
+function shouldDustCarMesh(mesh,material){
+  let name=`${mesh.name || ""} ${material.name || ""}`.toLowerCase();
+  if(material.transparent || material.opacity<0.92) return false;
+  if(name.includes("7720667")) return false;
+  if(name.includes("2829873")) return false;
+  if(name.includes("10988977")) return false;
+  return true;
+}
+
+function shouldDustRobotMesh(mesh){
+  let name=(mesh.name || "").toLowerCase();
+  if(name.includes("cockpit") || name.includes("visor")) return false;
+  if(name.includes("wheel") || name.includes("hub")) return false;
+  return true;
+}
+
+function addPatchyCarDust(material,seed=0,options={}){
+  if(material.userData && material.userData.carDustApplied) return material;
+
+  let settings={
+    strength:0.48,
+    uvScale:0.095,
+    sideUvScale:0.071,
+    verticalUvScale:0.034,
+    patchScale:0.19,
+    fineScale:0.46,
+    blend:0.52,
+    maskLow:0.48,
+    maskHigh:0.8,
+    fineLow:0.14,
+    fineHigh:0.64,
+    surfaceBase:0.56,
+    topAmount:0.22,
+    sideAmount:0.18,
+    ...options
+  };
+  let dusted=material.clone();
+  dusted.userData={...(dusted.userData || {}),carDustApplied:true};
+  dusted.roughness=Math.max(dusted.roughness ?? 0.56,0.68);
+
+  dusted.onBeforeCompile=shader=>{
+    shader.uniforms.carDustMap={value:carDustTexture};
+    shader.uniforms.carDustSeed={value:seed};
+    shader.uniforms.carDustStrength={value:settings.strength};
+    shader.uniforms.carDustUvScale={value:settings.uvScale};
+    shader.uniforms.carDustSideUvScale={value:settings.sideUvScale};
+    shader.uniforms.carDustVerticalUvScale={value:settings.verticalUvScale};
+    shader.uniforms.carDustPatchScale={value:settings.patchScale};
+    shader.uniforms.carDustFineScale={value:settings.fineScale};
+    shader.uniforms.carDustBlend={value:settings.blend};
+    shader.uniforms.carDustMaskLow={value:settings.maskLow};
+    shader.uniforms.carDustMaskHigh={value:settings.maskHigh};
+    shader.uniforms.carDustFineLow={value:settings.fineLow};
+    shader.uniforms.carDustFineHigh={value:settings.fineHigh};
+    shader.uniforms.carDustSurfaceBase={value:settings.surfaceBase};
+    shader.uniforms.carDustTopAmount={value:settings.topAmount};
+    shader.uniforms.carDustSideAmount={value:settings.sideAmount};
+    shader.vertexShader=shader.vertexShader.replace(
+      "#include <common>",
+      [
+        "#include <common>",
+        "varying vec3 vCarDustLocalPosition;",
+        "varying vec3 vCarDustLocalNormal;"
+      ].join("\n")
+    );
+    shader.vertexShader=shader.vertexShader.replace(
+      "#include <beginnormal_vertex>",
+      [
+        "#include <beginnormal_vertex>",
+        "vCarDustLocalNormal=normalize(objectNormal);"
+      ].join("\n")
+    );
+    shader.vertexShader=shader.vertexShader.replace(
+      "#include <begin_vertex>",
+      [
+        "#include <begin_vertex>",
+        "vCarDustLocalPosition=position;"
+      ].join("\n")
+    );
+    shader.fragmentShader=shader.fragmentShader.replace(
+      "#include <common>",
+      [
+        "#include <common>",
+        "uniform sampler2D carDustMap;",
+        "uniform float carDustSeed;",
+        "uniform float carDustStrength;",
+        "uniform float carDustUvScale;",
+        "uniform float carDustSideUvScale;",
+        "uniform float carDustVerticalUvScale;",
+        "uniform float carDustPatchScale;",
+        "uniform float carDustFineScale;",
+        "uniform float carDustBlend;",
+        "uniform float carDustMaskLow;",
+        "uniform float carDustMaskHigh;",
+        "uniform float carDustFineLow;",
+        "uniform float carDustFineHigh;",
+        "uniform float carDustSurfaceBase;",
+        "uniform float carDustTopAmount;",
+        "uniform float carDustSideAmount;",
+        "varying vec3 vCarDustLocalPosition;",
+        "varying vec3 vCarDustLocalNormal;",
+        "float carDustHash(vec2 p){",
+        "  p=fract(p*vec2(127.1,311.7));",
+        "  p+=dot(p,p+45.32+carDustSeed);",
+        "  return fract(p.x*p.y);",
+        "}",
+        "float carDustNoise(vec2 p){",
+        "  vec2 i=floor(p);",
+        "  vec2 f=fract(p);",
+        "  vec2 u=f*f*(3.0-2.0*f);",
+        "  float a=carDustHash(i);",
+        "  float b=carDustHash(i+vec2(1.0,0.0));",
+        "  float c=carDustHash(i+vec2(0.0,1.0));",
+        "  float d=carDustHash(i+vec2(1.0,1.0));",
+        "  return mix(mix(a,b,u.x),mix(c,d,u.x),u.y);",
+        "}",
+        "vec3 carDustSample(vec2 uv){",
+        "  vec2 f=fract(uv);",
+        "  return texture2D(carDustMap,f*0.42+vec2(0.29)).rgb;",
+        "}"
+      ].join("\n")
+    );
+    shader.fragmentShader=shader.fragmentShader.replace(
+      "#include <dithering_fragment>",
+      [
+        "vec3 carDustNormal=normalize(vCarDustLocalNormal);",
+        "vec2 carDustUvA=vCarDustLocalPosition.xz*carDustUvScale+vec2(carDustSeed*0.137,carDustSeed*0.071);",
+        "vec2 carDustUvB=vec2(vCarDustLocalPosition.z*carDustSideUvScale-vCarDustLocalPosition.y*carDustVerticalUvScale,vCarDustLocalPosition.x*carDustSideUvScale*0.86+vCarDustLocalPosition.y*carDustVerticalUvScale*1.26)+vec2(carDustSeed*0.193,0.41);",
+        "float carDustPatch=carDustNoise(vCarDustLocalPosition.xz*carDustPatchScale+vec2(carDustSeed*1.7,-carDustSeed*0.9));",
+        "float carDustFine=carDustNoise(vCarDustLocalPosition.xy*carDustFineScale+vec2(3.2+carDustSeed,7.1));",
+        "float carDustMask=smoothstep(carDustMaskLow,carDustMaskHigh,carDustPatch)*smoothstep(carDustFineLow,carDustFineHigh,carDustFine);",
+        "float carDustSurface=carDustSurfaceBase+max(carDustNormal.y,0.0)*carDustTopAmount+(1.0-abs(carDustNormal.y))*carDustSideAmount;",
+        "vec3 carDustColor=mix(carDustSample(carDustUvA),carDustSample(carDustUvB),0.42);",
+        "float carDustLuma=dot(carDustColor,vec3(0.299,0.587,0.114));",
+        "carDustColor=mix(vec3(0.76,0.67,0.46),vec3(carDustLuma)*vec3(1.18,1.04,0.78),0.24);",
+        "vec3 carDustResult=mix(gl_FragColor.rgb,carDustColor,carDustBlend);",
+        "gl_FragColor.rgb=mix(gl_FragColor.rgb,carDustResult,carDustStrength*carDustMask*carDustSurface);",
+        "#include <dithering_fragment>"
+      ].join("\n")
+    );
+  };
+
+  return dusted;
+}
+
 export function normalizeCarModel(car){
   let model=new THREE.Group();
   let asset=new THREE.Group();
@@ -35,7 +191,8 @@ export function normalizeCarModel(car){
       if(child.geometry) child.geometry.computeVertexNormals();
       if(child.material){
         let materials=Array.isArray(child.material) ? child.material : [child.material];
-        for(let material of materials){
+        for(let i=0;i<materials.length;i++){
+          let material=materials[i];
           material.side=THREE.FrontSide;
           material.roughness=material.roughness ?? 0.56;
           material.metalness=material.metalness ?? 0.24;
@@ -46,12 +203,16 @@ export function normalizeCarModel(car){
             material.roughness=0.14;
             material.metalness=0.08;
           }
+          if(shouldDustCarMesh(child,material)){
+            materials[i]=addPatchyCarDust(material,child.id*0.37+i*1.91);
+          }
         }
+        child.material=Array.isArray(child.material) ? materials : materials[0];
       }
     }
   });
 
-  model.position.y=0.04;
+  model.position.y=-0.18;
   model.userData.baseY=model.position.y;
   model.userData.baseScale=model.scale.clone();
   model.userData.trackHalfWidth=Math.max(0.92,Math.min(1.18,size.x*0.43));
@@ -961,9 +1122,10 @@ export function loadTreasureChestModels(){
   return Promise.all(types.map(loadTreasureChestModel));
 }
 
-export function makeMechModel(accentColor=0xb83a32){
+export function makeMechModel(accentColor=0xb83a32,options={}){
   let mech=new THREE.Group();
   let walkParts={left:{},right:{}};
+  let robotDust=Boolean(options.dust);
 
   let armorMat=new THREE.MeshStandardMaterial({
     color:0x3f474a,
@@ -1074,6 +1236,24 @@ export function makeMechModel(accentColor=0xb83a32){
       child.userData.basePosition=child.position.clone();
       child.userData.baseRotation=child.rotation.clone();
       child.userData.baseScale=child.scale.clone();
+      if(robotDust && child.material && shouldDustRobotMesh(child)){
+        child.material=addPatchyCarDust(child.material,child.id*0.43+2.7,{
+          strength:0.54,
+          uvScale:0.82,
+          sideUvScale:0.66,
+          verticalUvScale:0.48,
+          patchScale:1.08,
+          fineScale:2.05,
+          blend:0.56,
+          maskLow:0.42,
+          maskHigh:0.74,
+          fineLow:0.08,
+          fineHigh:0.58,
+          surfaceBase:0.62,
+          topAmount:0.24,
+          sideAmount:0.2
+        });
+      }
     }
   });
   mech.userData.walkParts=walkParts;

@@ -4,11 +4,11 @@ import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed
 import { createInput } from "./input.js?v=progressive-pointer-aim";
 import { createHud } from "./hud.js?v=scanner-start-test";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=stronger-directed-rain";
-import { createWorld } from "./world.js?v=distant-mission-comms";
+import { createWorld } from "./world.js?v=stronger-rock-shadows";
 import { createMotorAudio } from "./audio.js?v=mission-accomplished-voice";
 import { worldEnvironments } from "./environments.js?v=neon-city-terrain-color";
 import { difficultySettings } from "./gameConfig.js?v=ammo-caps";
-import { loadBackPackModel, loadBaseStationModel, loadCarModel, loadEnemyBattleShipModel, loadJetModel, loadLandingSpaceModel, loadTradingOutpostModel, loadTreasureChestModels, makeMechModel } from "./models.js?v=radar-performance-fix";
+import { loadBackPackModel, loadBaseStationModel, loadCarModel, loadEnemyBattleShipModel, loadJetModel, loadLandingSpaceModel, loadTradingOutpostModel, loadTreasureChestModels, makeMechModel } from "./models.js?v=car-lowered-robot-height-original";
 import { makeDistantPlanetHazeTexture, makeDistantPlanetLightTexture, makeDistantPlanetVeilTexture, makeSkyTexture } from "./textures.js?v=stronger-sky-gradient-2";
 import { createPortalSystem } from "./portals.js";
 import { approach, clamp, clamp01, hash01, randomRange, smoothStep } from "./utils.js";
@@ -316,6 +316,7 @@ let scene=new THREE.Scene();
 let playerCamera=new THREE.PerspectiveCamera(45,innerWidth/innerHeight,.1,1e6);
 let secondCamera=new THREE.PerspectiveCamera(45,innerWidth/innerHeight,.1,1e6);
 let renderer=new THREE.WebGLRenderer({antialias:false,powerPreference:"high-performance"});
+let automaticFullscreenEnabled=false;
 let fullscreenRequestBlocked=false;
 let fullscreenTransitionOverlay=null;
 let fullscreenTransitionTimer=null;
@@ -325,6 +326,7 @@ function currentFullscreenElement(){
 }
 
 function requestBrowserFullscreen(){
+  if(!automaticFullscreenEnabled) return;
   if(fullscreenRequestBlocked || currentFullscreenElement()) return;
   let target=document.documentElement || document.body;
   let request=target.requestFullscreen || target.webkitRequestFullscreen;
@@ -417,6 +419,7 @@ scene.add(distantPlanetHaze);
 let currentPixelRatio=0;
 let lastPixelRatioUpdate=0;
 function rendererQualityState(){
+  let firstPerson=firstPersonViewActive();
   let jetView=gameStarted && cars.some(car=>car.group.visible && car.health>0 && chunkViewDistanceForCar(car)>viewDistance);
   let rainy=rainIntensity>0.18;
   let severeDrop=gameStarted && lastMeasuredFps<24;
@@ -429,6 +432,13 @@ function rendererQualityState(){
     if(jetView && rainy) return 0.58;
     if(jetView || rainy) return 0.64;
     return 0.72;
+  }
+  if(firstPerson){
+    if(currentFrameStressLevel>=3 || severeDrop) return 0.42;
+    if(currentFrameStressLevel>=2 || moderateDrop) return 0.5;
+    if(jetView && rainy) return 0.54;
+    if(jetView || rainy) return 0.58;
+    return 0.64;
   }
   if(currentFrameStressLevel>=3) return 0.42;
   if(currentFrameStressLevel>=2) return 0.56;
@@ -673,12 +683,12 @@ function createRainSplatterLayer(parent){
     "opacity:0",
     "pointer-events:none",
     "overflow:hidden",
-    "transition:opacity 220ms linear",
-    "filter:drop-shadow(0 1px 2px rgba(8,35,49,0.28)) drop-shadow(0 0 2px rgba(232,252,255,0.24))"
+    "display:none",
+    "transition:opacity 220ms linear"
   ].join(";");
   parent.appendChild(layer);
 
-  for(let i=0;i<26;i++){
+  for(let i=0;i<10;i++){
     let size=3.2+(i%9)*1.08+(i%6===0 ? 4.2 : 0)+(i%11===0 ? 2.8 : 0);
     let dropHeight=size*(1.72+(i%5)*0.18);
     let left=(8+(i*37)%86)+((i%3)-1)*1.8;
@@ -705,12 +715,11 @@ function createRainSplatterLayer(parent){
       `transform:skewX(${skew}deg)`,
       "background:radial-gradient(ellipse at 32% 20%, rgba(255,255,255,0.92) 0 8%, rgba(255,255,255,0.2) 15%, rgba(166,221,240,0.18) 42%, rgba(58,101,121,0.25) 74%, rgba(255,255,255,0.03) 100%)",
       "border:1px solid rgba(228,253,255,0.42)",
-      "box-shadow:inset 1px 1px 2px rgba(255,255,255,0.34), inset -1px -2px 3px rgba(29,71,92,0.3), 0 1px 4px rgba(6,30,44,0.24)",
-      "backdrop-filter:blur(0.55px)"
+      "box-shadow:inset 1px 1px 2px rgba(255,255,255,0.3), inset -1px -2px 2px rgba(29,71,92,0.24)"
     ]);
   }
 
-  for(let i=0;i<12;i++){
+  for(let i=0;i<4;i++){
     let left=6+(i*29)%88;
     let top=4+(i*41)%70;
     let height=34+(i%5)*13;
@@ -732,9 +741,7 @@ function createRainSplatterLayer(parent){
       `animation:cockpitRainStreakRun ${duration}s linear ${delay}s infinite`,
       "will-change:transform,opacity",
       "background:linear-gradient(90deg, rgba(255,255,255,0.18), rgba(236,252,255,0.62) 34%, rgba(96,150,174,0.34) 62%, rgba(255,255,255,0.08))",
-      "box-shadow:inset 1px 0 1px rgba(255,255,255,0.4), inset -1px 0 2px rgba(31,74,96,0.28), 0 1px 3px rgba(8,35,49,0.22)",
-      "filter:blur(0.08px)",
-      "backdrop-filter:blur(0.7px)"
+      "box-shadow:inset 1px 0 1px rgba(255,255,255,0.34), inset -1px 0 2px rgba(31,74,96,0.22)"
     ]);
   }
 
@@ -1029,14 +1036,17 @@ function updateFirstPersonVisorOverlay(){
   firstPersonVisorPanes[0].style.display=split ? "none" : "block";
   firstPersonVisorPanes[1].style.display=split ? "block" : "none";
   firstPersonVisorPanes[2].style.display=split ? "block" : "none";
+  let rainAmount=smoothStep(clamp((rainIntensity-0.04)/0.58,0,1));
   for(let i=0;i<firstPersonVisorPanes.length;i++){
     let pane=firstPersonVisorPanes[i];
+    let paneVisible=pane.style.display!=="none";
     let carAmount=firstPersonPaneCarAmount(i);
     if(pane._robotLayer) pane._robotLayer.style.opacity=String(1-carAmount*0.82);
     if(pane._carLayer) pane._carLayer.style.opacity=String(carAmount);
     if(pane._rainLayer){
-      let rainAmount=smoothStep(clamp((rainIntensity-0.04)/0.58,0,1));
-      pane._rainLayer.style.opacity=String(rainAmount*(0.58+carAmount*0.26));
+      let rainVisible=paneVisible && rainAmount>0.03;
+      pane._rainLayer.style.display=rainVisible ? "block" : "none";
+      pane._rainLayer.style.opacity=rainVisible ? String(rainAmount*(0.5+carAmount*0.22)) : "0";
     }
   }
 }
@@ -2494,7 +2504,7 @@ function createPauseMenu(audio){
   modelPanel.appendChild(previewRenderer.domElement);
 
   let previewRobotPivot=new THREE.Group();
-  let previewRobot=makeMechModel(0x8dfff2);
+  let previewRobot=makeMechModel(0x8dfff2,{dust:true});
   previewRobot.scale.set(1.22,1.38,1.22);
   previewRobotPivot.add(previewRobot);
   previewScene.add(previewRobotPivot);
@@ -4487,7 +4497,9 @@ function robotDamageZoneForMeshName(name=""){
 
 function prepareRobotDamageMaterial(mesh){
   if(!mesh || !mesh.material || !mesh.material.color || mesh.userData.damageVisualReady) return;
-  mesh.material=mesh.material.clone();
+  if(!mesh.material.userData || !mesh.material.userData.carDustApplied){
+    mesh.material=mesh.material.clone();
+  }
   mesh.userData.damageVisualReady=true;
   mesh.userData.damageBaseColor=mesh.material.color.clone();
   mesh.userData.damageBaseEmissive=mesh.material.emissive ? mesh.material.emissive.clone() : null;
@@ -10997,7 +11009,7 @@ function updateVehicleHeadlights(car){
 }
 
 function setupMorphModels(car,accentColor){
-  let mech=makeMechModel(accentColor);
+  let mech=makeMechModel(accentColor,{dust:true});
   let aimCross=makeAimCross(accentColor);
   let headlights=makeVehicleHeadlights(accentColor);
 
@@ -14532,7 +14544,7 @@ function loop(timestamp=performance.now()){
 
 renderer.domElement.addEventListener("click",event=>{
   if(handleTradingTerminalClick(event)) return;
-  requestBrowserFullscreen();
+  if(automaticFullscreenEnabled) requestBrowserFullscreen();
   if(gameStarted && !gamePaused && !terminalOverlayOpen() && !gameOver) input.requestPointerLock(renderer.domElement);
 });
 
@@ -15176,7 +15188,7 @@ if(startScreen){
   }
   startScreen.addEventListener("pointerdown",event=>{
     if(!startupAssetsReady || gameStarted || startPlanetLoading) return;
-    if(startActionForTarget(event.target)) showFullscreenTransitionOverlay();
+    if(automaticFullscreenEnabled && startActionForTarget(event.target)) showFullscreenTransitionOverlay();
   },true);
   startScreen.addEventListener("click",event=>{
     let clickedMenuButton=event.target.closest("[data-planet], [data-load-game], [data-mode], [data-difficulty]");
@@ -15207,7 +15219,7 @@ if(startScreen){
 
     let loadButton=event.target.closest("[data-load-game]");
     if(loadButton && !loadButton.disabled && !gameStarted){
-      showFullscreenTransitionOverlay();
+      if(automaticFullscreenEnabled) showFullscreenTransitionOverlay();
       requestBrowserFullscreen();
       let status=readSavedGameStatus();
       if(status) startGame(status.mode,status.difficulty,status);
@@ -15222,7 +15234,7 @@ if(startScreen){
       refreshStartPlanetButtons();
       return;
     }
-    showFullscreenTransitionOverlay();
+    if(automaticFullscreenEnabled) showFullscreenTransitionOverlay();
     requestBrowserFullscreen();
     let difficulty=selectedStartDifficulty();
     startGame(button.dataset.mode==="double" ? "double" : "single",difficulty);
