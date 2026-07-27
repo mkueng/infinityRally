@@ -1662,7 +1662,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
   function updateMapHud(force=false){
     applyNavigationHudLayout();
     let stressLevel=Math.max(0,Math.min(3,Math.floor(getPerformanceStressLevel() || 0)));
-    let interval=getPerformanceMode()==="split" ? 16 : 8;
+    let interval=getPerformanceMode()==="split" ? 24 : 12;
     if(stressLevel>=3) interval*=4;
     else if(stressLevel>=2) interval*=3;
     else if(stressLevel>=1) interval*=2;

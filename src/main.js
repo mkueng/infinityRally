@@ -2,7 +2,7 @@ import { THREE } from "./three.js";
 import { carRadius, gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize, viewDistance, mothershipDropCount, mothershipDropInterval, mothershipDropLineSpacing, mothershipHoverDistance, mothershipHoverFrames, mothershipMinDelay, mothershipRandomDelay, mothershipRocketHits } from "./constants.js";
 import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=no-roads";
 import { createInput } from "./input.js?v=progressive-pointer-aim";
-import { createHud } from "./hud.js?v=scanner-start-test";
+import { createHud } from "./hud.js?v=adaptive-perf-spike-guard";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=stronger-directed-rain";
 import { createWorld } from "./world.js?v=offset-rock-shadows";
 import { createMotorAudio } from "./audio.js?v=mission-accomplished-voice";
@@ -2022,6 +2022,9 @@ function isPlayerActor(actor){
   return !!actor && cars.includes(actor);
 }
 
+let targetableCarsCacheFrame=-1;
+let targetableCarsCache=null;
+
 function playerInvisibleToEnemies(car){
   return inDreamDimension() && isPlayerActor(car);
 }
@@ -2031,8 +2034,13 @@ function playerCombatSuppressed(actor){
 }
 
 function enemyTargetableCars(){
+  if(targetableCarsCacheFrame===fixedFrameIndex && targetableCarsCache){
+    return targetableCarsCache;
+  }
   if(inDreamDimension()) return [];
-  return activeCars().filter(car=>car && car.health>0 && car.group && car.group.visible);
+  targetableCarsCache=activeCars().filter(car=>car && car.health>0 && car.group && car.group.visible);
+  targetableCarsCacheFrame=fixedFrameIndex;
+  return targetableCarsCache;
 }
 
 function rainRenderingSuppressed(){
@@ -2055,18 +2063,18 @@ function missionEnemyGraceActive(now=performance.now()){
   return gameStarted && Number.isFinite(missionEnemyGraceUntil) && now<missionEnemyGraceUntil;
 }
 
-function enemyCountsTowardAmbientSpawn(enemy){
+function enemyCountsTowardAmbientSpawn(enemy,targetableCars=enemyTargetableCars()){
   if(!enemy || !enemy.active || enemy.health<=0) return false;
   if(enemy.missionOutpost && !enemy.missionOutpost.destroyed){
-    return playerDistanceSqForEnemy(enemy)<720*720;
+    return playerDistanceSqForEnemy(enemy,targetableCars)<720*720;
   }
   return true;
 }
 
-function ambientEnemyCount(){
+function ambientEnemyCount(targetableCars=enemyTargetableCars()){
   let count=0;
   for(let enemy of enemies){
-    if(enemyCountsTowardAmbientSpawn(enemy)) count++;
+    if(enemyCountsTowardAmbientSpawn(enemy,targetableCars)) count++;
   }
   return count;
 }
@@ -8658,11 +8666,11 @@ function updateClusterBombs(){
   }
 }
 
-function nearestActivePlayer(enemy){
+function nearestActivePlayer(enemy,targetableCars=enemyTargetableCars()){
   let best=null;
   let bestDist=Infinity;
 
-  for(let car of enemyTargetableCars()){
+  for(let car of targetableCars){
     let dx=car.x-enemy.x;
     let dz=car.z-enemy.z;
     let distSq=dx*dx+dz*dz;
@@ -8686,9 +8694,9 @@ function playerSpawnDistanceSq(x,z){
   return best;
 }
 
-function playerDistanceSqForEnemy(enemy){
+function playerDistanceSqForEnemy(enemy,targetableCars=enemyTargetableCars()){
   let best=Infinity;
-  for(let car of enemyTargetableCars()){
+  for(let car of targetableCars){
     let dx=enemy.x-car.x;
     let dz=enemy.z-car.z;
     best=Math.min(best,dx*dx+dz*dz);
@@ -9548,12 +9556,11 @@ function clearEnemies(){
   scheduleNextMothership();
 }
 
-function updateEnemy(enemy){
+function updateEnemy(enemy,settings=currentDifficulty(),targetableCars=enemyTargetableCars()){
   if(!enemy.active || enemy.health<=0) return;
   if(enemy.cannonCooldown>0) enemy.cannonCooldown--;
-  let settings=currentDifficulty();
 
-  let target=nearestActivePlayer(enemy);
+  let target=nearestActivePlayer(enemy,targetableCars);
   if(!target){
     enemy.speed*=0.9;
     return;
@@ -9843,18 +9850,19 @@ function updateEnemy(enemy){
 
 function updateEnemies(){
   let settings=currentDifficulty();
+  let targetableCars=enemyTargetableCars();
   let farEnemyUpdateDistance=currentFrameStressLevel>=2 ? 260 : currentFrameStressLevel>=1 ? 340 : 420;
   let farEnemyUpdateEvery=currentFrameStressLevel>=2 ? 4 : 3;
   let farEnemyUpdateDistanceSq=farEnemyUpdateDistance*farEnemyUpdateDistance;
   for(let enemy of enemies){
-    let distSq=playerDistanceSqForEnemy(enemy);
+    let distSq=playerDistanceSqForEnemy(enemy,targetableCars);
     let skipFarUpdate=enemy.active
       && distSq>farEnemyUpdateDistanceSq
       && enemy.hitRattle<=0
       && !enemy.isBoss
       && ((enemy.lodFrame=(enemy.lodFrame || 0)+1)%farEnemyUpdateEvery!==0);
 
-    if(!skipFarUpdate) updateEnemy(enemy);
+    if(!skipFarUpdate) updateEnemy(enemy,settings,targetableCars);
     let missionGuardActive=enemy.missionOutpost && !enemy.missionOutpost.destroyed;
     if(enemy.active && distSq>720*720 && !missionGuardActive){
       enemy.active=false;
@@ -9872,7 +9880,7 @@ function updateEnemies(){
     return;
   }
 
-  let ambientCount=ambientEnemyCount();
+  let ambientCount=ambientEnemyCount(targetableCars);
   if(ambientCount<=1){
     if(enemyWaveDelay>0) enemyWaveDelay--;
     else{
@@ -9896,12 +9904,15 @@ function updateEnemies(){
 
 function updateVillageTurrets(){
   if(gameDifficulty==="easy") return;
+  let targetableCars=enemyTargetableCars();
+  if(!targetableCars.length) return;
+
   for(let turret of world.activeTurrets || []){
     if(!turret || turret.destroyed) continue;
     let target=null;
     let bestDistSq=Infinity;
 
-    for(let car of enemyTargetableCars()){
+    for(let car of targetableCars){
       let dx=car.x-turret.x;
       let dz=car.z-turret.z;
       let distSq=dx*dx+dz*dz;
@@ -10014,6 +10025,9 @@ function updateBossLaserBeams(){
 }
 
 function updateBossBaseDefenses(){
+  let targetableCars=enemyTargetableCars();
+  if(!targetableCars.length) return;
+
   for(let base of world.bossBases || []){
     if(!base || !base.active || base.health<=0) continue;
     if(base.group && !base.group.visible) continue;
@@ -10028,7 +10042,7 @@ function updateBossBaseDefenses(){
 
     base.reinforcementCooldown=Math.max(0,(base.reinforcementCooldown || 0)-1);
 
-    for(let car of enemyTargetableCars()){
+    for(let car of targetableCars){
       let dx=car.x-base.x;
       let dz=car.z-base.z;
       if(dx*dx+dz*dz<330*330){
@@ -10043,7 +10057,7 @@ function updateBossBaseDefenses(){
       turret.object.updateWorldMatrix(true,false);
       turret.object.getWorldPosition(bossLaserPointA);
 
-      for(let car of enemyTargetableCars()){
+      for(let car of targetableCars){
         let dx=car.x-bossLaserPointA.x;
         let dz=car.z-bossLaserPointA.z;
         let distSq=dx*dx+dz*dz;
@@ -14374,11 +14388,18 @@ function chunkSignatureForCars(){
 
 function fixedUpdateGame(){
   fixedFrameIndex++;
+  targetableCarsCacheFrame=-1;
+  targetableCarsCache=null;
+
   let fixedVisualInterval=currentFrameStressLevel>=3 ? 4 : currentFrameStressLevel>=2 ? 2 : 1;
   let updateFixedVisuals=fixedFrameIndex%fixedVisualInterval===0;
+  let maintenanceInterval=currentFrameStressLevel>=3 ? 45 : currentFrameStressLevel>=2 ? 30 : currentFrameStressLevel>=1 ? 18 : 10;
+  let updateMaintenance=fixedFrameIndex%maintenanceInterval===0;
 
-  updateRareTradingOutposts();
-  updateUnlockedRandomPortals();
+  if(updateMaintenance){
+    updateRareTradingOutposts();
+    updateUnlockedRandomPortals();
+  }
   updateScannerMode();
   updateStartSequence();
   updateTerraformFinale();
