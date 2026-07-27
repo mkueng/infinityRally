@@ -4,7 +4,7 @@ import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed
 import { createInput } from "./input.js?v=progressive-pointer-aim";
 import { createHud } from "./hud.js?v=adaptive-perf-spike-guard";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=stronger-directed-rain";
-import { createWorld } from "./world.js?v=offset-rock-shadows";
+import { createWorld } from "./world.js?v=registered-rock-chunks";
 import { createMotorAudio } from "./audio.js?v=mission-accomplished-voice";
 import { worldEnvironments } from "./environments.js?v=neon-city-terrain-color";
 import { difficultySettings } from "./gameConfig.js?v=ammo-caps";
@@ -36,6 +36,7 @@ const weatherStormIntensityScale=1.18;
 const weatherChangeMinMs=18000;
 const weatherChangeMaxMs=46000;
 const weatherEase=0.006;
+const playerRobotVisualLift=0.32;
 const weatherSnapThreshold=0.003;
 const stormSkyRainExponent=0.72;
 const stormSkyBlend=0.82;
@@ -2163,6 +2164,22 @@ function scaledDelay(frames,scale){
   return Math.max(1,Math.round(frames*scale));
 }
 
+function actorObstacleRadius(actor){
+  if(!actor) return carRadius;
+  if(actor.isEnemy){
+    return Number.isFinite(actor.collisionRadius) ? actor.collisionRadius : 2.35;
+  }
+
+  let jetAmount=clamp(actor.jetProgress || 0,0,1);
+  let carAmount=clamp((actor.morphProgress || 0),0,1)*(1-jetAmount);
+  let robotRadius=3.45;
+  let vehicleRadius=3.25;
+  let jetRadius=3.8;
+  return robotRadius*(1-carAmount)*(1-jetAmount)
+    + vehicleRadius*carAmount
+    + jetRadius*jetAmount;
+}
+
 function updateScreenShakeFrame(){
   if(screenShakeAmount<=0.001){
     screenShakeAmount=0;
@@ -2196,6 +2213,9 @@ function createCarState(id,lateralOffset,controls,camera,gamepadIndex){
     x:0,
     y:20,
     z:0,
+    collisionRadius:3.45,
+    aimRadius:4.6,
+    hitHeight:6.2,
     angle:0,
     velAngle:0,
     speed:0,
@@ -4749,9 +4769,16 @@ function rockNearImpact(x,y,z,radius=4.5){
     let distSq=dx*dx+dz*dz;
     if(distSq>reach*reach || distSq>=bestDistSq) continue;
 
-    let baseY=Number.isFinite(obstacle.baseY) ? obstacle.baseY : groundHeight(obstacle.x,obstacle.z);
-    let topY=baseY+(obstacle.visualHeight || obstacle.height || obstacle.r || 2);
-    if(Number.isFinite(y) && (y<baseY-2.5 || y>topY+radius)) continue;
+    let baseY=Number.isFinite(obstacle.bottomY)
+      ? obstacle.bottomY
+      : Number.isFinite(obstacle.baseY)
+      ? obstacle.baseY-Math.max(1.2,(obstacle.visualHeight || obstacle.height || obstacle.r || 2)*0.32)
+      : groundHeight(obstacle.x,obstacle.z)-1.2;
+    let topY=Number.isFinite(obstacle.topY)
+      ? obstacle.topY
+      : (Number.isFinite(obstacle.baseY) ? obstacle.baseY : groundHeight(obstacle.x,obstacle.z))
+        +(obstacle.visualHeight || obstacle.height || obstacle.r || 2);
+    if(Number.isFinite(y) && (y<baseY-3.5 || y>topY+radius+2.0)) continue;
 
     best=obstacle;
     bestDistSq=distSq;
@@ -5546,15 +5573,40 @@ function movementCollision(car,fromX,fromZ,toX,toZ){
   let steps=Math.max(1,Math.min(24,Math.ceil(distance/0.45)));
   let safeX=fromX;
   let safeZ=fromZ;
+  let obstacleRadius=actorObstacleRadius(car);
+  let startingOverlap=world.obstacleCollisionInfo
+    ? world.obstacleCollisionInfo(fromX,fromZ,obstacleRadius)
+    : null;
+
+  if(startingOverlap && startingOverlap.overlap>0.01){
+    let awayX=startingOverlap.dx;
+    let awayZ=startingOverlap.dz;
+    let awayLen=Math.hypot(awayX,awayZ);
+    if(awayLen<0.001){
+      awayX=distance>0.001 ? -dx : -Math.sin(car.angle || 0);
+      awayZ=distance>0.001 ? -dz : -Math.cos(car.angle || 0);
+      awayLen=Math.max(0.001,Math.hypot(awayX,awayZ));
+    }
+
+    let push=startingOverlap.overlap+0.18;
+    return {
+      hit:true,
+      otherCar:null,
+      obstacle:startingOverlap.obstacle,
+      damagesPlayer:false,
+      safeX:fromX+(awayX/awayLen)*push,
+      safeZ:fromZ+(awayZ/awayLen)*push
+    };
+  }
 
   for(let i=1;i<=steps;i++){
     let t=i/steps;
     let x=fromX+dx*t;
     let z=fromZ+dz*t;
     let otherCar=collidesWithOtherCars(car,x,z);
-    let obstacleCollision=world.collidesWithObstacles(x,z);
+    let obstacleCollision=world.collidesWithObstacles(x,z,obstacleRadius);
     let obstacle=obstacleCollision && world.obstacleAt
-      ? world.obstacleAt(x,z,carRadius)
+      ? world.obstacleAt(x,z,obstacleRadius)
       : null;
     let tradingCollision=collidesWithTradingOutpostWalls(car,x,z,safeX,safeZ);
     let landingCollision=collidesWithLandingPad(car,x,z,safeX,safeZ);
@@ -7049,6 +7101,7 @@ function aimWorldPointFromRay(car,origin,direction){
   for(let t=minDistance+step;t<=mouseAimMaxDistance;t+=step){
     mouseAimRayEnd.copy(direction).multiplyScalar(t).add(origin);
 
+    let obstacleHitInfo={};
     let obstacle=world.obstacleAlongSegment3D(
       mouseAimRayStart.x,
       mouseAimRayStart.y,
@@ -7056,14 +7109,35 @@ function aimWorldPointFromRay(car,origin,direction){
       mouseAimRayEnd.x,
       mouseAimRayEnd.y,
       mouseAimRayEnd.z,
-      0.35
+      0.35,
+      obstacleHitInfo
     );
+    let exactRockHitInfo={};
+    let exactRock=world.rockObstacleAlongSegmentExact
+      ? world.rockObstacleAlongSegmentExact(
+        mouseAimRayStart.x,
+        mouseAimRayStart.y,
+        mouseAimRayStart.z,
+        mouseAimRayEnd.x,
+        mouseAimRayEnd.y,
+        mouseAimRayEnd.z,
+        exactRockHitInfo
+      )
+      : null;
     if(obstacle){
       let obstacleY=Number.isFinite(obstacle.y)
         ? obstacle.y
         : groundHeight(obstacle.x,obstacle.z)+Math.max(0.6,obstacle.r*0.45);
-      let obstacleT=(obstacle.x-origin.x)*direction.x+(obstacleY-origin.y)*direction.y+(obstacle.z-origin.z)*direction.z;
+      let obstacleT=Number.isFinite(obstacleHitInfo.distance)
+        ? previousT+obstacleHitInfo.distance
+        : (obstacle.x-origin.x)*direction.x+(obstacleY-origin.y)*direction.y+(obstacle.z-origin.z)*direction.z;
       obstacleT=clamp(obstacleT,minDistance,t);
+      if(obstacleT<best.t){
+        setBestAimPointFromRay(best,origin,direction,obstacleT);
+      }
+    }
+    if(exactRock && Number.isFinite(exactRockHitInfo.distance)){
+      let obstacleT=clamp(previousT+exactRockHitInfo.distance,minDistance,t);
       if(obstacleT<best.t){
         setBestAimPointFromRay(best,origin,direction,obstacleT);
       }
@@ -7892,14 +7966,25 @@ function playerLaserHitForCar(car,from,aimPoint){
   }
 
   let end=playerLaserPointB.copy(direction).multiplyScalar(maxDistance).add(from).clone();
-  let obstacle=world.obstacleAlongSegment3D(from.x,from.y,from.z,end.x,end.y,end.z,0.8);
+  let obstacleHitInfo={};
+  let obstacle=world.obstacleAlongSegment3D(from.x,from.y,from.z,end.x,end.y,end.z,0.8,obstacleHitInfo);
+  let exactRockHitInfo={};
+  let exactRock=world.rockObstacleAlongSegmentExact
+    ? world.rockObstacleAlongSegmentExact(from.x,from.y,from.z,end.x,end.y,end.z,exactRockHitInfo)
+    : null;
   if(obstacle){
     let obstacleY=Number.isFinite(obstacle.y)
       ? obstacle.y
       : groundHeight(obstacle.x,obstacle.z)+Math.max(0.6,obstacle.r*0.45);
-    let t=(obstacle.x-from.x)*direction.x+(obstacleY-from.y)*direction.y+(obstacle.z-from.z)*direction.z;
+    let t=Number.isFinite(obstacleHitInfo.distance)
+      ? obstacleHitInfo.distance
+      : (obstacle.x-from.x)*direction.x+(obstacleY-from.y)*direction.y+(obstacle.z-from.z)*direction.z;
     t=clamp(t,1,maxDistance);
     if(t<best.t) best={t,actor:null,obstacle,mothershipHit:null};
+  }
+  if(exactRock && Number.isFinite(exactRockHitInfo.distance)){
+    let t=clamp(exactRockHitInfo.distance,1,maxDistance);
+    if(t<best.t) best={t,actor:null,obstacle:exactRock,mothershipHit:null};
   }
 
   let previousPoint=playerLaserPointA.copy(direction).multiplyScalar(1).add(from).clone();
@@ -7907,7 +7992,8 @@ function playerLaserHitForCar(car,from,aimPoint){
     let point=playerLaserPointB.copy(direction).multiplyScalar(t).add(from);
     let surface=drivingSurfaceHeight(point.x,point.z)+0.2;
     if(point.y<=surface && previousPoint.y>drivingSurfaceHeight(previousPoint.x,previousPoint.z)+0.2){
-      best={t,actor:null,obstacle:null,mothershipHit:null};
+      let nearRock=rockNearImpact(point.x,point.y,point.z,4.8);
+      best={t,actor:null,obstacle:nearRock,mothershipHit:null};
       break;
     }
     previousPoint.copy(point);
@@ -8452,7 +8538,16 @@ function updateRockets(){
       }
     }
 
-    let hitObstacle=world.obstacleAlongSegment3D(prevX,prevY,prevZ,rocket.x,rocket.y,rocket.z,1.25);
+    let obstacleHitInfo={};
+    let hitObstacle=world.obstacleAlongSegment3D(prevX,prevY,prevZ,rocket.x,rocket.y,rocket.z,1.25,obstacleHitInfo);
+    let exactRockHitInfo={};
+    let exactRock=world.rockObstacleAlongSegmentExact
+      ? world.rockObstacleAlongSegmentExact(prevX,prevY,prevZ,rocket.x,rocket.y,rocket.z,exactRockHitInfo)
+      : null;
+    if(exactRock && (!hitObstacle || exactRockHitInfo.distance<obstacleHitInfo.distance)){
+      hitObstacle=exactRock;
+      obstacleHitInfo=exactRockHitInfo;
+    }
     let targetImpact=false;
     if(rocket.ballistic && rocket.targetX!==undefined){
       let dx=rocket.x-rocket.targetX;
@@ -8467,11 +8562,11 @@ function updateRockets(){
     if(hit || rocket.age>rocket.life){
       let shouldExplode=hit || rocket.ballistic;
       if(shouldExplode){
-        let explosionX=mothershipHit ? mothershipHit.x : hitObstacle ? hitObstacle.x : targetImpact ? rocket.targetX : rocket.x;
-        let explosionZ=mothershipHit ? mothershipHit.z : hitObstacle ? hitObstacle.z : targetImpact ? rocket.targetZ : rocket.z;
+        let explosionX=mothershipHit ? mothershipHit.x : hitObstacle && Number.isFinite(obstacleHitInfo.x) ? obstacleHitInfo.x : hitObstacle ? hitObstacle.x : targetImpact ? rocket.targetX : rocket.x;
+        let explosionZ=mothershipHit ? mothershipHit.z : hitObstacle && Number.isFinite(obstacleHitInfo.z) ? obstacleHitInfo.z : hitObstacle ? hitObstacle.z : targetImpact ? rocket.targetZ : rocket.z;
         let explosionSurfaceY=drivingSurfaceHeight(explosionX,explosionZ);
         let explosionY=hitObstacle
-          ? Math.max(groundHeight(hitObstacle.x,hitObstacle.z)+Math.max(0.8,hitObstacle.r*0.45),explosionSurfaceY+0.5)
+          ? Math.max(Number.isFinite(obstacleHitInfo.y) ? obstacleHitInfo.y : groundHeight(hitObstacle.x,hitObstacle.z)+Math.max(0.8,hitObstacle.r*0.45),explosionSurfaceY+0.5)
           : mothershipHit
           ? mothershipHit.y
           : targetImpact
@@ -8576,19 +8671,30 @@ function updateCannonBolts(){
       }
     }
 
+    let obstacleHitInfo={};
     let hitObstacle=bolt.ignoreObstacleFrames && bolt.age<=bolt.ignoreObstacleFrames
       ? null
-      : world.obstacleAlongSegment3D(prevX,prevY,prevZ,bolt.x,bolt.y,bolt.z,0.9);
+      : world.obstacleAlongSegment3D(prevX,prevY,prevZ,bolt.x,bolt.y,bolt.z,0.9,obstacleHitInfo);
+    if(!(bolt.ignoreObstacleFrames && bolt.age<=bolt.ignoreObstacleFrames)){
+      let exactRockHitInfo={};
+      let exactRock=world.rockObstacleAlongSegmentExact
+        ? world.rockObstacleAlongSegmentExact(prevX,prevY,prevZ,bolt.x,bolt.y,bolt.z,exactRockHitInfo)
+        : null;
+      if(exactRock && (!hitObstacle || exactRockHitInfo.distance<obstacleHitInfo.distance)){
+        hitObstacle=exactRock;
+        obstacleHitInfo=exactRockHitInfo;
+      }
+    }
     let terrainHit=bolt.y<=surfaceY+0.22;
     if(!hitObstacle && terrainHit) hitObstacle=rockNearImpact(bolt.x,bolt.y,bolt.z,3.25);
     let hit=terrainHit || hitObstacle || hitActor || mothershipHit;
 
     if(hit || bolt.age>bolt.life){
       if(hit){
-        let explosionX=mothershipHit ? mothershipHit.x : hitObstacle ? hitObstacle.x : bolt.x;
-        let explosionZ=mothershipHit ? mothershipHit.z : hitObstacle ? hitObstacle.z : bolt.z;
+        let explosionX=mothershipHit ? mothershipHit.x : hitObstacle && Number.isFinite(obstacleHitInfo.x) ? obstacleHitInfo.x : hitObstacle ? hitObstacle.x : bolt.x;
+        let explosionZ=mothershipHit ? mothershipHit.z : hitObstacle && Number.isFinite(obstacleHitInfo.z) ? obstacleHitInfo.z : hitObstacle ? hitObstacle.z : bolt.z;
         let explosionY=hitObstacle
-          ? Math.max(groundHeight(hitObstacle.x,hitObstacle.z)+Math.max(0.55,hitObstacle.r*0.35),surfaceY+0.4)
+          ? Math.max(Number.isFinite(obstacleHitInfo.y) ? obstacleHitInfo.y : groundHeight(hitObstacle.x,hitObstacle.z)+Math.max(0.55,hitObstacle.r*0.35),surfaceY+0.4)
           : mothershipHit
           ? mothershipHit.y
           : Math.max(bolt.y,surfaceY+0.45);
@@ -11026,6 +11132,8 @@ function setupMorphModels(car,accentColor){
   let mech=makeMechModel(accentColor,{dust:true});
   let aimCross=makeAimCross(accentColor);
   let headlights=makeVehicleHeadlights(accentColor);
+  mech.position.y+=playerRobotVisualLift;
+  mech.userData.baseY=mech.position.y;
 
   car.group.clear();
   car.group.add(mech,headlights,aimCross);
@@ -12178,16 +12286,25 @@ function updateGiantFireballs(){
       }
     }
 
-    let hitObstacle=world.obstacleAlongSegment3D(prevX,prevY,prevZ,fireball.x,fireball.y,fireball.z,2.4);
+    let obstacleHitInfo={};
+    let hitObstacle=world.obstacleAlongSegment3D(prevX,prevY,prevZ,fireball.x,fireball.y,fireball.z,2.4,obstacleHitInfo);
+    let exactRockHitInfo={};
+    let exactRock=world.rockObstacleAlongSegmentExact
+      ? world.rockObstacleAlongSegmentExact(prevX,prevY,prevZ,fireball.x,fireball.y,fireball.z,exactRockHitInfo)
+      : null;
+    if(exactRock && (!hitObstacle || exactRockHitInfo.distance<obstacleHitInfo.distance)){
+      hitObstacle=exactRock;
+      obstacleHitInfo=exactRockHitInfo;
+    }
     let hitGround=fireball.y<=surfaceY+1.1;
     let expired=fireball.age>fireball.life;
 
     if(hitEnemy || hitObstacle || hitGround || expired){
-      let explosionX=hitEnemy ? hitEnemy.x : hitObstacle ? hitObstacle.x : fireball.x;
-      let explosionZ=hitEnemy ? hitEnemy.z : hitObstacle ? hitObstacle.z : fireball.z;
+      let explosionX=hitEnemy ? hitEnemy.x : hitObstacle && Number.isFinite(obstacleHitInfo.x) ? obstacleHitInfo.x : hitObstacle ? hitObstacle.x : fireball.x;
+      let explosionZ=hitEnemy ? hitEnemy.z : hitObstacle && Number.isFinite(obstacleHitInfo.z) ? obstacleHitInfo.z : hitObstacle ? hitObstacle.z : fireball.z;
       let explosionY=hitEnemy
         ? hitEnemy.y+Math.max(2,(hitEnemy.hitHeight || 5)*0.45)
-        : Math.max(fireball.y,drivingSurfaceHeight(explosionX,explosionZ)+1.1);
+        : Math.max(hitObstacle && Number.isFinite(obstacleHitInfo.y) ? obstacleHitInfo.y : fireball.y,drivingSurfaceHeight(explosionX,explosionZ)+1.1);
 
       spawnRocketExplosion(explosionX,explosionY,explosionZ);
       triggerScreenShake(0.68);
@@ -12762,6 +12879,8 @@ function updateCar(car){
   let previousSpeed=car.speed || 0;
   let {forward,turn,lift}=controlsFor(car);
   updateMorphInput(car);
+  car.collisionRadius=actorObstacleRadius(car);
+  car.hitHeight=car.jetProgress>0.35 ? 4.8 : car.morphProgress>0.65 ? 3.6 : 6.2;
   if(!Number.isFinite(car.fuel)) car.fuel=maxFuel;
   let fuelEmpty=car.fuel<=0.001;
   let fuelBlocksMovement=fuelEmpty && (car.jetMode || car.jetProgress>0.35 || car.morphProgress>0.65);

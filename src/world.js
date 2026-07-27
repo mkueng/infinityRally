@@ -22,6 +22,9 @@ export function createWorld(scene,options={}){
   let lastRadarDishAnimationTime=0;
   let activeVillages=[];
   let activeTurrets=[];
+  let rockRaycaster=new THREE.Raycaster();
+  let rockRayDirection=new THREE.Vector3();
+  let rockRayHits=[];
   let activeChunkBuild=null;
   let lastChunkBuildTime=0;
   let chunkWorker=null;
@@ -1583,7 +1586,44 @@ function damageBossBase(obstacle,amount=1){
   return false;
 }
 
-function collidesWithObstacles(x,z){
+function obstacleMovementRadius(obstacle,padding=0){
+  let radius=obstacle && Number.isFinite(obstacle.r) ? obstacle.r : 0;
+  if(obstacle && obstacle.type==="smallRock" && obstacle.gravelRock){
+    radius=Math.max(0.62,Math.min(radius,(obstacle.visualRadius || radius)*0.82));
+  }else if(obstacle && obstacle.type==="smallRock"){
+    radius=Math.max(1.45,Math.min(radius,(obstacle.visualRadius || radius)*0.95));
+  }
+  return radius+padding;
+}
+
+function obstacleVerticalBounds(obstacle){
+  if(!obstacle) return {bottom:0,top:0,center:0,height:0};
+  if(Number.isFinite(obstacle.bottomY) && Number.isFinite(obstacle.topY)){
+    let bottom=Math.min(obstacle.bottomY,obstacle.topY);
+    let top=Math.max(obstacle.bottomY,obstacle.topY);
+    return {
+      bottom,
+      top,
+      center:(bottom+top)*0.5,
+      height:Math.max(0.001,top-bottom)
+    };
+  }
+
+  let base=Number.isFinite(obstacle.baseY) ? obstacle.baseY : groundHeight(obstacle.x,obstacle.z);
+  let height=obstacle.visualHeight || obstacle.height || obstacle.r || 1;
+  let isRock=obstacle.type==="rock" || obstacle.type==="smallRock";
+  let bottom=isRock ? base-Math.max(0.75,height*0.32) : base;
+  let top=base+height;
+
+  return {
+    bottom,
+    top,
+    center:(bottom+top)*0.5,
+    height:Math.max(0.001,top-bottom)
+  };
+}
+
+function collidesWithObstacles(x,z,padding=carRadius){
   let pcx=Math.floor(x/chunkSize);
   let pcz=Math.floor(z/chunkSize);
 
@@ -1594,11 +1634,10 @@ function collidesWithObstacles(x,z){
 
       for(let obstacle of chunk.colliders){
         if(obstacle.destroyed) continue;
-        if(obstacle.type==="smallRock") continue;
 
         let ox=obstacle.x;
         let oz=obstacle.z;
-        let r=obstacle.r+carRadius;
+        let r=obstacleMovementRadius(obstacle,padding);
         let dist=x-ox;
         let distz=z-oz;
 
@@ -1609,7 +1648,7 @@ function collidesWithObstacles(x,z){
 
   for(let obstacle of bossBaseColliders){
     if(obstacle.destroyed) continue;
-    let r=obstacle.r+carRadius;
+    let r=obstacle.r+padding;
     let dist=x-obstacle.x;
     let distz=z-obstacle.z;
     if(dist*dist+distz*distz<r*r) return true;
@@ -1634,7 +1673,7 @@ function obstacleAt(x,z,padding=0){
 
         let ox=obstacle.x;
         let oz=obstacle.z;
-        let r=obstacle.r+padding;
+        let r=obstacleMovementRadius(obstacle,padding);
         let distSq=(x-ox)*(x-ox)+(z-oz)*(z-oz);
 
         if(distSq<r*r && distSq<bestDist){
@@ -1658,6 +1697,55 @@ function obstacleAt(x,z,padding=0){
   return best;
 }
 
+function obstacleCollisionInfo(x,z,padding=carRadius){
+  let pcx=Math.floor(x/chunkSize);
+  let pcz=Math.floor(z/chunkSize);
+  let best=null;
+  let bestOverlap=0;
+
+  function considerObstacle(obstacle){
+    if(!obstacle || obstacle.destroyed || obstacle.type==="treeCluster") return;
+    let radius=obstacleMovementRadius(obstacle,padding);
+    let dx=x-obstacle.x;
+    let dz=z-obstacle.z;
+    let distSq=dx*dx+dz*dz;
+    if(distSq>=radius*radius) return;
+
+    let dist=Math.sqrt(Math.max(0.000001,distSq));
+    let overlap=radius-dist;
+    if(overlap>bestOverlap){
+      bestOverlap=overlap;
+      best={obstacle,radius,dist,overlap,dx,dz};
+    }
+  }
+
+  for(let dx=-1;dx<=1;dx++){
+    for(let dz=-1;dz<=1;dz++){
+      let chunk=chunks.get(chunkKey(pcx+dx,pcz+dz));
+      if(!chunk || !chunk.colliders) continue;
+      for(let obstacle of chunk.colliders) considerObstacle(obstacle);
+    }
+  }
+
+  for(let obstacle of bossBaseColliders){
+    if(!obstacle || obstacle.destroyed) continue;
+    let radius=(obstacle.r || 0)+padding;
+    let dx=x-obstacle.x;
+    let dz=z-obstacle.z;
+    let distSq=dx*dx+dz*dz;
+    if(distSq>=radius*radius) continue;
+
+    let dist=Math.sqrt(Math.max(0.000001,distSq));
+    let overlap=radius-dist;
+    if(overlap>bestOverlap){
+      bestOverlap=overlap;
+      best={obstacle,radius,dist,overlap,dx,dz};
+    }
+  }
+
+  return best;
+}
+
 function obstacleAlongSegment(fromX,fromZ,toX,toZ,padding=0){
   let dx=toX-fromX;
   let dz=toZ-fromZ;
@@ -1673,7 +1761,7 @@ function obstacleAlongSegment(fromX,fromZ,toX,toZ,padding=0){
   return null;
 }
 
-function obstacleAlongSegment3D(fromX,fromY,fromZ,toX,toY,toZ,padding=0){
+function obstacleAlongSegment3D(fromX,fromY,fromZ,toX,toY,toZ,padding=0,hitInfo=null){
   let fromCx=Math.floor(fromX/chunkSize);
   let fromCz=Math.floor(fromZ/chunkSize);
   let toCx=Math.floor(toX/chunkSize);
@@ -1682,8 +1770,17 @@ function obstacleAlongSegment3D(fromX,fromY,fromZ,toX,toY,toZ,padding=0){
   let sy=toY-fromY;
   let sz=toZ-fromZ;
   let segLenSq=Math.max(0.0001,sx*sx+sy*sy+sz*sz);
+  let segLen=Math.sqrt(segLenSq);
   let best=null;
   let bestT=Infinity;
+
+  if(hitInfo){
+    hitInfo.t=Infinity;
+    hitInfo.distance=Infinity;
+    hitInfo.x=toX;
+    hitInfo.y=toY;
+    hitInfo.z=toZ;
+  }
 
   for(let cx=Math.min(fromCx,toCx)-1;cx<=Math.max(fromCx,toCx)+1;cx++){
     for(let cz=Math.min(fromCz,toCz)-1;cz<=Math.max(fromCz,toCz)+1;cz++){
@@ -1696,12 +1793,15 @@ function obstacleAlongSegment3D(fromX,fromY,fromZ,toX,toY,toZ,padding=0){
         let isRock=obstacle.type==="rock" || obstacle.type==="smallRock";
         let isStructure=obstacle.type==="building" || obstacle.type==="wall" || obstacle.type==="turret" || obstacle.type==="radarOutpost";
         let isBossBase=obstacle.type==="bossBase";
-        let obstacleY=isRock && Number.isFinite(obstacle.y)
-          ? obstacle.y
+        let verticalBounds=isRock || isStructure
+          ? obstacleVerticalBounds(obstacle)
+          : null;
+        let obstacleY=isRock
+          ? verticalBounds.center
           : isBossBase && Number.isFinite(obstacle.y)
           ? obstacle.y
-          : isStructure && Number.isFinite(obstacle.y)
-          ? obstacle.y
+          : isStructure
+          ? verticalBounds.center
           : groundHeight(obstacle.x,obstacle.z)+Math.max(0.6,obstacle.r*0.45);
         let t=((obstacle.x-fromX)*sx+(obstacleY-fromY)*sy+(obstacle.z-fromZ)*sz)/segLenSq;
         t=Math.max(0,Math.min(1,t));
@@ -1712,42 +1812,52 @@ function obstacleAlongSegment3D(fromX,fromY,fromZ,toX,toY,toZ,padding=0){
         let radius=(isBossBase
           ? Math.max(4,obstacle.r)
           : isRock
-          ? Math.max(2.6,(obstacle.visualRadius || obstacle.r)*1.55)
+          ? Math.max(2.9,(obstacle.visualRadius || obstacle.r)*1.82)
           : isStructure
           ? Math.max(2.0,(obstacle.visualRadius || obstacle.r)*0.9)
           : Math.max(1.2,obstacle.r*0.72))+padding;
         let verticalRadius=(isBossBase
           ? Math.max(4,(obstacle.visualHeight || obstacle.height || obstacle.r)*0.52)
           : isRock
-          ? Math.max(1.8,(obstacle.visualHeight || obstacle.height || obstacle.r)*0.96)
+          ? Math.max(2.1,verticalBounds.height*0.56)
           : isStructure
-          ? Math.max(2.0,(obstacle.visualHeight || obstacle.height || obstacle.r)*0.52)
+          ? Math.max(2.0,verticalBounds.height*0.52)
           : Math.max(1.0,obstacle.r*0.65))+padding;
         let verticalScale=Math.max(0.001,verticalRadius/radius);
         let distSq=(closestX-obstacle.x)*(closestX-obstacle.x)
           + ((closestY-obstacleY)/verticalScale)*((closestY-obstacleY)/verticalScale)
           + (closestZ-obstacle.z)*(closestZ-obstacle.z);
+        let hitT=t;
 
         if((isRock || isStructure) && distSq>=radius*radius){
           let horizontalSegLenSq=Math.max(0.0001,sx*sx+sz*sz);
+          let horizontalSegLen=Math.sqrt(horizontalSegLenSq);
           let obstacleT=((obstacle.x-fromX)*sx+(obstacle.z-fromZ)*sz)/horizontalSegLenSq;
           obstacleT=Math.max(0,Math.min(1,obstacleT));
           let obstacleX=fromX+sx*obstacleT;
           let obstacleYAtT=fromY+sy*obstacleT;
           let obstacleZ=fromZ+sz*obstacleT;
           let horizontalDistSq=(obstacleX-obstacle.x)*(obstacleX-obstacle.x)+(obstacleZ-obstacle.z)*(obstacleZ-obstacle.z);
-          let visualTop=(Number.isFinite(obstacle.baseY) ? obstacle.baseY : groundHeight(obstacle.x,obstacle.z))+(obstacle.visualHeight || obstacle.height || obstacle.r);
-          let visualBottom=(Number.isFinite(obstacle.baseY) ? obstacle.baseY : groundHeight(obstacle.x,obstacle.z))-0.35;
+          let visualTop=verticalBounds.top;
+          let visualBottom=verticalBounds.bottom;
           let verticalPad=padding+0.85;
           if(horizontalDistSq<radius*radius && obstacleYAtT>=visualBottom-verticalPad && obstacleYAtT<=visualTop+verticalPad){
             distSq=radius*radius*0.5;
+            let entryOffset=Math.sqrt(Math.max(0,radius*radius-horizontalDistSq))/Math.max(0.0001,horizontalSegLen);
+            let entryT=Math.max(0,obstacleT-entryOffset);
+            let entryY=fromY+sy*entryT;
+            hitT=entryY>=visualBottom-verticalPad && entryY<=visualTop+verticalPad
+              ? entryT
+              : obstacleT;
             t=obstacleT;
           }
+        }else if(distSq<radius*radius){
+          hitT=Math.max(0,t-(radius/Math.max(0.0001,segLen))*(isRock ? 0.9 : isStructure ? 0.58 : 0.35));
         }
 
-        if(distSq<radius*radius && t<bestT){
+        if(distSq<radius*radius && hitT<bestT){
           best=obstacle;
-          bestT=t;
+          bestT=hitT;
         }
       }
     }
@@ -1772,10 +1882,75 @@ function obstacleAlongSegment3D(fromX,fromY,fromZ,toX,toY,toZ,padding=0){
       + ((closestY-obstacleY)/verticalScale)*((closestY-obstacleY)/verticalScale)
       + (closestZ-obstacle.z)*(closestZ-obstacle.z);
 
-    if(distSq<radius*radius && t<bestT){
+    let hitT=distSq<radius*radius
+      ? Math.max(0,t-(radius/Math.max(0.0001,segLen))*0.58)
+      : t;
+
+    if(distSq<radius*radius && hitT<bestT){
       best=obstacle;
-      bestT=t;
+      bestT=hitT;
     }
+  }
+
+  if(best && hitInfo){
+    hitInfo.t=bestT;
+    hitInfo.distance=bestT*segLen;
+    hitInfo.x=fromX+sx*bestT;
+    hitInfo.y=fromY+sy*bestT;
+    hitInfo.z=fromZ+sz*bestT;
+  }
+
+  return best;
+}
+
+function rockObstacleAlongSegmentExact(fromX,fromY,fromZ,toX,toY,toZ,hitInfo=null){
+  let sx=toX-fromX;
+  let sy=toY-fromY;
+  let sz=toZ-fromZ;
+  let distance=Math.hypot(sx,sy,sz);
+  if(distance<0.001) return null;
+
+  rockRayDirection.set(sx/distance,sy/distance,sz/distance);
+  rockRaycaster.set({x:fromX,y:fromY,z:fromZ},rockRayDirection);
+  rockRaycaster.near=0;
+  rockRaycaster.far=distance;
+
+  let minCx=Math.floor((Math.min(fromX,toX)-chunkSize*0.5)/chunkSize);
+  let maxCx=Math.floor((Math.max(fromX,toX)+chunkSize*0.5)/chunkSize);
+  let minCz=Math.floor((Math.min(fromZ,toZ)-chunkSize*0.5)/chunkSize);
+  let maxCz=Math.floor((Math.max(fromZ,toZ)+chunkSize*0.5)/chunkSize);
+  let best=null;
+  let bestDistance=Infinity;
+  let bestPoint=null;
+
+  function checkMesh(mesh,collidersByInstance){
+    if(!mesh || !mesh.visible || !collidersByInstance) return;
+    rockRayHits.length=0;
+    rockRaycaster.intersectObject(mesh,false,rockRayHits);
+    for(let hit of rockRayHits){
+      if(!hit || hit.instanceId==null || hit.distance>=bestDistance) continue;
+      let collider=collidersByInstance[hit.instanceId];
+      if(!collider || collider.destroyed) continue;
+      best=collider;
+      bestDistance=hit.distance;
+      bestPoint=hit.point;
+    }
+  }
+
+  for(let cx=minCx;cx<=maxCx;cx++){
+    for(let cz=minCz;cz<=maxCz;cz++){
+      let chunk=chunks.get(chunkKey(cx,cz));
+      if(!chunk) continue;
+      checkMesh(chunk.rocks,chunk.rockCollidersByInstance);
+      checkMesh(chunk.gravel,chunk.gravelCollidersByInstance);
+    }
+  }
+
+  if(best && hitInfo){
+    hitInfo.distance=bestDistance;
+    hitInfo.x=bestPoint ? bestPoint.x : fromX+rockRayDirection.x*bestDistance;
+    hitInfo.y=bestPoint ? bestPoint.y : fromY+rockRayDirection.y*bestDistance;
+    hitInfo.z=bestPoint ? bestPoint.z : fromZ+rockRayDirection.z*bestDistance;
   }
 
   return best;
@@ -2115,8 +2290,8 @@ function makeTreasureChestForHole(hole,cx,cz,index){
 
 function localColliderAt(colliders,x,z,padding=0){
   for(let obstacle of colliders){
-    if(obstacle.destroyed || obstacle.type==="smallRock") continue;
-    let radius=(obstacle.r || 0)+padding;
+    if(obstacle.destroyed) continue;
+    let radius=obstacleMovementRadius(obstacle,padding);
     let dx=x-obstacle.x;
     let dz=z-obstacle.z;
     if(dx*dx+dz*dz<radius*radius) return obstacle;
@@ -2580,6 +2755,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   let rockShadows=new THREE.InstancedMesh(buildingShadowGeo,rockShadowMat,rockCount);
   rockShadows.renderOrder=1;
   let rockUsed=0;
+  let rockCollidersByInstance=[];
 
   for(let i=0;i<rockCount;i++){
     let rx=rand(cx*222+i,cz*888-i);
@@ -2594,18 +2770,24 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
     if(roadDistance(wx,wz)<40) continue;
     if(pointInHole(holes,wx,wz,Math.max(7.5,scale*2.4))) continue;
 
-    colliders.push({
+    let rockBottomY=wy-scale*0.68-0.45;
+    let rockTopY=wy+scale*1.58+0.45;
+    let rockCollider={
       x:wx,
       baseY:wy,
-      y:wy+scale*0.48,
+      bottomY:rockBottomY,
+      topY:rockTopY,
+      y:(rockBottomY+rockTopY)*0.5,
       z:wz,
       r:2.1+scale*0.55,
-      height:Math.max(1.0,scale*1.1),
+      height:Math.max(1.0,rockTopY-rockBottomY),
       visualRadius:Math.max(1.6,scale*1.24),
-      visualHeight:Math.max(1.25,scale*1.82),
+      visualHeight:Math.max(1.25,rockTopY-rockBottomY),
       type:scale<1.65 ? "smallRock" : "rock",
       instances:[{mesh:rocks,index:rockUsed}]
-    });
+    };
+    colliders.push(rockCollider);
+    rockCollidersByInstance[rockUsed]=rockCollider;
 
     let shadowAngle=-0.72+rand(i*17+3,cx-cz)*0.18;
     let shadowDirX=Math.sin(shadowAngle);
@@ -2636,6 +2818,9 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   rockShadows.count=rockUsed;
   rocks.instanceMatrix.needsUpdate=true;
   rockShadows.instanceMatrix.needsUpdate=true;
+  if(rocks.computeBoundingSphere) rocks.computeBoundingSphere();
+  if(rocks.computeBoundingBox) rocks.computeBoundingBox();
+  if(rockShadows.computeBoundingSphere) rockShadows.computeBoundingSphere();
   freezeStaticObject(rocks);
   freezeStaticObject(rockShadows);
   chunkRoot.add(rockShadows,rocks);
@@ -2644,6 +2829,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   let gravelCount=Math.max(0,Math.floor((cityMode ? 55 : 120)*detail.grassDensity));
   let gravel=new THREE.InstancedMesh(gravelGeo,gravelMat,gravelCount);
   let gravelUsed=0;
+  let gravelCollidersByInstance=[];
 
   for(let i=0;i<gravelCount;i++){
     let rx=rand(cx*712+i*13,cz*991-i*5);
@@ -2671,11 +2857,34 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
     dummy.updateMatrix();
 
     gravel.setMatrixAt(gravelUsed,dummy.matrix);
+    if(scale>0.42 && rand(cx*1237+i*19,cz*1709-i*23)>0.42){
+      let gravelBottomY=wy-0.08;
+      let gravelTopY=wy+Math.max(0.22,flatness*2.6)+0.12;
+      let gravelCollider={
+        x:wx,
+        baseY:wy,
+        bottomY:gravelBottomY,
+        topY:gravelTopY,
+        y:(gravelBottomY+gravelTopY)*0.5,
+        z:wz,
+        r:Math.max(0.52,scale*0.94),
+        height:Math.max(0.16,gravelTopY-gravelBottomY),
+        visualRadius:Math.max(0.72,scale*1.28),
+        visualHeight:Math.max(0.22,gravelTopY-gravelBottomY),
+        type:"smallRock",
+        gravelRock:true,
+        instances:[{mesh:gravel,index:gravelUsed}]
+      };
+      colliders.push(gravelCollider);
+      gravelCollidersByInstance[gravelUsed]=gravelCollider;
+    }
     gravelUsed++;
   }
 
   gravel.count=gravelUsed;
   gravel.instanceMatrix.needsUpdate=true;
+  if(gravel.computeBoundingSphere) gravel.computeBoundingSphere();
+  if(gravel.computeBoundingBox) gravel.computeBoundingBox();
   freezeStaticObject(gravel);
   chunkRoot.add(gravel);
   yield;
@@ -3344,9 +3553,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
     landingRings.push(makeLandingRing(landingSurface,chunkRoot));
   }
 
-  scene.add(chunkRoot);
-
-  return {cx,cz,root:chunkRoot,land,road,water,shoreBand,trunks,crowns,pods,grasses,rocks,rockShadows,gravel,holeMeshes,treasureChests,radarOutposts,buildingShadows,buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,cityStreets,cityStreetDetails,cityTechDetails,landingSpaces,landingSurfaces,landingRings,villageCenters,colliders,holes:localHoles};
+  return {cx,cz,root:chunkRoot,land,road,water,shoreBand,trunks,crowns,pods,grasses,rocks,rockShadows,rockCollidersByInstance,gravel,gravelCollidersByInstance,holeMeshes,treasureChests,radarOutposts,buildingShadows,buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,cityStreets,cityStreetDetails,cityTechDetails,landingSpaces,landingSurfaces,landingRings,villageCenters,colliders,holes:localHoles};
 }
 
 function updateChunksForCenters(centers){
@@ -3661,6 +3868,10 @@ function finishChunkBuild(job,chunk){
   }
 
   chunks.set(job.key,chunk);
+  if(chunk.root){
+    scene.add(chunk.root);
+    chunk.root.updateMatrixWorld(true);
+  }
   registerChunk(chunk);
   updateIndependentStructureVisibility();
   renderStressSignature="";
@@ -3999,8 +4210,10 @@ function holeSurfaceHeightAt(x,z){
     collidersInRadius,
     collidesWithObstacles,
     obstacleAt,
+    obstacleCollisionInfo,
     obstacleAlongSegment,
     obstacleAlongSegment3D,
+    rockObstacleAlongSegmentExact,
     destroyObstacle,
     damageBossBase,
     isVillageCleared,
