@@ -165,7 +165,7 @@ landMat.onBeforeCompile=shader=>{
   shader.uniforms.landWetWaterLevel={value:waterLevel+waterSurfaceVisualLift};
   shader.uniforms.landWetShoreColor={value:new THREE.Color(0xd6b25a)};
   shader.uniforms.landWetWaterColor={value:new THREE.Color(0x20ffd4)};
-  shader.uniforms.landWetStrength={value:0.46};
+  shader.uniforms.landWetStrength={value:0.34};
   landMat.userData.shader=shader;
   shader.vertexShader=shader.vertexShader.replace(
     "#include <common>",
@@ -727,7 +727,7 @@ let rockShadowMat=new THREE.MeshBasicMaterial({
   map:makeCarShadowTexture(),
   color:0x000000,
   transparent:true,
-  opacity:0.42,
+  opacity:0.46,
   depthWrite:false,
   depthTest:true,
   polygonOffset:true,
@@ -963,8 +963,8 @@ function applyEnvironment(environment={}){
     let shader=landMat.userData.shader;
     if(shader.uniforms.landWetWaterLevel) shader.uniforms.landWetWaterLevel.value=waterLevel+waterSurfaceVisualLift;
     if(shader.uniforms.landWetShoreColor) shader.uniforms.landWetShoreColor.value.set(mixHexColor(colors.shore || colors.low,colors.low || colors.shore,0.24));
-    if(shader.uniforms.landWetWaterColor) shader.uniforms.landWetWaterColor.value.set(mixHexColor(displayWaterColor(colors.water),colors.shore || colors.water,0.34));
-    if(shader.uniforms.landWetStrength) shader.uniforms.landWetStrength.value=0.46;
+    if(shader.uniforms.landWetWaterColor) shader.uniforms.landWetWaterColor.value.set(mixHexColor(colors.shore || colors.low,displayWaterColor(colors.water),0.16));
+    if(shader.uniforms.landWetStrength) shader.uniforms.landWetStrength.value=0.34;
   }
   if(shoreBandMat.color) shoreBandMat.color.set(mixHexColor(displayWaterColor(colors.water),colors.shore || colors.water,0.42));
   setMaterialColor(barkMat,colors.bark,colors.barkEmissive);
@@ -2610,9 +2610,9 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
     let shadowAngle=-0.72+rand(i*17+3,cx-cz)*0.18;
     let shadowDirX=Math.sin(shadowAngle);
     let shadowDirZ=Math.cos(shadowAngle);
-    let shadowLength=scale*(1.95+rand(i*29,cx+cz)*0.36);
-    let shadowWidth=scale*(1.28+rand(i*31,cx-cz)*0.28);
-    let shadowOffset=scale*(0.28+rand(i*37,cz-cx)*0.14);
+    let shadowLength=scale*(2.58+rand(i*29,cx+cz)*0.48);
+    let shadowWidth=scale*(1.28+rand(i*31,cx-cz)*0.24);
+    let shadowOffset=scale*(0.82+rand(i*37,cz-cx)*0.22);
     dummy.position.set(wx+shadowDirX*shadowOffset,wy+0.12,wz+shadowDirZ*shadowOffset);
     dummy.rotation.set(-Math.PI*0.5,0,shadowAngle);
     dummy.scale.set(shadowWidth,shadowLength,1);
