@@ -130,6 +130,25 @@ export const worldEnvironments=[
     vegetation:{treeClusters:2,treesPerCluster:7,treeClusterRadius:31,crownsPerTree:6,podsPerTree:6,trunkHeightBase:0.92,trunkHeightVariance:0.34,trunkWidthBase:0.82,trunkWidthVariance:0.38,leanAmount:0.3,crownBaseScale:1.18,crownScaleStep:0.075,crownSpreadBase:1.55,crownSpreadVariance:2.5,crownLiftBase:8.2,crownLiftStep:0.34,crownWidthScale:1.25,crownFlatness:0.82,crownDepthScale:1.18,podScaleBase:0.38,podScaleVariance:0.32,podLiftBase:6.8,podLiftVariance:1.9,podElongation:1.05,grassClusters:15,grassPerCluster:260,grassClusterRadius:14}
   },
   {
+    name:"titan highlands",
+    terrain:{heightScale:1.32,hillScale:0.82,mountainScale:2.25,mountainPeakPower:1.32,cragScale:0.16,cragFrequencyScale:0.28,terrainStructureScale:0.94,terrainStructureFrequencyScale:0.32,broadMountainScale:2.15,broadMountainChance:0.56,megaMountainScale:1.08,megaMountainSpacing:3200,megaPlateauHeight:78,megaValleyDepth:42,megaRidgeHeight:88,megaRidgeSoftness:1.75,baseHeight:-5.5,roadWave1:310,roadWave2:86,roadWave3:60,roadFrequencyScale:0.86},
+    sky:["#071018","#23313d","#586769","#9d8e76","#f1c485"],
+    fog:0x6f7f6c,
+    fogRange:{near:420,far:2150},
+    colors:{
+      underwater:0x1d3440,shore:0x77876b,low:0x3e533c,mid:0x5b6256,high:0xb0aca0,
+      water:0x4bb8d8,waterEmissive:0x0b5367,bark:0x232316,barkEmissive:0x070805,
+      leaf:0x80b55a,leafEmissive:0x1d4018,pod:0xe0d06a,podEmissive:0x77610a,
+      grass:0x8fbd60,grassEmissive:0x273f16,rock:0x696963,wall:0x676b61,roof:0x353b37,trim:0xb7aa83,brick:0x5a564c
+    },
+    groundTexture:{base:"#535a4e",dark:[44,50,44],bright:[150,145,118],streak:"180,215,165"},
+    rainChance:0.36,
+    rainIntensity:[0.12,0.5],
+    lowHaze:{count:300,nearCount:230,range:2350,nearRange:780,opacity:3.9,nearOpacity:4.55,nearScale:1.92,color:0xb8d0a8,heightMin:0,heightMax:78,drift:0},
+    settlements:{villagesPerChunk:0.55,villageSpawnChance:0.22,patchRadiusScale:0.88,smallTownMaxRange:13.5,largeTownMaxRange:15},
+    vegetation:{treeClusters:1,treesPerCluster:5,treeClusterRadius:36,crownsPerTree:5,podsPerTree:2,trunkHeightBase:1.05,trunkHeightVariance:0.4,trunkWidthBase:0.78,trunkWidthVariance:0.24,leanAmount:0.18,crownBaseScale:1.05,crownScaleStep:0.07,crownSpreadBase:1.4,crownSpreadVariance:2.2,crownLiftBase:8.8,crownLiftStep:0.36,crownWidthScale:1.08,crownFlatness:0.86,crownDepthScale:1.08,podScaleBase:0.22,podScaleVariance:0.18,podLiftBase:6.8,podLiftVariance:1.8,podElongation:1.2,grassClusters:11,grassPerCluster:210,grassClusterRadius:16}
+  },
+  {
     name:"neon city",
     city:true,
     terrain:{heightScale:0.42,hillScale:0.55,mountainScale:0.18,broadMountainScale:0.12,broadMountainChance:0.08,baseHeight:-1.4,roadWave1:95,roadWave2:48,roadWave3:18,roadFrequencyScale:0.72},

@@ -1,5 +1,5 @@
 import { chunkSize, segments } from "./constants.js";
-import { groundHeight, rand, roadDistance, setWorldSeed } from "./terrain.js?v=no-roads";
+import { groundHeight, rand, roadDistance, setWorldSeed } from "./terrain.js?v=titan-highlands-low-frequency";
 
 const waterLevel=-20;
 const underwaterVisualDropBase=1.55;

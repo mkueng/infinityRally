@@ -1,6 +1,6 @@
 import { THREE } from "./three.js";
 import { cloudCount } from "./constants.js";
-import { makeCarShadowTexture, makeCloudTexture, makeDustTexture } from "./textures.js?v=smeared-clouds-unclipped";
+import { makeCarShadowTexture, makeCloudTexture, makeDustTexture, makeHazeTexture } from "./textures.js?v=haze-puff-field";
 import { rand } from "./terrain.js";
 
 function normalizeTrackAngle(angle){
@@ -138,6 +138,153 @@ export function createClouds(scene,getCarPosition){
   }
 
   return {makeClouds,update};
+}
+
+export function createLowHangingHaze(scene,getCarPosition,getEnvironment=()=>({})){
+  let hazeGroup=new THREE.Group();
+  scene.add(hazeGroup);
+  let hazeTime=0;
+  let hazeTexture=makeHazeTexture();
+  let hazeRand=(a,b)=>rand(a,b)*0.5+0.5;
+  let maxHazePuffs=320;
+  let positions=new Float32Array(maxHazePuffs*3);
+  let colors=new Float32Array(maxHazePuffs*3);
+  let sizes=new Float32Array(maxHazePuffs);
+  let opacities=new Float32Array(maxHazePuffs);
+  let hazeData=[];
+  let hazeColor=new THREE.Color(0xbfd7bd);
+  let hazeGeometry=new THREE.BufferGeometry();
+  hazeGeometry.setAttribute("position",new THREE.BufferAttribute(positions,3));
+  hazeGeometry.setAttribute("particleColor",new THREE.BufferAttribute(colors,3));
+  hazeGeometry.setAttribute("particleSize",new THREE.BufferAttribute(sizes,1));
+  hazeGeometry.setAttribute("particleOpacity",new THREE.BufferAttribute(opacities,1));
+
+  let hazeMaterial=new THREE.ShaderMaterial({
+    uniforms:{map:{value:hazeTexture}},
+    transparent:true,
+    depthWrite:false,
+    depthTest:true,
+    blending:THREE.NormalBlending,
+    vertexShader:[
+      "attribute vec3 particleColor;",
+      "attribute float particleSize;",
+      "attribute float particleOpacity;",
+      "varying vec3 vColor;",
+      "varying float vOpacity;",
+      "void main(){",
+      "  vColor=particleColor;",
+      "  vOpacity=particleOpacity;",
+      "  vec4 mvPosition=modelViewMatrix*vec4(position,1.0);",
+      "  gl_PointSize=clamp(particleSize*(2100.0/max(1.0,-mvPosition.z)),52.0,760.0);",
+      "  gl_Position=projectionMatrix*mvPosition;",
+      "}"
+    ].join("\n"),
+    fragmentShader:[
+      "uniform sampler2D map;",
+      "varying vec3 vColor;",
+      "varying float vOpacity;",
+      "void main(){",
+      "  vec4 tex=texture2D(map,gl_PointCoord);",
+      "  float alpha=tex.a*vOpacity;",
+      "  if(alpha<0.006) discard;",
+      "  gl_FragColor=vec4(vColor,alpha);",
+      "}"
+    ].join("\n")
+  });
+  let hazePoints=new THREE.Points(hazeGeometry,hazeMaterial);
+  hazePoints.frustumCulled=false;
+  hazeGroup.add(hazePoints);
+
+  for(let i=0;i<maxHazePuffs;i++){
+    hazeData.push({
+      angle:hazeRand(i*17,31)*Math.PI*2,
+      radius:140+hazeRand(i*23,43)*720,
+      heightT:hazeRand(i*53,79),
+      phase:hazeRand(i*61,83)*Math.PI*2,
+      drift:hazeRand(i*71,97)*0.22+0.08,
+      nearSize:92+hazeRand(i*41,59)*145,
+      farSize:118+hazeRand(i*47,67)*190,
+      opacity:0.05+hazeRand(i*89,109)*0.075
+    });
+  }
+
+  function wrapOffset(value,range){
+    let half=range*0.5;
+    while(value<-half) value+=range;
+    while(value>half) value-=range;
+    return value;
+  }
+
+  function update(){
+    let environment=getEnvironment() || {};
+    let config=environment.lowHaze;
+    let enabled=!!config;
+
+    hazeTime+=0.016;
+    hazeGroup.visible=enabled;
+    if(!enabled){
+      hazePoints.visible=false;
+      return;
+    }
+    hazePoints.visible=true;
+
+    let center=getCarPosition();
+    let centerX=center.carX ?? center.x ?? 0;
+    let centerY=center.carY ?? center.y ?? 0;
+    let centerZ=center.carZ ?? center.z ?? 0;
+    let range=config.range || 1500;
+    let count=Math.min(maxHazePuffs,Math.max(0,config.count || maxHazePuffs));
+    let nearCount=Math.min(count,Math.max(0,config.nearCount || 0));
+    let nearRange=config.nearRange || range*0.42;
+    let nearOpacity=config.nearOpacity ?? 1;
+    let nearScale=config.nearScale ?? 1;
+    let opacityScale=config.opacity ?? 1;
+    let color=config.color || 0xbfd7bd;
+    let minHeight=config.heightMin ?? 4;
+    let maxHeight=config.heightMax ?? 42;
+    let driftScale=config.drift ?? 1;
+
+    hazeColor.set(color);
+
+    for(let i=0;i<maxHazePuffs;i++){
+      let offset=i*3;
+      if(i>=count){
+        opacities[i]=0;
+        continue;
+      }
+
+      let data=hazeData[i];
+      let near=i<nearCount;
+      let activeRange=near ? nearRange : range;
+      let radius=near
+        ? 12+hazeRand(i*137,151)*nearRange*0.32
+        : data.radius;
+      let x=wrapOffset(Math.cos(data.angle)*radius,activeRange);
+      let z=wrapOffset(Math.sin(data.angle)*radius,activeRange);
+      let y=centerY+minHeight+(maxHeight-minHeight)*(near ? 0.08+0.42*hazeRand(i*101,113) : 0.18+0.82*hazeRand(i*101,113));
+      y+=Math.sin(hazeTime*0.36+data.phase)*(near ? 2.6 : 4.5);
+      let pulse=0.78+Math.sin(hazeTime*0.42+data.phase)*0.22;
+      let distanceFade=1-Math.min(1,Math.hypot(x,z)/(activeRange*0.58));
+      let scale=near ? nearScale : 1;
+      let opacityBoost=near ? nearOpacity : 1;
+
+      positions[offset]=centerX+x;
+      positions[offset+1]=y;
+      positions[offset+2]=centerZ+z;
+      colors[offset]=hazeColor.r;
+      colors[offset+1]=hazeColor.g;
+      colors[offset+2]=hazeColor.b;
+      sizes[i]=(near ? data.nearSize : data.farSize)*scale;
+      opacities[i]=data.opacity*opacityScale*opacityBoost*pulse*(0.55+distanceFade*0.45);
+    }
+
+    hazeGeometry.attributes.position.needsUpdate=true;
+    hazeGeometry.attributes.particleColor.needsUpdate=true;
+    hazeGeometry.attributes.particleSize.needsUpdate=true;
+    hazeGeometry.attributes.particleOpacity.needsUpdate=true;
+  }
+
+  return {update};
 }
 
 export function createStars(scene,getCarPosition,getNightAmount=()=>0,getRainIntensity=()=>0){

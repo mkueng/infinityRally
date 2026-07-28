@@ -5,9 +5,18 @@ const defaultTerrainProfile={
   heightScale:1,
   hillScale:1,
   mountainScale:1,
+  mountainPeakPower:2,
+  cragScale:1,
+  cragFrequencyScale:1,
   terrainStructureScale:1,
+  terrainStructureFrequencyScale:1,
   broadMountainScale:1,
   broadMountainChance:0.26,
+  megaMountainScale:0,
+  megaMountainSpacing:3000,
+  megaPlateauHeight:70,
+  megaValleyDepth:30,
+  megaRidgeHeight:84,
   baseHeight:0,
   roadWave1:220,
   roadWave2:80,
@@ -20,11 +29,14 @@ const noRoadDistance=1000000000;
 const broadMountainSpacing=1650;
 const broadMountainCellCacheLimit=4096;
 let broadMountainCellCache=new Map();
+const megaMountainCellCacheLimit=2048;
+let megaMountainCellCache=new Map();
 
 export function setWorldSeed(seed,profile={}){
   worldSeed=Number.isFinite(seed) ? seed : 0;
   terrainProfile={...defaultTerrainProfile,...profile};
   broadMountainCellCache.clear();
+  megaMountainCellCache.clear();
 }
 
 export function rand(x,z){
@@ -163,6 +175,66 @@ function broadMountainHeight(x,z){
   return total*roadFade;
 }
 
+function megaMountainCell(cellX,cellZ,spacing){
+  let key=cellX+","+cellZ+","+spacing;
+  let cached=megaMountainCellCache.get(key);
+  if(cached) return cached;
+
+  let angle=rand01(cellX*83.7-17.4,cellZ*151.9+29.2)*Math.PI*2;
+  let cell={
+    centerX:(cellX+0.16+rand01(cellX*71.2+4.8,cellZ*43.9-12.1)*0.68)*spacing,
+    centerZ:(cellZ+0.16+rand01(cellX*39.4-8.7,cellZ*91.6+18.4)*0.68)*spacing,
+    ca:Math.cos(angle),
+    sa:Math.sin(angle),
+    radiusX:spacing*(0.28+rand01(cellX*191.3+11.2,cellZ*67.8-3.4)*0.16),
+    radiusZ:spacing*(0.22+rand01(cellX*53.6-19.8,cellZ*177.1+7.2)*0.18),
+    plateau:terrainProfile.megaPlateauHeight*(0.78+rand01(cellX*227.4+31.1,cellZ*101.2-13.5)*0.48),
+    valley:terrainProfile.megaValleyDepth*(0.72+rand01(cellX*137.6-15.2,cellZ*63.4+9.1)*0.62),
+    ridge:terrainProfile.megaRidgeHeight*(0.8+rand01(cellX*89.1+23.7,cellZ*211.5-26.9)*0.46)
+  };
+
+  megaMountainCellCache.set(key,cell);
+  if(megaMountainCellCache.size>megaMountainCellCacheLimit){
+    megaMountainCellCache.delete(megaMountainCellCache.keys().next().value);
+  }
+  return cell;
+}
+
+function megaMountainHeight(x,z){
+  let scale=terrainProfile.megaMountainScale || 0;
+  if(scale<=0) return 0;
+
+  let spacing=Math.max(900,terrainProfile.megaMountainSpacing || 3000);
+  let gx=Math.floor(x/spacing);
+  let gz=Math.floor(z/spacing);
+  let total=0;
+
+  for(let ix=-1;ix<=1;ix++){
+    for(let iz=-1;iz<=1;iz++){
+      let cell=megaMountainCell(gx+ix,gz+iz,spacing);
+      let dx=x-cell.centerX;
+      let dz=z-cell.centerZ;
+      let lx=(dx*cell.ca-dz*cell.sa)/cell.radiusX;
+      let lz=(dx*cell.sa+dz*cell.ca)/cell.radiusZ;
+      let d=Math.hypot(lx,lz);
+      if(d>=1.42) continue;
+
+      let ridgeSoftness=Math.max(0.5,terrainProfile.megaRidgeSoftness || 1);
+      let plateauMask=1-smoothstep01((d-0.72)/0.62);
+      let valleyMask=1-smoothstep01(d/0.48);
+      let innerWall=smoothstep01((d-0.38)/(0.18*ridgeSoftness));
+      let outerWall=1-smoothstep01((d-0.86)/(0.3*ridgeSoftness));
+      let ringMask=innerWall*outerWall;
+      let terrace=0.86+smoothstep01(noise01(x*0.0022+cell.centerX*0.001,z*0.0022-cell.centerZ*0.001))*0.14;
+      total+=(cell.plateau*plateauMask*terrace+cell.ridge*ringMask-cell.valley*valleyMask)*scale;
+    }
+  }
+
+  let longValleys=1-Math.abs(fbm01Fast(x*0.00135+41.7,z*0.0011-25.8)*2-1);
+  let valleyCut=smoothstep01((longValleys-0.62)/0.26)*(terrainProfile.megaValleyDepth || 30)*0.72*scale;
+  return total-valleyCut;
+}
+
 function mountainCragHeight(x,z,mountainMask,broadHeight){
   let broadMask=smoothstep01((broadHeight-5)/24);
   let detailMask=Math.max(mountainMask,broadMask);
@@ -171,13 +243,14 @@ function mountainCragHeight(x,z,mountainMask,broadHeight){
   let roadFade=smoothstep01((roadDistance(x,z)-130)/170);
   if(roadFade<=0.001) return 0;
 
-  let ridgeA=1-Math.abs(fbm01(x*0.016+71.3,z*0.016-43.8)*2-1);
-  let ridgeB=1-Math.abs(fbm01(x*0.034-18.7,z*0.028+92.1)*2-1);
-  let pitted=fbm01(x*0.072+11.4,z*0.072-26.8)-0.5;
-  let breakup=fbm01(x*0.011+81.2,z*0.019-32.5)-0.5;
+  let frequencyScale=terrainProfile.cragFrequencyScale ?? 1;
+  let ridgeA=1-Math.abs(fbm01(x*0.016*frequencyScale+71.3,z*0.016*frequencyScale-43.8)*2-1);
+  let ridgeB=1-Math.abs(fbm01(x*0.034*frequencyScale-18.7,z*0.028*frequencyScale+92.1)*2-1);
+  let pitted=fbm01(x*0.072*frequencyScale+11.4,z*0.072*frequencyScale-26.8)-0.5;
+  let breakup=fbm01(x*0.011*frequencyScale+81.2,z*0.019*frequencyScale-32.5)-0.5;
   let crags=(Math.pow(ridgeA,3.2)-0.28)*2.6+(Math.pow(ridgeB,2.4)-0.34)*1.45+pitted*0.95+breakup*0.7;
 
-  return crags*detailMask*roadFade*terrainProfile.mountainScale;
+  return crags*detailMask*roadFade*terrainProfile.mountainScale*(terrainProfile.cragScale ?? 1);
 }
 
 function terrainStructureHeight(x,z,continent,hills,mountainMask,broadHeight){
@@ -193,18 +266,19 @@ function terrainStructureHeight(x,z,continent,hills,mountainMask,broadHeight){
   let structureMask=Math.max(mountainMask*0.78,broadMask,uplandMask*0.44,hillMask*0.32);
   if(structureMask<=0.001) return 0;
 
-  let warpX=(noise01(x*0.0027+19.4,z*0.0024-33.8)-0.5)*82;
-  let warpZ=(noise01(x*0.0023-51.7,z*0.0029+12.6)-0.5)*82;
+  let frequencyScale=terrainProfile.terrainStructureFrequencyScale ?? 1;
+  let warpX=(noise01(x*0.0027*frequencyScale+19.4,z*0.0024*frequencyScale-33.8)-0.5)*82;
+  let warpZ=(noise01(x*0.0023*frequencyScale-51.7,z*0.0029*frequencyScale+12.6)-0.5)*82;
   let sx=x+warpX;
   let sz=z+warpZ;
 
-  let rolling=(fbm01Fast(sx*0.0042+7.5,sz*0.0038-18.2)-0.5)*4.2;
-  let ribs=1-Math.abs(fbm01Fast(sx*0.013+43.2,sz*0.0105-61.4)*2-1);
-  let ribBreakup=0.38+noise01(x*0.0061-28.8,z*0.0053+47.1)*0.62;
+  let rolling=(fbm01Fast(sx*0.0042*frequencyScale+7.5,sz*0.0038*frequencyScale-18.2)-0.5)*4.2;
+  let ribs=1-Math.abs(fbm01Fast(sx*0.013*frequencyScale+43.2,sz*0.0105*frequencyScale-61.4)*2-1);
+  let ribBreakup=0.38+noise01(x*0.0061*frequencyScale-28.8,z*0.0053*frequencyScale+47.1)*0.62;
   let ribHeight=(Math.pow(ribs,3.7)-0.25)*6.2*ribBreakup;
-  let gullies=1-Math.abs(fbm01Fast((x-warpZ*0.45)*0.018-9.1,(z+warpX*0.45)*0.015+77.3)*2-1);
+  let gullies=1-Math.abs(fbm01Fast((x-warpZ*0.45)*0.018*frequencyScale-9.1,(z+warpX*0.45)*0.015*frequencyScale+77.3)*2-1);
   let gullyCut=smoothstep01((gullies-0.64)/0.28);
-  gullyCut*=0.45+noise01(x*0.0087+65.1,z*0.0079-24.6)*0.55;
+  gullyCut*=0.45+noise01(x*0.0087*frequencyScale+65.1,z*0.0079*frequencyScale-24.6)*0.55;
 
   return (rolling+ribHeight-gullyCut*6.2)*structureMask*roadFade*scale;
 }
@@ -215,18 +289,21 @@ export function height(x,z){
   let mountains=fbm(x*.006,z*.006);
 
   mountains=1-Math.abs(mountains*2-1);
-  mountains=Math.pow(mountains,2);
+  mountains=Math.max(0,mountains);
+  mountains=Math.pow(mountains,terrainProfile.mountainPeakPower ?? 2);
 
   let mountainMask=Math.max(0,continent-.45)*2.2;
   mountainMask=Math.min(1,mountainMask);
   let broadHeight=broadMountainHeight(x,z);
+  let megaHeight=megaMountainHeight(x,z);
 
   return continent*14*terrainProfile.heightScale
     + hills*5*terrainProfile.hillScale
     + mountains*40*mountainMask*terrainProfile.mountainScale
     + broadHeight
-    + mountainCragHeight(x,z,mountainMask,broadHeight)
-    + terrainStructureHeight(x,z,continent,hills,mountainMask,broadHeight)
+    + megaHeight
+    + mountainCragHeight(x,z,mountainMask,broadHeight+Math.max(0,megaHeight))
+    + terrainStructureHeight(x,z,continent,hills,mountainMask,broadHeight+Math.max(0,megaHeight))
     - 14
     + terrainProfile.baseHeight;
 }

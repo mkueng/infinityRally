@@ -1,12 +1,12 @@
 import { THREE } from "./three.js";
 import { carRadius, gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize, viewDistance, mothershipDropCount, mothershipDropInterval, mothershipDropLineSpacing, mothershipHoverDistance, mothershipHoverFrames, mothershipMinDelay, mothershipRandomDelay, mothershipRocketHits } from "./constants.js";
-import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=no-roads";
+import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=titan-highlands-low-frequency";
 import { createInput } from "./input.js?v=progressive-pointer-aim";
 import { createHud } from "./hud.js?v=larger-compass-unit-labels";
-import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createRain, createStars, createWheelTracks } from "./effects.js?v=stronger-directed-rain";
+import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createLowHangingHaze, createRain, createStars, createWheelTracks } from "./effects.js?v=large-close-haze";
 import { createWorld } from "./world.js?v=registered-rock-chunks";
 import { createMotorAudio } from "./audio.js?v=mission-accomplished-voice";
-import { worldEnvironments } from "./environments.js?v=neon-city-terrain-color";
+import { worldEnvironments } from "./environments.js?v=large-close-haze";
 import { difficultySettings } from "./gameConfig.js?v=ammo-caps";
 import { loadBackPackModel, loadBaseStationModel, loadCarModel, loadEnemyBattleShipModel, loadJetModel, loadLandingSpaceModel, loadTradingOutpostModel, loadTreasureChestModels, makeMechModel } from "./models.js?v=car-lowered-robot-height-original";
 import { makeDistantPlanetHazeTexture, makeDistantPlanetLightTexture, makeDistantPlanetVeilTexture, makeSkyTexture } from "./textures.js?v=stronger-sky-gradient-2";
@@ -245,6 +245,12 @@ function refreshSceneEnvironment(){
   lastSkyWeatherIntensity=-1;
   lastSkyNightAmount=-1;
   lastSkyDreamAmount=-1;
+  baseFogNear=currentEnvironment.fogRange && Number.isFinite(currentEnvironment.fogRange.near)
+    ? currentEnvironment.fogRange.near
+    : initialBaseFogNear;
+  baseFogFar=currentEnvironment.fogRange && Number.isFinite(currentEnvironment.fogRange.far)
+    ? currentEnvironment.fogRange.far
+    : initialBaseFogFar;
   updateSkyForWeather(true);
   updateDistantPlanetPalette();
   scene.fog=new THREE.Fog(currentEnvironment.fog || 0x7b4771,baseFogNear,baseFogFar);
@@ -2411,6 +2417,7 @@ function playerRainDirection(){
   return {x:x/speedSum,z:z/speedSum,speed:speedSum/count};
 }
 let rain=createRain(scene,()=>({carX:px,carY:py,carZ:pz}),()=>rainRenderingSuppressed() ? 0 : rainIntensity,()=>rainQualityScale(),playerRainDirection);
+let lowHaze=createLowHangingHaze(scene,()=>({carX:px,carY:py,carZ:pz}),()=>currentEnvironment);
 let ambientMotes=createAmbientMotes(scene,()=>({carX:px,carY:py,carZ:pz}),()=>rainIntensity);
 let dust=createDust(scene);
 let wheelTracks=createWheelTracks(scene);
@@ -2761,6 +2768,20 @@ function randomMissionTemplateForEnvironment(environment){
         "Primary objective: destroy two complete cities and the boss base.",
         "Clear every structure in each city sector to confirm control collapse.",
         "Mission completion requires two city clears and one destroyed boss base."
+      ]
+    };
+  }
+  if(planetName==="titan highlands"){
+    return {
+      type:"relay",
+      target:4,
+      title:"Silence highland relays",
+      goal:"Destroy four mountain relay outposts.",
+      statusLabel:"Relays",
+      lines:[
+        "Primary objective: destroy the highland relay outposts.",
+        "Scanner fire reveals relay bearings across the mountain basins.",
+        "Mission completion requires four destroyed mountain relays."
       ]
     };
   }
@@ -14809,6 +14830,7 @@ function loop(timestamp=performance.now()){
     clouds.update();
     stars.update();
     birds.update();
+    lowHaze.update();
     ambientMotes.update();
     rain.update();
     renderGame();
@@ -14871,6 +14893,7 @@ function loop(timestamp=performance.now()){
     clouds.update();
     stars.update();
     birds.update();
+    lowHaze.update();
     ambientMotes.update();
     rain.update();
     updateSurfaceScanPulses((frameMs/1000)*visualInterval);

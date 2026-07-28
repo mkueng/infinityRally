@@ -245,6 +245,46 @@ export function makeCloudTexture(){
   return tex;
 }
 
+export function makeHazeTexture(){
+  let canvas=document.createElement("canvas");
+  canvas.width=512;
+  canvas.height=512;
+  let ctx=canvas.getContext("2d");
+  ctx.clearRect(0,0,512,512);
+
+  let center=ctx.createRadialGradient(256,256,0,256,256,246);
+  center.addColorStop(0,"rgba(255,255,255,0.42)");
+  center.addColorStop(0.28,"rgba(255,255,255,0.28)");
+  center.addColorStop(0.62,"rgba(255,255,255,0.11)");
+  center.addColorStop(0.86,"rgba(255,255,255,0.035)");
+  center.addColorStop(1,"rgba(255,255,255,0)");
+  ctx.fillStyle=center;
+  ctx.beginPath();
+  ctx.arc(256,256,246,0,Math.PI*2);
+  ctx.fill();
+
+  for(let i=0;i<18;i++){
+    let x=140+Math.random()*232;
+    let y=150+Math.random()*212;
+    let radius=72+Math.random()*105;
+    let alpha=0.045+Math.random()*0.055;
+    let puff=ctx.createRadialGradient(x,y,0,x,y,radius);
+    puff.addColorStop(0,`rgba(255,255,255,${alpha})`);
+    puff.addColorStop(0.72,`rgba(255,255,255,${alpha*0.26})`);
+    puff.addColorStop(1,"rgba(255,255,255,0)");
+    ctx.fillStyle=puff;
+    ctx.beginPath();
+    ctx.arc(x,y,radius,0,Math.PI*2);
+    ctx.fill();
+  }
+
+  let tex=new THREE.CanvasTexture(canvas);
+  tex.minFilter=THREE.LinearFilter;
+  tex.magFilter=THREE.LinearFilter;
+  tex.generateMipmaps=false;
+  return tex;
+}
+
 export function makeGroundTexture(environment={}){
   let ground=environment.groundTexture || {
     base:"#6f2d46",

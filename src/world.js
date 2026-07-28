@@ -1,6 +1,6 @@
 import { THREE } from "./three.js";
 import { carRadius, chunkSize, segments, viewDistance } from "./constants.js";
-import { groundHeight, rand, roadCenterX, roadDistance } from "./terrain.js?v=no-roads";
+import { groundHeight, rand, roadCenterX, roadDistance } from "./terrain.js?v=titan-highlands-low-frequency";
 import { makeCarShadowTexture, makeGroundTexture } from "./textures.js?v=building-shadows";
 import { makeMissionOutpostTerminal } from "./models.js?v=radar-performance-fix";
 
@@ -1007,7 +1007,7 @@ function createChunkWorker(){
   if(options.disableChunkWorker || typeof Worker==="undefined") return null;
 
   try{
-    let worker=new Worker(new URL("./chunkWorker.js?v=soft-wet-shore-color",import.meta.url),{type:"module"});
+    let worker=new Worker(new URL("./chunkWorker.js?v=titan-highlands-low-frequency",import.meta.url),{type:"module"});
     let template=makeTerrainVertexTemplate();
     worker.postMessage({
       type:"setTerrainTemplate",
