@@ -3,10 +3,10 @@ import { carRadius, gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize, v
 import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=titan-highlands-low-frequency";
 import { createInput } from "./input.js?v=progressive-pointer-aim";
 import { createHud } from "./hud.js?v=larger-compass-unit-labels";
-import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createLowHangingHaze, createRain, createStars, createWheelTracks } from "./effects.js?v=large-close-haze";
-import { createWorld } from "./world.js?v=registered-rock-chunks";
+import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createLowHangingHaze, createRain, createStars, createWheelTracks } from "./effects.js?v=rain-underwater-hidden";
+import { createWorld } from "./world.js?v=bush-variant-index-fix";
 import { createMotorAudio } from "./audio.js?v=mission-accomplished-voice";
-import { worldEnvironments } from "./environments.js?v=large-close-haze";
+import { worldEnvironments } from "./environments.js?v=bush-variant-index-fix";
 import { difficultySettings } from "./gameConfig.js?v=ammo-caps";
 import { loadBackPackModel, loadBaseStationModel, loadCarModel, loadEnemyBattleShipModel, loadJetModel, loadLandingSpaceModel, loadTradingOutpostModel, loadTreasureChestModels, makeMechModel } from "./models.js?v=car-lowered-robot-height-original";
 import { makeDistantPlanetHazeTexture, makeDistantPlanetLightTexture, makeDistantPlanetVeilTexture, makeSkyTexture } from "./textures.js?v=stronger-sky-gradient-2";
@@ -295,8 +295,9 @@ function updateDayNight(now=performance.now(),forceSky=false){
     scene.fog.color.set(currentEnvironment.fog || 0x7b4771).lerp(fogNightColor,night*fogNightBlend).lerp(dreamFogColor,dreamFog*fogDreamBlend);
     let fogNear=baseFogNear-rainIntensity*rainFogNearReduction-night*nightFogNearReduction;
     let fogFar=baseFogFar-rainIntensity*rainFogFarReduction-night*nightFogFarReduction-jetFogAmount*jetFogFarReduction;
-    let normalNear=Math.max(minNormalFogNear,fogNear);
-    let normalFar=Math.max(normalNear+minNormalFogDepth,fogFar);
+    let fogClamp=currentEnvironment.fogRange || {};
+    let normalNear=Math.max(fogClamp.minNear ?? minNormalFogNear,fogNear);
+    let normalFar=Math.max(normalNear+(fogClamp.minDepth ?? minNormalFogDepth),fogFar);
     scene.fog.near=normalNear+(dreamFogNear-normalNear)*dreamFog;
     scene.fog.far=normalFar+(dreamFogFar-normalFar)*dreamFog;
   }
@@ -1890,7 +1891,7 @@ function tradingOutpostSurfaceHeightAt(x,z,margin=0){
   return best;
 }
 
-function drivingSurfaceHeight(x,z,outpostMargin=0){
+function physicalSurfaceHeight(x,z,outpostMargin=0){
   let terrainY=carSurfaceHeight(x,z);
   let surfaceY=terrainY;
   let holeSurfaceY=world && world.holeSurfaceHeightAt ? world.holeSurfaceHeightAt(x,z) : null;
@@ -1899,7 +1900,21 @@ function drivingSurfaceHeight(x,z,outpostMargin=0){
   if(Number.isFinite(landingSurfaceY)) surfaceY=Math.max(surfaceY,landingSurfaceY);
   let tradingOutpostSurfaceY=tradingOutpostSurfaceHeightAt(x,z,outpostMargin);
   if(Number.isFinite(tradingOutpostSurfaceY)) surfaceY=tradingOutpostSurfaceY;
+  return surfaceY;
+}
+
+function drivingSurfaceHeight(x,z,outpostMargin=0){
+  let terrainY=carSurfaceHeight(x,z);
+  let surfaceY=physicalSurfaceHeight(x,z,outpostMargin);
   return waterLevel-terrainY>0.15 ? Math.max(surfaceY,waterLevel-0.34) : surfaceY;
+}
+
+function playerGroundVehicleInDeepWater(actor,x,z){
+  return actor
+    && cars.includes(actor)
+    && !actor.jetMode
+    && (actor.jetProgress || 0)<0.35
+    && waterDepthAt(x,z)>2.2;
 }
 
 function surfaceHeightForActor(actor,x,z){
@@ -1907,7 +1922,18 @@ function surfaceHeightForActor(actor,x,z){
     ? actor.collisionRadius
     : 2.35;
   let outpostMargin=Math.max(7.5,actorRadius*2.75);
+  let waterDepth=waterDepthAt(x,z);
+  if(playerGroundVehicleInDeepWater(actor,x,z)){
+    let floorY=physicalSurfaceHeight(x,z,outpostMargin);
+    let waterSurfaceY=drivingSurfaceHeight(x,z,outpostMargin);
+    let submerge=clamp((waterDepth-2.2)/4.4,0,1);
+    return waterSurfaceY+(floorY-waterSurfaceY)*smoothStep(submerge);
+  }
   return drivingSurfaceHeight(x,z,outpostMargin);
+}
+
+function cameraClearanceSurfaceHeightForCar(car,x,z){
+  return playerGroundVehicleInDeepWater(car,car.x,car.z) ? physicalSurfaceHeight(x,z) : drivingSurfaceHeight(x,z);
 }
 
 function landingSurfaceAt(x,z){
@@ -2416,7 +2442,14 @@ function playerRainDirection(){
   if(!count || speedSum<=0.001) return {x:0,z:0,speed:0};
   return {x:x/speedSum,z:z/speedSum,speed:speedSum/count};
 }
-let rain=createRain(scene,()=>({carX:px,carY:py,carZ:pz}),()=>rainRenderingSuppressed() ? 0 : rainIntensity,()=>rainQualityScale(),playerRainDirection);
+
+function rainViewerUnderWater(){
+  let visibleCars=activeCars().filter(car=>car && car.group.visible && car.health>0 && car.camera);
+  if(!visibleCars.length) visibleCars=[playerCar];
+  return visibleCars.some(car=>car.camera.position.y<waterLevel+0.22 && waterDepthAt(car.camera.position.x,car.camera.position.z)>0.18);
+}
+
+let rain=createRain(scene,()=>({carX:px,carY:py,carZ:pz}),()=>rainRenderingSuppressed() ? 0 : rainIntensity,()=>rainQualityScale(),playerRainDirection,()=>waterLevel,rainViewerUnderWater);
 let lowHaze=createLowHangingHaze(scene,()=>({carX:px,carY:py,carZ:pz}),()=>currentEnvironment);
 let ambientMotes=createAmbientMotes(scene,()=>({carX:px,carY:py,carZ:pz}),()=>rainIntensity);
 let dust=createDust(scene);
@@ -13725,7 +13758,7 @@ function updateCameraForCar(car){
       camZ+=rightZ*sideBob+forwardZ*forwardBob;
       camY+=verticalBob;
     }
-    camY=Math.max(camY,drivingSurfaceHeight(camX,camZ)+1.6);
+    camY=Math.max(camY,cameraClearanceSurfaceHeightForCar(car,camX,camZ)+1.6);
 
     let lookAhead=36;
     let lookPitch=updateCameraPitchOffset(car,firstPersonPitchTargetForCar(car));

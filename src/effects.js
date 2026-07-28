@@ -1,7 +1,7 @@
 import { THREE } from "./three.js";
 import { cloudCount } from "./constants.js";
 import { makeCarShadowTexture, makeCloudTexture, makeDustTexture, makeHazeTexture } from "./textures.js?v=haze-puff-field";
-import { rand } from "./terrain.js";
+import { groundHeight, rand } from "./terrain.js";
 
 function normalizeTrackAngle(angle){
   while(angle>Math.PI) angle-=Math.PI*2;
@@ -145,13 +145,17 @@ export function createLowHangingHaze(scene,getCarPosition,getEnvironment=()=>({}
   scene.add(hazeGroup);
   let hazeTime=0;
   let hazeTexture=makeHazeTexture();
+  let cloudBankTexture=makeCloudTexture();
   let hazeRand=(a,b)=>rand(a,b)*0.5+0.5;
   let maxHazePuffs=320;
+  let maxCloudBanks=260;
   let positions=new Float32Array(maxHazePuffs*3);
   let colors=new Float32Array(maxHazePuffs*3);
   let sizes=new Float32Array(maxHazePuffs);
   let opacities=new Float32Array(maxHazePuffs);
   let hazeData=[];
+  let cloudBankData=[];
+  let cloudBankSprites=[];
   let hazeColor=new THREE.Color(0xbfd7bd);
   let hazeGeometry=new THREE.BufferGeometry();
   hazeGeometry.setAttribute("position",new THREE.BufferAttribute(positions,3));
@@ -194,6 +198,11 @@ export function createLowHangingHaze(scene,getCarPosition,getEnvironment=()=>({}
   let hazePoints=new THREE.Points(hazeGeometry,hazeMaterial);
   hazePoints.frustumCulled=false;
   hazeGroup.add(hazePoints);
+  let cloudBankGroup=new THREE.Group();
+  hazeGroup.add(cloudBankGroup);
+  let cloudSheetGroup=new THREE.Group();
+  let cloudSheetMeshes=[];
+  hazeGroup.add(cloudSheetGroup);
 
   for(let i=0;i<maxHazePuffs;i++){
     hazeData.push({
@@ -208,11 +217,202 @@ export function createLowHangingHaze(scene,getCarPosition,getEnvironment=()=>({}
     });
   }
 
+  for(let i=0;i<maxCloudBanks;i++){
+    cloudBankData.push({
+      angle:hazeRand(i*131,149)*Math.PI*2,
+      radiusT:Math.pow(hazeRand(i*137,151),0.72),
+      heightT:hazeRand(i*157,163),
+      widthT:hazeRand(i*167,173),
+      opacityT:hazeRand(i*179,181),
+      phase:hazeRand(i*191,193)*Math.PI*2,
+      drift:hazeRand(i*197,199)*0.35+0.12,
+      sway:hazeRand(i*211,223)*2-1
+    });
+  }
+
   function wrapOffset(value,range){
     let half=range*0.5;
     while(value<-half) value+=range;
     while(value>half) value-=range;
     return value;
+  }
+
+  function ensureCloudBankSprites(count,color){
+    while(cloudBankSprites.length<count){
+      let material=new THREE.SpriteMaterial({
+        map:cloudBankTexture,
+        color,
+        transparent:true,
+        opacity:0,
+        depthWrite:false,
+        depthTest:true,
+        fog:true
+      });
+      let sprite=new THREE.Sprite(material);
+      sprite.frustumCulled=false;
+      cloudBankGroup.add(sprite);
+      cloudBankSprites.push(sprite);
+    }
+  }
+
+  function updateCloudBanks(config,centerX,centerY,centerZ){
+    let count=Math.min(maxCloudBanks,Math.max(0,config.count || 170));
+    let range=config.range || 900;
+    let color=config.color || 0xd1c59b;
+    let opacityScale=config.opacity ?? 1;
+    let heightMin=config.heightMin ?? 16;
+    let heightMax=config.heightMax ?? 62;
+    let minRadius=config.minRadius ?? 42;
+    let widthMin=config.widthMin || 160;
+    let widthMax=config.widthMax || 390;
+    let heightScale=config.heightScale || 0.28;
+    let rise=config.rise ?? 0;
+    let fadeStart=config.fadeStart || range*0.72;
+    let fadeEnd=config.fadeEnd || range;
+    let nearFadeRadius=config.nearFadeRadius ?? 95;
+    let driftScale=config.drift ?? 1;
+
+    ensureCloudBankSprites(count,color);
+
+    for(let i=0;i<count;i++){
+      let data=cloudBankData[i];
+      let radius=minRadius+(range-minRadius)*data.radiusT;
+      let angle=data.angle+hazeTime*0.006*data.drift*driftScale;
+      let lateral=Math.sin(hazeTime*0.045+data.phase)*18*data.sway*driftScale;
+      let x=centerX+Math.cos(angle)*radius+Math.cos(angle+Math.PI*0.5)*lateral;
+      let z=centerZ+Math.sin(angle)*radius+Math.sin(angle+Math.PI*0.5)*lateral;
+      let terrainY=groundHeight(x,z);
+      let y=centerY+heightMin+(heightMax-heightMin)*data.heightT+Math.sin(hazeTime*0.08+data.phase)*rise;
+      y=Math.max(y,terrainY+3);
+
+      let width=widthMin+(widthMax-widthMin)*data.widthT;
+      let height=width*(heightScale+(hazeRand(i*229,233)-0.5)*0.08);
+      let edgeFade=1-Math.max(0,Math.min(1,(radius-fadeStart)/(fadeEnd-fadeStart)));
+      let nearFade=Math.max(0,Math.min(1,(radius-minRadius)/nearFadeRadius));
+      let opacity=(0.18+0.36*data.opacityT)*opacityScale*edgeFade*nearFade;
+
+      let sprite=cloudBankSprites[i];
+      sprite.visible=true;
+      sprite.position.set(x,y,z);
+      sprite.scale.set(width,height,1);
+      sprite.material.color.set(color);
+      sprite.material.opacity=opacity;
+    }
+
+    for(let i=count;i<cloudBankSprites.length;i++){
+      cloudBankSprites[i].visible=false;
+      cloudBankSprites[i].material.opacity=0;
+    }
+  }
+
+  function ensureCloudSheets(count){
+    while(cloudSheetMeshes.length<count){
+      let material=new THREE.ShaderMaterial({
+        uniforms:{
+          color:{value:new THREE.Color(0xb8dcc7)},
+          center:{value:new THREE.Vector2()},
+          range:{value:900},
+          fadeStart:{value:650},
+          opacity:{value:0.45},
+          noiseScale:{value:0.006},
+          layerOffset:{value:0}
+        },
+        transparent:true,
+        depthWrite:false,
+        depthTest:true,
+        side:THREE.DoubleSide,
+        blending:THREE.NormalBlending,
+        vertexShader:[
+          "varying vec2 vWorldXZ;",
+          "void main(){",
+          "  vec4 worldPosition=modelMatrix*vec4(position,1.0);",
+          "  vWorldXZ=worldPosition.xz;",
+          "  gl_Position=projectionMatrix*viewMatrix*worldPosition;",
+          "}"
+        ].join("\n"),
+        fragmentShader:[
+          "uniform vec3 color;",
+          "uniform vec2 center;",
+          "uniform float range;",
+          "uniform float fadeStart;",
+          "uniform float opacity;",
+          "uniform float noiseScale;",
+          "uniform float layerOffset;",
+          "varying vec2 vWorldXZ;",
+          "float hash(vec2 p){",
+          "  return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453123);",
+          "}",
+          "float noise(vec2 p){",
+          "  vec2 i=floor(p);",
+          "  vec2 f=fract(p);",
+          "  vec2 u=f*f*(3.0-2.0*f);",
+          "  float a=hash(i+layerOffset);",
+          "  float b=hash(i+vec2(1.0,0.0)+layerOffset);",
+          "  float c=hash(i+vec2(0.0,1.0)+layerOffset);",
+          "  float d=hash(i+vec2(1.0,1.0)+layerOffset);",
+          "  return mix(mix(a,b,u.x),mix(c,d,u.x),u.y);",
+          "}",
+          "float fbm(vec2 p){",
+          "  float value=0.0;",
+          "  float amp=0.56;",
+          "  for(int i=0;i<4;i++){",
+          "    value+=noise(p)*amp;",
+          "    p*=2.03;",
+          "    amp*=0.5;",
+          "  }",
+          "  return value;",
+          "}",
+          "void main(){",
+          "  float d=distance(vWorldXZ,center);",
+          "  float edge=1.0-smoothstep(fadeStart,range,d);",
+          "  float cloud=fbm(vWorldXZ*noiseScale+vec2(layerOffset*0.13,layerOffset*0.07));",
+          "  cloud=smoothstep(0.32,0.78,cloud);",
+          "  float veil=smoothstep(0.05,0.82,1.0-d/range)*0.34;",
+          "  float alpha=(cloud*0.78+veil)*edge*opacity;",
+          "  if(alpha<0.008) discard;",
+          "  gl_FragColor=vec4(color,alpha);",
+          "}"
+        ].join("\n")
+      });
+      let mesh=new THREE.Mesh(new THREE.PlaneGeometry(1,1,1,1),material);
+      mesh.rotation.x=-Math.PI/2;
+      mesh.frustumCulled=false;
+      cloudSheetGroup.add(mesh);
+      cloudSheetMeshes.push(mesh);
+    }
+  }
+
+  function updateCloudSheets(config,centerX,centerY,centerZ){
+    let layers=config.layers || [
+      {height:12,scale:1,opacity:0.42,noiseScale:0.006,offset:11},
+      {height:28,scale:0.86,opacity:0.32,noiseScale:0.0048,offset:47},
+      {height:46,scale:0.68,opacity:0.22,noiseScale:0.0037,offset:89}
+    ];
+    let range=config.range || 900;
+    let fadeStart=config.fadeStart || range*0.72;
+    let color=config.color || 0xb8dcc7;
+
+    ensureCloudSheets(layers.length);
+
+    for(let i=0;i<layers.length;i++){
+      let layer=layers[i];
+      let mesh=cloudSheetMeshes[i];
+      let layerRange=range*(layer.scale || 1);
+      mesh.visible=true;
+      mesh.position.set(centerX,centerY+(layer.height ?? 20),centerZ);
+      mesh.scale.set(layerRange*2.18,layerRange*2.18,1);
+      mesh.material.uniforms.color.value.set(layer.color || color);
+      mesh.material.uniforms.center.value.set(centerX,centerZ);
+      mesh.material.uniforms.range.value=layerRange;
+      mesh.material.uniforms.fadeStart.value=Math.min(layerRange*0.96,fadeStart*(layer.scale || 1));
+      mesh.material.uniforms.opacity.value=(layer.opacity ?? 0.34)*(config.opacity ?? 1);
+      mesh.material.uniforms.noiseScale.value=layer.noiseScale || config.noiseScale || 0.005;
+      mesh.material.uniforms.layerOffset.value=layer.offset || i*37+11;
+    }
+
+    for(let i=layers.length;i<cloudSheetMeshes.length;i++){
+      cloudSheetMeshes[i].visible=false;
+    }
   }
 
   function update(){
@@ -232,6 +432,23 @@ export function createLowHangingHaze(scene,getCarPosition,getEnvironment=()=>({}
     let centerX=center.carX ?? center.x ?? 0;
     let centerY=center.carY ?? center.y ?? 0;
     let centerZ=center.carZ ?? center.z ?? 0;
+    if(config.mode==="cloudSheet"){
+      hazePoints.visible=false;
+      cloudBankGroup.visible=false;
+      cloudSheetGroup.visible=true;
+      updateCloudSheets(config,centerX,centerY,centerZ);
+      return;
+    }
+    if(config.mode==="cloudBanks"){
+      hazePoints.visible=false;
+      cloudBankGroup.visible=true;
+      cloudSheetGroup.visible=false;
+      updateCloudBanks(config,centerX,centerY,centerZ);
+      return;
+    }
+    cloudBankGroup.visible=false;
+    cloudSheetGroup.visible=false;
+    hazePoints.visible=true;
     let range=config.range || 1500;
     let count=Math.min(maxHazePuffs,Math.max(0,config.count || maxHazePuffs));
     let nearCount=Math.min(count,Math.max(0,config.nearCount || 0));
@@ -553,8 +770,9 @@ export function createBirds(scene,getCarPosition){
   return {makeBirds,update};
 }
 
-export function createRain(scene,getCarPosition,getRainIntensity=()=>0,getRainQuality=()=>1,getRainDirection=()=>({x:0,z:0,speed:0})){
+export function createRain(scene,getCarPosition,getRainIntensity=()=>0,getRainQuality=()=>1,getRainDirection=()=>({x:0,z:0,speed:0}),getWaterLevel=()=>-Infinity,isViewerUnderWater=()=>false){
   let maxDrops=850;
+  let maxSplashes=120;
   let range=420;
   let height=190;
   let positions=new Float32Array(maxDrops*2*3);
@@ -563,6 +781,8 @@ export function createRain(scene,getCarPosition,getRainIntensity=()=>0,getRainQu
   let rainTime=0;
   let rainDirX=-0.18;
   let rainDirZ=0.08;
+  let splashCursor=0;
+  let splashes=[];
 
   for(let i=0;i<maxDrops;i++){
     offsets[i*3]=(Math.random()-0.5)*range;
@@ -585,16 +805,80 @@ export function createRain(scene,getCarPosition,getRainIntensity=()=>0,getRainQu
   rain.visible=false;
   scene.add(rain);
 
+  let splashGeometry=new THREE.RingGeometry(0.34,0.62,18);
+  let splashMaterial=new THREE.MeshBasicMaterial({
+    color:0xd6fff7,
+    transparent:true,
+    opacity:0,
+    depthWrite:false,
+    depthTest:true,
+    blending:THREE.AdditiveBlending,
+    fog:true
+  });
+  let splashGroup=new THREE.Group();
+  splashGroup.visible=false;
+  scene.add(splashGroup);
+  for(let i=0;i<maxSplashes;i++){
+    let splash=new THREE.Mesh(splashGeometry,splashMaterial.clone());
+    splash.rotation.x=-Math.PI*0.5;
+    splash.visible=false;
+    splash.renderOrder=9;
+    splash.userData.age=0;
+    splash.userData.life=0.26;
+    splash.userData.baseScale=1;
+    splashGroup.add(splash);
+    splashes.push(splash);
+  }
+
   function wrap(value,halfRange){
     while(value<-halfRange) value+=halfRange*2;
     while(value>halfRange) value-=halfRange*2;
     return value;
   }
 
+  function spawnSplash(x,y,z,intensity){
+    let splash=splashes[splashCursor];
+    splashCursor=(splashCursor+1)%splashes.length;
+    splash.position.set(x,y+0.018,z);
+    splash.rotation.z=Math.random()*Math.PI*2;
+    splash.visible=true;
+    splash.userData.age=0;
+    splash.userData.life=0.2+Math.random()*0.18;
+    splash.userData.baseScale=0.56+Math.random()*0.84+intensity*0.42;
+    splash.scale.setScalar(splash.userData.baseScale);
+    splash.material.opacity=0.34+intensity*0.24;
+  }
+
+  function updateSplashes(intensity){
+    let anyVisible=false;
+    for(let splash of splashes){
+      if(!splash.visible) continue;
+      splash.userData.age+=0.016;
+      let t=splash.userData.age/splash.userData.life;
+      if(t>=1){
+        splash.visible=false;
+        splash.material.opacity=0;
+        continue;
+      }
+      let fade=1-t;
+      splash.scale.setScalar(splash.userData.baseScale*(0.85+t*2.35));
+      splash.material.opacity=(0.26+intensity*0.24)*fade*fade;
+      anyVisible=true;
+    }
+    splashGroup.visible=anyVisible;
+  }
+
   function update(){
     let intensity=Math.max(0,Math.min(1,getRainIntensity()));
     if(intensity<=0.01){
       rain.visible=false;
+      updateSplashes(0);
+      return;
+    }
+
+    if(isViewerUnderWater()){
+      rain.visible=false;
+      updateSplashes(intensity);
       return;
     }
 
@@ -603,6 +887,7 @@ export function createRain(scene,getCarPosition,getRainIntensity=()=>0,getRainQu
     material.opacity=0.18+intensity*0.42;
     let activeDrops=Math.max(28,Math.floor(maxDrops*intensity*quality));
     let {carX,carY=20,carZ}=getCarPosition();
+    let waterLevel=Number.isFinite(getWaterLevel()) ? getWaterLevel() : -Infinity;
     let direction=getRainDirection() || {};
     let targetDirX=Number.isFinite(direction.x) ? direction.x : 0;
     let targetDirZ=Number.isFinite(direction.z) ? direction.z : 0;
@@ -632,18 +917,37 @@ export function createRain(scene,getCarPosition,getRainIntensity=()=>0,getRainQu
       let y=lowerY+fall;
       let z=carZ+oz;
       let base=i*6;
+      let slant=4.2+intensity*9.2+Math.min(10.5,targetSpeed*6.2);
+      let endX=x+rainDirX*slant;
+      let endY=y-10-intensity*8;
+      let endZ=z+rainDirZ*slant;
+      let waterSurfaceY=waterLevel+0.1;
+      let overWater=Number.isFinite(waterLevel) && groundHeight(x,z)<waterLevel-0.12;
+
+      if(overWater && endY<=waterSurfaceY){
+        if(y>=waterSurfaceY){
+          let hitT=(y-waterSurfaceY)/Math.max(0.001,y-endY);
+          endX=x+(endX-x)*hitT;
+          endY=waterSurfaceY;
+          endZ=z+(endZ-z)*hitT;
+          if(Math.random()<0.012+intensity*0.032) spawnSplash(endX,waterSurfaceY,endZ,intensity);
+        }else{
+          y=waterSurfaceY;
+          endY=waterSurfaceY;
+        }
+      }
 
       positions[base]=x;
       positions[base+1]=y;
       positions[base+2]=z;
-      let slant=4.2+intensity*9.2+Math.min(10.5,targetSpeed*6.2);
-      positions[base+3]=x+rainDirX*slant;
-      positions[base+4]=y-10-intensity*8;
-      positions[base+5]=z+rainDirZ*slant;
+      positions[base+3]=endX;
+      positions[base+4]=endY;
+      positions[base+5]=endZ;
     }
 
     geometry.setDrawRange(0,activeDrops*2);
     geometry.attributes.position.needsUpdate=true;
+    updateSplashes(intensity);
   }
 
   return {update};

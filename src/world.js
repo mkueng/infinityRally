@@ -155,7 +155,7 @@ if(THREE.NoColorSpace) rockNormalTexture.colorSpace=THREE.NoColorSpace;
 landMat=new THREE.MeshStandardMaterial({
   map:makeGroundTexture(currentEnvironment),
   normalMap:terrainNormalTexture,
-  normalScale:new THREE.Vector2(0.38,0.38),
+  normalScale:new THREE.Vector2(currentEnvironment.terrainDetail?.normalScale ?? 0.38,currentEnvironment.terrainDetail?.normalScale ?? 0.38),
   vertexColors:true,
   side:THREE.DoubleSide,
   roughness:0.92,
@@ -163,8 +163,10 @@ landMat=new THREE.MeshStandardMaterial({
 });
 landMat.onBeforeCompile=shader=>{
   shader.uniforms.terrainDetailMap={value:terrainDetailTexture};
-  shader.uniforms.terrainDetailScale={value:0.024};
-  shader.uniforms.terrainDetailStrength={value:0.54};
+  shader.uniforms.terrainDetailScale={value:currentEnvironment.terrainDetail?.scale ?? 0.024};
+  shader.uniforms.terrainDetailStrength={value:currentEnvironment.terrainDetail?.strength ?? 0.54};
+  shader.uniforms.terrainDetailTextureMix={value:currentEnvironment.terrainDetail?.textureMix ?? 1};
+  shader.uniforms.mountainDetailStrength={value:currentEnvironment.terrainDetail?.mountainStrength ?? 1};
   shader.uniforms.landWetWaterLevel={value:waterLevel+waterSurfaceVisualLift};
   shader.uniforms.landWetShoreColor={value:new THREE.Color(0xd6b25a)};
   shader.uniforms.landWetWaterColor={value:new THREE.Color(0x20ffd4)};
@@ -192,6 +194,8 @@ landMat.onBeforeCompile=shader=>{
       "uniform sampler2D terrainDetailMap;",
       "uniform float terrainDetailScale;",
       "uniform float terrainDetailStrength;",
+      "uniform float terrainDetailTextureMix;",
+      "uniform float mountainDetailStrength;",
       "uniform float landWetWaterLevel;",
       "uniform vec3 landWetShoreColor;",
       "uniform vec3 landWetWaterColor;",
@@ -214,28 +218,50 @@ landMat.onBeforeCompile=shader=>{
       "vec4 terrainDetailSample(vec2 uv){",
       "  vec2 tile=floor(uv);",
       "  vec2 f=fract(uv);",
-      "  f=mix(f,1.0-f,mod(tile,2.0));",
-      "  return texture2D(terrainDetailMap,f*0.46+vec2(0.27));",
+      "  vec2 flip=step(0.5,vec2(landHash(tile+vec2(11.0,3.0)),landHash(tile+vec2(5.0,17.0))));",
+      "  f=mix(f,1.0-f,flip);",
+      "  float rot=floor(landHash(tile+vec2(23.0,29.0))*4.0);",
+      "  vec2 rf=f-0.5;",
+      "  if(rot<0.5){",
+      "    f=rf+0.5;",
+      "  }else if(rot<1.5){",
+      "    f=vec2(-rf.y,rf.x)+0.5;",
+      "  }else if(rot<2.5){",
+      "    f=-rf+0.5;",
+      "  }else{",
+      "    f=vec2(rf.y,-rf.x)+0.5;",
+      "  }",
+      "  vec2 offset=vec2(landHash(tile+vec2(31.0,47.0)),landHash(tile+vec2(53.0,61.0)))*0.42;",
+      "  vec2 sampleUv=fract(f*0.52+offset);",
+      "  return texture2D(terrainDetailMap,sampleUv);",
       "}"
     ].join("\n")
   );
   shader.fragmentShader=shader.fragmentShader.replace(
     "#include <dithering_fragment>",
     [
-      "vec2 terrainDetailUvA=vLandWorldPosition.xz*terrainDetailScale;",
+      "float terrainBreakup=landNoise(vLandWorldPosition.xz*0.006+vec2(17.4,-9.2));",
+      "float terrainWarpA=landNoise(vLandWorldPosition.xz*0.018+vec2(4.1,-8.7))-0.5;",
+      "float terrainWarpB=landNoise(vLandWorldPosition.xz*0.027+vec2(-12.4,6.6))-0.5;",
+      "vec2 terrainWarp=vec2(terrainWarpA,terrainWarpB)*(0.75+terrainBreakup*0.65);",
+      "vec2 terrainDetailUvA=vLandWorldPosition.xz*terrainDetailScale+terrainWarp;",
       "vec2 terrainDetailUvB=vec2(terrainDetailUvA.x*0.54-terrainDetailUvA.y*0.84,terrainDetailUvA.x*0.84+terrainDetailUvA.y*0.54)*1.73+vec2(0.37,0.19);",
+      "vec2 terrainDetailUvC=vec2(terrainDetailUvA.x*-0.18-terrainDetailUvA.y*0.98,terrainDetailUvA.x*0.98-terrainDetailUvA.y*0.18)*0.63+vec2(0.71,0.43);",
       "vec4 terrainDetailA=terrainDetailSample(terrainDetailUvA);",
       "vec4 terrainDetailB=terrainDetailSample(terrainDetailUvB);",
-      "float terrainBreakup=landNoise(vLandWorldPosition.xz*0.006+vec2(17.4,-9.2));",
-      "vec3 terrainDetailRgb=mix(terrainDetailA.rgb,terrainDetailB.rgb,0.45+terrainBreakup*0.24);",
+      "vec4 terrainDetailC=terrainDetailSample(terrainDetailUvC);",
+      "float terrainBlend=landNoise(vLandWorldPosition.xz*0.014+vec2(terrainBreakup*3.3,2.8));",
+      "vec3 terrainDetailRgb=mix(mix(terrainDetailA.rgb,terrainDetailB.rgb,0.35+terrainBreakup*0.34),terrainDetailC.rgb,0.18+terrainBlend*0.28);",
       "float terrainDetailLuma=dot(terrainDetailRgb,vec3(0.299,0.587,0.114));",
       "float terrainDetailContrast=(terrainDetailLuma-0.5)*2.0;",
       "float terrainFine=landNoise(vLandWorldPosition.xz*0.044+vec2(terrainBreakup*6.1,terrainBreakup*-4.3));",
+      "float terrainProceduralContrast=(terrainBreakup*0.72+terrainFine*0.28-0.5)*1.65;",
+      "terrainDetailContrast=mix(terrainProceduralContrast,terrainDetailContrast,terrainDetailTextureMix);",
       "float terrainDetailMask=0.68+terrainBreakup*0.24+terrainFine*0.14;",
       "float terrainDetailDistance=distance(cameraPosition,vLandWorldPosition);",
       "float terrainDetailFade=1.0-smoothstep(950.0,2100.0,terrainDetailDistance);",
       "vec3 terrainDetailTone=vec3(1.0+terrainDetailContrast*0.58);",
-      "vec3 terrainDetailColorTone=terrainDetailRgb*1.18;",
+      "vec3 terrainDetailColorTone=mix(vec3(1.0+terrainProceduralContrast*0.42),terrainDetailRgb*1.18,terrainDetailTextureMix);",
       "vec3 terrainDetailResult=gl_FragColor.rgb*mix(terrainDetailTone,terrainDetailColorTone,0.2);",
       "gl_FragColor.rgb=mix(gl_FragColor.rgb,terrainDetailResult,terrainDetailStrength*terrainDetailMask*terrainDetailFade);",
       "float wetHeight=vLandWorldPosition.y-landWetWaterLevel;",
@@ -244,7 +270,7 @@ landMat.onBeforeCompile=shader=>{
       "wetBand*=0.68+wetBreakup*0.32;",
       "vec3 wetColor=mix(landWetWaterColor,landWetShoreColor,smoothstep(0.0,7.0,max(wetHeight,0.0)));",
       "gl_FragColor.rgb=mix(gl_FragColor.rgb,wetColor,wetBand*landWetStrength);",
-      "float mountainTintMask=smoothstep(18.0,46.0,vLandWorldPosition.y);",
+      "float mountainTintMask=smoothstep(18.0,46.0,vLandWorldPosition.y)*mountainDetailStrength;",
       "if(mountainTintMask>0.001){",
       "  float crag=landNoise(vLandWorldPosition.xz*0.055+vec2(vLandWorldPosition.y*0.017,-vLandWorldPosition.y*0.013));",
       "  float breakup=landNoise(vLandWorldPosition.xz*0.021+vec2(41.2,-29.6));",
@@ -280,7 +306,7 @@ let waterMat=new THREE.MeshStandardMaterial({
 let shoreBandMat=new THREE.MeshBasicMaterial({
   color:0x8feee7,
   transparent:true,
-  opacity:0.22,
+  opacity:0.42,
   depthWrite:false,
   depthTest:true,
   side:THREE.DoubleSide
@@ -411,6 +437,7 @@ let leafMat=new THREE.MeshStandardMaterial({color:0xb66cff,emissive:0x5a22c9,emi
 let podMat=new THREE.MeshStandardMaterial({color:0xff6bd6,emissive:0xff2ca8,emissiveIntensity:0.78,roughness:0.52});
 let waterShimmerShader=null;
 let grassMat=new THREE.MeshStandardMaterial({color:0x9df58d,emissive:0x173d18,emissiveIntensity:0.12,roughness:0.84});
+let bushMat=new THREE.MeshStandardMaterial({color:0x38c751,emissive:0x0d5c20,emissiveIntensity:0.18,roughness:0.82,vertexColors:true});
 waterMat.onBeforeCompile=shader=>{
   shader.uniforms.waterShimmerTime={value:0};
   shader.uniforms.waterDayAmount={value:1};
@@ -636,7 +663,7 @@ function makeShoreBandGeometryFromTerrain(terrainPositions){
   let indices=[];
   let shoreLow=waterLevel-2.8;
   let shoreHigh=waterLevel+6.2;
-  let y=waterLevel+0.08;
+  let y=waterLevel+waterSurfaceVisualLift+0.045;
 
   function terrainIndex(ix,iz){
     return iz*gridSize+ix;
@@ -701,6 +728,8 @@ rockMat=new THREE.MeshStandardMaterial({
   map:rockTexture,
   normalMap:rockNormalTexture,
   normalScale:new THREE.Vector2(1.05,1.05),
+  emissive:0x000000,
+  emissiveIntensity:0,
   roughness:0.84,
   metalness:0.03
 });
@@ -748,6 +777,7 @@ let trunkGeo=new THREE.CylinderGeometry(.28,1.08,10.5,6);
 let crownGeo=new THREE.IcosahedronGeometry(2.35,1);
 let podGeo=new THREE.SphereGeometry(.72,8,6);
 let grassGeo=new THREE.ConeGeometry(.065,1.2,2);
+let bushGeo=new THREE.IcosahedronGeometry(1,1);
 function makeRockGeometry(){
   let geo=new THREE.DodecahedronGeometry(1,1);
   let pos=geo.attributes.position;
@@ -960,21 +990,29 @@ function applyEnvironment(environment={}){
   let colors=environmentColors();
   if(landMat.map) landMat.map.dispose();
   landMat.map=makeGroundTexture(currentEnvironment);
+  landMat.normalScale.setScalar(currentEnvironment.terrainDetail?.normalScale ?? 0.38);
   landMat.needsUpdate=true;
   setMaterialColor(waterMat,displayWaterColor(colors.water),displayWaterEmissive(colors.waterEmissive || colors.water));
   if(landMat.userData.shader){
     let shader=landMat.userData.shader;
+    if(shader.uniforms.terrainDetailScale) shader.uniforms.terrainDetailScale.value=currentEnvironment.terrainDetail?.scale ?? 0.024;
+    if(shader.uniforms.terrainDetailStrength) shader.uniforms.terrainDetailStrength.value=currentEnvironment.terrainDetail?.strength ?? 0.54;
+    if(shader.uniforms.terrainDetailTextureMix) shader.uniforms.terrainDetailTextureMix.value=currentEnvironment.terrainDetail?.textureMix ?? 1;
+    if(shader.uniforms.mountainDetailStrength) shader.uniforms.mountainDetailStrength.value=currentEnvironment.terrainDetail?.mountainStrength ?? 1;
     if(shader.uniforms.landWetWaterLevel) shader.uniforms.landWetWaterLevel.value=waterLevel+waterSurfaceVisualLift;
     if(shader.uniforms.landWetShoreColor) shader.uniforms.landWetShoreColor.value.set(mixHexColor(colors.shore || colors.low,colors.low || colors.shore,0.24));
     if(shader.uniforms.landWetWaterColor) shader.uniforms.landWetWaterColor.value.set(mixHexColor(colors.shore || colors.low,displayWaterColor(colors.water),0.16));
     if(shader.uniforms.landWetStrength) shader.uniforms.landWetStrength.value=0.34;
   }
-  if(shoreBandMat.color) shoreBandMat.color.set(mixHexColor(displayWaterColor(colors.water),colors.shore || colors.water,0.42));
+  if(shoreBandMat.color) shoreBandMat.color.set(mixHexColor(displayWaterColor(colors.water),colors.shore || colors.water,0.72));
   setMaterialColor(barkMat,colors.bark,colors.barkEmissive);
   setMaterialColor(leafMat,colors.leaf,colors.leafEmissive);
   setMaterialColor(podMat,colors.pod,colors.podEmissive);
   setMaterialColor(grassMat,colors.grass,colors.grassEmissive);
-  setMaterialColor(rockMat,mixHexColor(colors.rock,0xffffff,0.32));
+  setMaterialColor(bushMat,mixHexColor(colors.leaf,colors.grass,0.28),colors.bushEmissive || mixHexColor(colors.leafEmissive || colors.leaf,colors.grassEmissive || colors.grass,0.36));
+  bushMat.emissiveIntensity=colors.bushEmissiveIntensity ?? 0.18;
+  setMaterialColor(rockMat,colors.rock,colors.rockEmissive);
+  rockMat.emissiveIntensity=colors.rockEmissiveIntensity ?? 0;
   setMaterialColor(gravelMat,mixHexColor(colors.rock,colors.shore,0.36));
   setMaterialColor(buildingWallMat,colors.wall);
   setMaterialColor(buildingRoofMat,colors.roof);
@@ -1164,10 +1202,24 @@ function freezeStaticObject(object){
   return object;
 }
 
+function stabilizeVegetationMesh(mesh){
+  if(!mesh) return;
+  mesh.frustumCulled=false;
+  freezeStaticObject(mesh);
+}
+
 function hideInstance(mesh,index){
   if(!mesh || index==null || index<0) return;
   mesh.setMatrixAt(index,hiddenInstanceMatrix);
   mesh.instanceMatrix.needsUpdate=true;
+}
+
+function terrainSlopeAt(x,z,sampleDistance=18){
+  let left=groundHeight(x-sampleDistance,z);
+  let right=groundHeight(x+sampleDistance,z);
+  let back=groundHeight(x,z-sampleDistance);
+  let front=groundHeight(x,z+sampleDistance);
+  return Math.max(Math.abs(right-left),Math.abs(front-back))/(sampleDistance*2);
 }
 
 function disposeObjectResources(object,{disposeGeometry=false}={}){
@@ -2561,6 +2613,14 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
       freezeStaticObject(water);
       chunkRoot.add(water);
     }
+    let shoreBandGeo=makeShoreBandGeometryFromTerrain(pos);
+    if(shoreBandGeo){
+      shoreBand=new THREE.Mesh(shoreBandGeo,shoreBandMat);
+      shoreBand.position.set(cx*chunkSize,0,cz*chunkSize);
+      shoreBand.renderOrder=3;
+      freezeStaticObject(shoreBand);
+      chunkRoot.add(shoreBand);
+    }
   }
   yield;
 
@@ -2693,15 +2753,19 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   trunks.instanceMatrix.needsUpdate=true;
   crowns.instanceMatrix.needsUpdate=true;
   pods.instanceMatrix.needsUpdate=true;
-  freezeStaticObject(trunks);
-  freezeStaticObject(crowns);
-  freezeStaticObject(pods);
+  stabilizeVegetationMesh(trunks);
+  stabilizeVegetationMesh(crowns);
+  stabilizeVegetationMesh(pods);
   chunkRoot.add(trunks,crowns,pods);
   yield;
 
   let grassClusterCount=Math.max(0,Math.ceil(vegetation.grassClusters*detail.grassDensity));
   let grassPerCluster=Math.max(1,Math.ceil(vegetation.grassPerCluster*detail.grassDensity));
   let grassClusterRadius=vegetation.grassClusterRadius*0.74;
+  let grassMinHeight=vegetation.grassMinHeight ?? -15;
+  let grassMaxHeight=vegetation.grassMaxHeight ?? 28;
+  let grassMaxSlope=vegetation.grassMaxSlope ?? Infinity;
+  let grassSlopeSampleDistance=vegetation.grassSlopeSampleDistance ?? 18;
   let maxGrasses=grassClusterCount*grassPerCluster;
 
   let grasses=new THREE.InstancedMesh(grassGeo,grassMat,maxGrasses);
@@ -2715,7 +2779,8 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
     let centerZ=cz*chunkSize+(crz-.5)*chunkSize;
     let centerY=groundHeight(centerX,centerZ);
 
-    if(centerY<-15 || centerY>28) continue;
+    if(centerY<grassMinHeight || centerY>grassMaxHeight) continue;
+    if(terrainSlopeAt(centerX,centerZ,grassSlopeSampleDistance)>grassMaxSlope) continue;
     if(roadDistance(centerX,centerZ)<35) continue;
 
     for(let i=0;i<grassPerCluster;i++){
@@ -2726,7 +2791,8 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
       let wz=centerZ+Math.sin(a)*r;
       let wy=groundHeight(wx,wz);
 
-      if(wy<-15 || wy>28) continue;
+      if(wy<grassMinHeight || wy>grassMaxHeight) continue;
+      if(terrainSlopeAt(wx,wz,grassSlopeSampleDistance)>grassMaxSlope) continue;
       if(roadDistance(wx,wz)<35) continue;
       if(pointInHole(holes,wx,wz,1.8)) continue;
 
@@ -2746,8 +2812,93 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
 
   grasses.count=grassUsed;
   grasses.instanceMatrix.needsUpdate=true;
-  freezeStaticObject(grasses);
+  stabilizeVegetationMesh(grasses);
   chunkRoot.add(grasses);
+  yield;
+
+  let bushClusterCount=Math.max(0,Math.ceil((vegetation.bushClusters || 0)*detail.grassDensity));
+  let bushesPerCluster=Math.max(1,Math.ceil((vegetation.bushesPerCluster || 1)*detail.grassDensity));
+  let bushClusterRadius=(vegetation.bushClusterRadius || 18)*0.74;
+  let bushMinHeight=vegetation.bushMinHeight ?? grassMinHeight;
+  let bushMaxHeight=vegetation.bushMaxHeight ?? grassMaxHeight;
+  let bushMaxSlope=vegetation.bushMaxSlope ?? grassMaxSlope;
+  let bushSlopeSampleDistance=vegetation.bushSlopeSampleDistance ?? grassSlopeSampleDistance;
+  let maxBushes=Math.max(1,bushClusterCount*bushesPerCluster);
+  let bushBaseColor=new THREE.Color(mixHexColor(envColors.leaf,envColors.grass,0.28));
+  let bushAccentColor=new THREE.Color(envColors.bushAccent || envColors.pod || envColors.shore || envColors.grass);
+  let bushDarkColor=new THREE.Color(envColors.bushDark || envColors.low || envColors.leaf);
+  let bushGlowColor=new THREE.Color(envColors.bushEmissive || mixHexColor(envColors.leafEmissive || envColors.leaf,envColors.grassEmissive || envColors.grass,0.36));
+  let bushGroup=new THREE.Group();
+  let bushVariants=[
+    {color:bushBaseColor.clone(),emissive:bushGlowColor.clone(),intensity:1},
+    {color:bushBaseColor.clone().lerp(bushAccentColor,0.38).multiplyScalar(1.12),emissive:bushGlowColor.clone().lerp(bushAccentColor,0.28),intensity:1.08},
+    {color:bushBaseColor.clone().lerp(bushDarkColor,0.42).multiplyScalar(0.86),emissive:bushGlowColor.clone().lerp(bushDarkColor,0.32),intensity:0.86},
+    {color:bushBaseColor.clone().lerp(new THREE.Color(envColors.shore || envColors.grass),0.24).multiplyScalar(1.04),emissive:bushGlowColor.clone().lerp(new THREE.Color(envColors.shore || envColors.grass),0.22),intensity:0.96}
+  ];
+  let bushMeshes=bushVariants.map(variant=>{
+    let material=bushMat.clone();
+    material.vertexColors=false;
+    material.color.copy(variant.color);
+    material.emissive.copy(variant.emissive);
+    material.emissiveIntensity=(envColors.bushEmissiveIntensity ?? 0.18)*variant.intensity;
+    let mesh=new THREE.InstancedMesh(bushGeo,material,maxBushes);
+    mesh.count=0;
+    bushGroup.add(mesh);
+    return mesh;
+  });
+  let bushUsedByVariant=new Array(bushMeshes.length).fill(0);
+
+  for(let c=0;c<bushClusterCount;c++){
+    let crx=rand(cx*523+c,cz*167-c);
+    let crz=rand(cx*278-c,cz*613+c);
+
+    let centerX=cx*chunkSize+(crx-.5)*chunkSize;
+    let centerZ=cz*chunkSize+(crz-.5)*chunkSize;
+    let centerY=groundHeight(centerX,centerZ);
+
+    if(centerY<bushMinHeight || centerY>bushMaxHeight) continue;
+    if(terrainSlopeAt(centerX,centerZ,bushSlopeSampleDistance)>bushMaxSlope) continue;
+    if(roadDistance(centerX,centerZ)<42) continue;
+
+    for(let i=0;i<bushesPerCluster;i++){
+      let a=rand(cx*821+c*17+i,cz*386-i)*Math.PI*2;
+      let r=Math.pow(rand(cx*419+i,cz*758+c),0.62)*bushClusterRadius;
+
+      let wx=centerX+Math.cos(a)*r;
+      let wz=centerZ+Math.sin(a)*r;
+      let wy=groundHeight(wx,wz);
+
+      if(wy<bushMinHeight || wy>bushMaxHeight) continue;
+      if(terrainSlopeAt(wx,wz,bushSlopeSampleDistance)>bushMaxSlope) continue;
+      if(roadDistance(wx,wz)<42) continue;
+      if(pointInHole(holes,wx,wz,3.2)) continue;
+
+      let scale=vegetation.bushScaleBase ?? 1;
+      scale*=0.74+rand(i*11+cx,c*7-cz)*0.82;
+      dummy.position.set(wx,wy+0.42*scale,wz);
+      dummy.rotation.set(0,rand(i*13,cx-cz)*Math.PI*2,0);
+      dummy.scale.set(scale*(1.25+rand(i,c)*0.55),scale*(0.38+rand(i*3,cx)*0.24),scale*(1.05+rand(c*5,i)*0.52));
+      dummy.updateMatrix();
+
+      let variantSeed=rand(i*97+cx*11,c*43-cz*17);
+      variantSeed=variantSeed-Math.floor(variantSeed);
+      let variantIndex=Math.min(bushMeshes.length-1,Math.floor(variantSeed*bushMeshes.length));
+      let variantMesh=bushMeshes[variantIndex];
+      let variantUsed=bushUsedByVariant[variantIndex];
+      variantMesh.setMatrixAt(variantUsed,dummy.matrix);
+      bushUsedByVariant[variantIndex]=variantUsed+1;
+    }
+
+    if(c<bushClusterCount-1 && c%3===2) yield;
+  }
+
+  for(let i=0;i<bushMeshes.length;i++){
+    bushMeshes[i].count=bushUsedByVariant[i];
+    bushMeshes[i].instanceMatrix.needsUpdate=true;
+    stabilizeVegetationMesh(bushMeshes[i]);
+  }
+  freezeStaticObject(bushGroup);
+  chunkRoot.add(bushGroup);
   yield;
 
   let rockCount=Math.max(1,Math.floor((cityMode ? 6 : 30)*Math.max(0.18,featureDensity)));
@@ -3553,7 +3704,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
     landingRings.push(makeLandingRing(landingSurface,chunkRoot));
   }
 
-  return {cx,cz,root:chunkRoot,land,road,water,shoreBand,trunks,crowns,pods,grasses,rocks,rockShadows,rockCollidersByInstance,gravel,gravelCollidersByInstance,holeMeshes,treasureChests,radarOutposts,buildingShadows,buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,cityStreets,cityStreetDetails,cityTechDetails,landingSpaces,landingSurfaces,landingRings,villageCenters,colliders,holes:localHoles};
+  return {cx,cz,root:chunkRoot,land,road,water,shoreBand,trunks,crowns,pods,grasses,bushes:bushGroup,rocks,rockShadows,rockCollidersByInstance,gravel,gravelCollidersByInstance,holeMeshes,treasureChests,radarOutposts,buildingShadows,buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,cityStreets,cityStreetDetails,cityTechDetails,landingSpaces,landingSurfaces,landingRings,villageCenters,colliders,holes:localHoles};
 }
 
 function updateChunksForCenters(centers){
@@ -3683,6 +3834,7 @@ function disposeChunk(chunk){
     chunk.crowns,
     chunk.pods,
     chunk.grasses,
+    chunk.bushes,
     chunk.rockShadows,
     chunk.rocks,
     chunk.gravel,
@@ -3714,6 +3866,7 @@ function disposeChunk(chunk){
   chunk.crowns.dispose();
   chunk.pods.dispose();
   chunk.grasses.dispose();
+  if(chunk.bushes && typeof chunk.bushes.dispose==="function") chunk.bushes.dispose();
   if(chunk.rockShadows) chunk.rockShadows.dispose();
   chunk.rocks.dispose();
   if(chunk.gravel) chunk.gravel.dispose();
@@ -3909,9 +4062,10 @@ function applyChunkRenderStress(chunk,stressLevel,centers){
   let hideFarWater=stressLevel>=3 && distanceSq>16;
 
   setChunkObjectVisible(chunk.grasses,!hideFarGrass && !hideNearVegetation);
-  setChunkObjectVisible(chunk.trunks,!hideMidVegetation && !hideNearVegetation);
-  setChunkObjectVisible(chunk.crowns,!hideMidVegetation && !hideNearVegetation);
-  setChunkObjectVisible(chunk.pods,!hideMidVegetation && !hideNearVegetation);
+  setChunkObjectVisible(chunk.bushes,true);
+  setChunkObjectVisible(chunk.trunks,true);
+  setChunkObjectVisible(chunk.crowns,true);
+  setChunkObjectVisible(chunk.pods,true);
   setChunkObjectVisible(chunk.rocks,!hideDecor);
   setChunkObjectVisible(chunk.gravel,!hideDecor);
   setChunkObjectVisible(chunk.buildingWindows,!hideDecor);
