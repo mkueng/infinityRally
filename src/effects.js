@@ -888,7 +888,7 @@ export function createRain(scene,getCarPosition,getRainIntensity=()=>0,getRainQu
     rain.visible=true;
     let quality=Math.max(0.25,Math.min(1,getRainQuality()));
     material.opacity=0.18+intensity*0.42;
-    let activeDrops=Math.max(28,Math.floor(maxDrops*intensity*quality));
+    let activeDrops=Math.max(16,Math.floor(maxDrops*intensity*quality*0.72));
     let {carX,carY=20,carZ}=getCarPosition();
     let waterLevel=Number.isFinite(getWaterLevel()) ? getWaterLevel() : -Infinity;
     let direction=getRainDirection() || {};
@@ -1257,7 +1257,7 @@ export function createDust(scene){
 }
 
 export function createWheelTracks(scene){
-  let maxTracks=1400;
+  let maxTracks=780;
   let trackCursor=0;
   let lastTrackByCar=new Map();
   let trackGeo=new THREE.PlaneGeometry(0.34,1.18);
@@ -1353,7 +1353,7 @@ export function createWheelTracks(scene){
     }
 
     if(buggyMode){
-      let spacing=0.52;
+      let spacing=0.78;
       let distance=Math.sqrt(dx*dx+dz*dz);
       if(!last || !Number.isFinite(distance)){
         addTrackPairAt(car.x,car.z,car.velAngle);
@@ -1373,7 +1373,7 @@ export function createWheelTracks(scene){
       return;
     }
 
-    if(dx*dx+dz*dz<0.78*0.78) return;
+    if(dx*dx+dz*dz<1.15*1.15) return;
 
     let side=last && last.side ? -last.side : -1;
     let x=car.x+Math.sin(car.velAngle)*footForward+Math.cos(car.velAngle)*side*trackHalfWidth;

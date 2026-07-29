@@ -1,12 +1,12 @@
 import { THREE } from "./three.js";
 import { carRadius, gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize, viewDistance, mothershipDropCount, mothershipDropInterval, mothershipDropLineSpacing, mothershipHoverDistance, mothershipHoverFrames, mothershipMinDelay, mothershipRandomDelay, mothershipRocketHits } from "./constants.js";
-import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=titan-highlands-low-frequency";
+import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=titan-wide-plateaus";
 import { createInput } from "./input.js?v=progressive-pointer-aim";
 import { createHud } from "./hud.js?v=larger-compass-unit-labels";
-import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createLowHangingHaze, createRain, createStars, createWheelTracks } from "./effects.js?v=titan-performance-pass";
-import { createWorld } from "./world.js?v=titan-stable-vegetation";
+import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createLowHangingHaze, createRain, createStars, createWheelTracks } from "./effects.js?v=performance-broad-pass";
+import { createWorld } from "./world.js?v=rock-collision-no-damage";
 import { createMotorAudio } from "./audio.js?v=mission-accomplished-voice";
-import { worldEnvironments } from "./environments.js?v=titan-cheap-trees-visible";
+import { worldEnvironments } from "./environments.js?v=titan-wide-plateaus";
 import { difficultySettings } from "./gameConfig.js?v=ammo-caps";
 import { loadBackPackModel, loadBaseStationModel, loadCarModel, loadEnemyBattleShipModel, loadJetModel, loadLandingSpaceModel, loadTradingOutpostModel, loadTreasureChestModels, makeMechModel } from "./models.js?v=car-lowered-robot-height-original";
 import { makeDistantPlanetHazeTexture, makeDistantPlanetLightTexture, makeDistantPlanetVeilTexture, makeSkyTexture } from "./textures.js?v=stronger-sky-gradient-2";
@@ -82,6 +82,7 @@ const dreamFogNear=45;
 const dreamFogFar=520;
 const rareTradingOutpostChunkProbability=0.055;
 const rareTradingOutpostMinSpacing=1800;
+const renderSoftnessPixelRatioScale=0.82;
 
 let currentEnvironment=worldEnvironments[Math.floor(Math.random()*worldEnvironments.length)];
 let terrainSeed=Math.random()*100000;
@@ -432,29 +433,32 @@ function rendererQualityState(){
   let rainy=rainIntensity>0.18;
   let severeDrop=gameStarted && lastMeasuredFps<24;
   let moderateDrop=gameStarted && lastMeasuredFps<36;
+  function softened(value){
+    return value*renderSoftnessPixelRatioScale;
+  }
   if(gameMode==="double"){
-    if(currentFrameStressLevel>=3) return 0.38;
-    if(currentFrameStressLevel>=2) return 0.48;
-    if(severeDrop) return 0.44;
-    if(moderateDrop) return 0.54;
-    if(jetView && rainy) return 0.58;
-    if(jetView || rainy) return 0.64;
-    return 0.72;
+    if(currentFrameStressLevel>=3) return softened(0.38);
+    if(currentFrameStressLevel>=2) return softened(0.48);
+    if(severeDrop) return softened(0.44);
+    if(moderateDrop) return softened(0.54);
+    if(jetView && rainy) return softened(0.58);
+    if(jetView || rainy) return softened(0.64);
+    return softened(0.72);
   }
   if(firstPerson){
-    if(currentFrameStressLevel>=3 || severeDrop) return 0.42;
-    if(currentFrameStressLevel>=2 || moderateDrop) return 0.5;
-    if(jetView && rainy) return 0.54;
-    if(jetView || rainy) return 0.58;
-    return 0.64;
+    if(currentFrameStressLevel>=3 || severeDrop) return softened(0.42);
+    if(currentFrameStressLevel>=2 || moderateDrop) return softened(0.5);
+    if(jetView && rainy) return softened(0.54);
+    if(jetView || rainy) return softened(0.58);
+    return softened(0.64);
   }
-  if(currentFrameStressLevel>=3) return 0.42;
-  if(currentFrameStressLevel>=2) return 0.56;
-  if(severeDrop) return 0.52;
-  if(moderateDrop) return 0.72;
-  if(jetView && rainy) return 0.8;
-  if(jetView || rainy) return 0.88;
-  return 0.95;
+  if(currentFrameStressLevel>=3) return softened(0.42);
+  if(currentFrameStressLevel>=2) return softened(0.56);
+  if(severeDrop) return softened(0.52);
+  if(moderateDrop) return softened(0.72);
+  if(jetView && rainy) return softened(0.8);
+  if(jetView || rainy) return softened(0.88);
+  return softened(0.95);
 }
 function updateRendererPixelRatio(){
   let target=Math.min(window.devicePixelRatio || 1,rendererQualityState());
@@ -462,7 +466,7 @@ function updateRendererPixelRatio(){
   currentPixelRatio=target;
   renderer.setPixelRatio(target);
 }
-currentPixelRatio=Math.min(window.devicePixelRatio || 1,0.95);
+currentPixelRatio=Math.min(window.devicePixelRatio || 1,0.95*renderSoftnessPixelRatioScale);
 renderer.setPixelRatio(currentPixelRatio);
 renderer.setSize(rendererViewportWidth(),rendererViewportHeight(),false);
 renderer.setScissorTest(true);
@@ -536,6 +540,7 @@ function applyRendererViewportStyle(){
   renderer.domElement.style.height="100dvh";
   renderer.domElement.style.minHeight="100dvh";
   renderer.domElement.style.background="#000";
+  renderer.domElement.style.filter="";
 }
 
 function resizeRendererToViewport(){
@@ -2258,6 +2263,46 @@ function actorObstacleRadius(actor){
   return robotRadius*(1-carAmount)*(1-jetAmount)
     + vehicleRadius*carAmount
     + jetRadius*jetAmount;
+}
+
+function actorObstacleVerticalBounds(actor,x=null,z=null){
+  if(!actor) return null;
+  let actorX=Number.isFinite(x) ? x : actor.x;
+  let actorZ=Number.isFinite(z) ? z : actor.z;
+  let surfaceY=drivingSurfaceHeight(actorX,actorZ);
+  let baseY=Number.isFinite(actor.y) ? actor.y : surfaceY;
+  let hitHeight=Number.isFinite(actor.hitHeight)
+    ? actor.hitHeight
+    : actor===giantTestRobot
+    ? 46
+    : actor.jetMode || (actor.jetProgress || 0)>0.35
+    ? 4.8
+    : (actor.morphProgress || 0)>0.65
+    ? 3.6
+    : 6.2;
+  let footLift=actor===giantTestRobot
+    ? 4.2
+    : actor.onGround === false || actor.airborne || actor.jetMode || (actor.jetProgress || 0)>0.35
+    ? 0.45
+    : 0.12;
+  let robotMode=(actor.morphProgress || 0)<0.35 && !(actor.jetMode || (actor.jetProgress || 0)>0.35);
+  let carMode=(actor.morphProgress || 0)>0.65 && !(actor.jetMode || (actor.jetProgress || 0)>0.35);
+  let stepHeight=actor===giantTestRobot
+    ? 4.6
+    : robotMode
+    ? 1.65
+    : carMode
+    ? 0.95
+    : actor.jetMode || (actor.jetProgress || 0)>0.35
+    ? 2.2
+    : 1.1;
+  return {
+    bottom:baseY+footLift,
+    top:baseY+Math.max(0.8,hitHeight),
+    surfaceY,
+    stepHeight,
+    clearance:0.16
+  };
 }
 
 function updateScreenShakeFrame(){
@@ -5526,6 +5571,7 @@ function shellCrossings(fromLocal,local,shell,padding=0){
 function collidesWithTradingOutpostShell(actor,local,fromLocal,collision=tradingOutpostCollision){
   let shell=collision && collision.solidShell;
   if(!shell || !local || !fromLocal) return false;
+  if(actorCanClearTradingOutpostCollision(actor,collision)) return false;
 
   let actorRadius=actor && Number.isFinite(actor.collisionRadius)
     ? actor.collisionRadius
@@ -5541,6 +5587,15 @@ function collidesWithTradingOutpostShell(actor,local,fromLocal,collision=trading
   }
 
   return false;
+}
+
+function actorCanClearTradingOutpostCollision(actor,collision=tradingOutpostCollision){
+  if(!actor || !collision) return false;
+  let bounds=actorObstacleVerticalBounds(actor);
+  if(!bounds) return false;
+  let baseY=Number.isFinite(collision.y) ? collision.y : 0;
+  let wallTop=baseY+12.5;
+  return bounds.bottom>wallTop+0.25;
 }
 
 function insideTradingOutpostFloor(local,margin=0.5,collision=tradingOutpostCollision){
@@ -5567,6 +5622,7 @@ function localRectContainmentDepth(local,rect,padding=0){
 function collidesWithTradingOutpostFootprint(actor,x,z,fromX=null,fromZ=null,collision=tradingOutpostCollision){
   let floor=collision && collision.floor;
   if(!floor) return false;
+  if(actorCanClearTradingOutpostCollision(actor,collision)) return false;
 
   let actorRadius=actor && Number.isFinite(actor.collisionRadius)
     ? actor.collisionRadius
@@ -5592,6 +5648,7 @@ function collidesWithTradingOutpostWalls(actor,x,z,fromX=null,fromZ=null){
 
 function collidesWithSingleTradingOutpost(actor,x,z,fromX=null,fromZ=null,collision=tradingOutpostCollision){
   if(!collision) return false;
+  if(actorCanClearTradingOutpostCollision(actor,collision)) return false;
   if(actor && actor.blocksTradingOutpostFootprint && collidesWithTradingOutpostFootprint(actor,x,z,fromX,fromZ,collision)) return true;
 
   let local=worldToTradingOutpostLocal(x,z,collision);
@@ -5648,6 +5705,8 @@ function collidesWithLandingPad(actor,x,z,fromX=null,fromZ=null){
 
   let surface=world.landingSurfaceAt(x,z,true);
   if(!surface) return false;
+  let actorBounds=actorObstacleVerticalBounds(actor,x,z);
+  if(actorBounds && actorBounds.bottom>surface.y+4.2) return false;
 
   let actorRadius=actor && Number.isFinite(actor.collisionRadius)
     ? actor.collisionRadius
@@ -5671,7 +5730,10 @@ function collidesWithLandingPad(actor,x,z,fromX=null,fromZ=null){
 
 function obstacleCollisionDamagesPlayer(obstacle){
   if(!obstacle) return true;
-  return obstacle.type!=="building" && obstacle.type!=="wall";
+  return obstacle.type!=="building"
+    && obstacle.type!=="wall"
+    && obstacle.type!=="rock"
+    && obstacle.type!=="smallRock";
 }
 
 function movementCollision(car,fromX,fromZ,toX,toZ){
@@ -5682,8 +5744,9 @@ function movementCollision(car,fromX,fromZ,toX,toZ){
   let safeX=fromX;
   let safeZ=fromZ;
   let obstacleRadius=actorObstacleRadius(car);
+  let fromActorBounds=actorObstacleVerticalBounds(car,fromX,fromZ);
   let startingOverlap=world.obstacleCollisionInfo
-    ? world.obstacleCollisionInfo(fromX,fromZ,obstacleRadius)
+    ? world.obstacleCollisionInfo(fromX,fromZ,obstacleRadius,fromActorBounds)
     : null;
 
   if(startingOverlap && startingOverlap.overlap>0.01){
@@ -5711,10 +5774,16 @@ function movementCollision(car,fromX,fromZ,toX,toZ){
     let t=i/steps;
     let x=fromX+dx*t;
     let z=fromZ+dz*t;
+    let actorBounds=actorObstacleVerticalBounds(car,x,z);
     let otherCar=collidesWithOtherCars(car,x,z);
-    let obstacleCollision=world.collidesWithObstacles(x,z,obstacleRadius);
-    let obstacle=obstacleCollision && world.obstacleAt
-      ? world.obstacleAt(x,z,obstacleRadius)
+    let obstacleInfo=world.obstacleCollisionInfo
+      ? world.obstacleCollisionInfo(x,z,obstacleRadius,actorBounds)
+      : null;
+    let obstacleCollision=!!obstacleInfo;
+    let obstacle=obstacleInfo && obstacleInfo.obstacle
+      ? obstacleInfo.obstacle
+      : obstacleCollision && world.obstacleAt
+      ? world.obstacleAt(x,z,obstacleRadius,actorBounds)
       : null;
     let tradingCollision=collidesWithTradingOutpostWalls(car,x,z,safeX,safeZ);
     let landingCollision=collidesWithLandingPad(car,x,z,safeX,safeZ);
@@ -12792,7 +12861,11 @@ function updateGiantTestRobot(){
   let previousSpeed=robot.speed;
   let nextX=robot.x+Math.sin(robot.angle)*robot.speed;
   let nextZ=robot.z+Math.cos(robot.angle)*robot.speed;
-  if(collidesWithTradingOutpostWalls(robot,nextX,nextZ,robot.x,robot.z) || collidesWithLandingPad(robot,nextX,nextZ,robot.x,robot.z)){
+  let robotBounds=actorObstacleVerticalBounds(robot,nextX,nextZ);
+  let robotObstacleCollision=world && world.collidesWithObstacles
+    ? world.collidesWithObstacles(nextX,nextZ,robot.collisionRadius || 29,robotBounds)
+    : false;
+  if(robotObstacleCollision || collidesWithTradingOutpostWalls(robot,nextX,nextZ,robot.x,robot.z) || collidesWithLandingPad(robot,nextX,nextZ,robot.x,robot.z)){
     let avoid=giantBuildingAvoidanceVector(robot);
     if(avoid){
       robot.angle=normalizeAngle(Math.atan2(avoid.x,avoid.z));
@@ -14276,7 +14349,10 @@ function applyTerraformFinaleCameraForCar(car,side=1){
 let lastChunkSignature="";
 let fixedStepMs=1000/60;
 let maxFixedStepsPerFrame=5;
+let maxCatchUpFixedStepsPerFrame=12;
+let maxFixedAccumulatorMs=fixedStepMs*14;
 let fixedAccumulator=0;
+let simulationCatchupFrames=0;
 let lastLoopTime=null;
 let renderFrameIndex=0;
 let fixedFrameIndex=0;
@@ -14292,10 +14368,9 @@ function performanceStressLevel(frameMs=0){
 }
 
 function fixedStepLimitForFrame(frameMs){
-  let stress=performanceStressLevel(frameMs);
-  if(stress>=2) return 1;
-  if(stress>=1) return 3;
-  return maxFixedStepsPerFrame;
+  let expectedSteps=Math.ceil(Math.max(0,frameMs)/fixedStepMs);
+  let catchupLimit=Math.max(maxFixedStepsPerFrame,expectedSteps+1);
+  return Math.max(1,Math.min(maxCatchUpFixedStepsPerFrame,catchupLimit));
 }
 
 function chunkViewDistanceForCar(car){
@@ -14725,25 +14800,28 @@ function updateScannerMode(){
 }
 
 function chunkBuildBudget(){
+  if(simulationCatchupFrames>0) return {items:0,frameMs:0};
   let expandedView=activeCars().some(car=>chunkViewDistanceForCar(car)>viewDistance);
-  if(lastMeasuredFps<24) return {items:0,frameMs:0};
+  if(lastMeasuredFps<28) return {items:0,frameMs:0};
   if(!expandedView){
-    if(lastMeasuredFps<32) return {items:1,frameMs:0.75};
-    if(lastMeasuredFps<46) return {items:1,frameMs:1.15};
-    return {items:1,frameMs:1.8};
+    if(lastMeasuredFps<36) return {items:1,frameMs:0.55};
+    if(lastMeasuredFps<48) return {items:1,frameMs:0.9};
+    return {items:1,frameMs:1.25};
   }
-  if(gameMode==="double") return {items:1,frameMs:lastMeasuredFps<40 ? 0.9 : 1.8};
-  if(lastMeasuredFps<36) return {items:1,frameMs:0.9};
-  if(lastMeasuredFps<46) return {items:2,frameMs:1.6};
-  return {items:5,frameMs:4.5};
+  if(gameMode==="double") return {items:1,frameMs:lastMeasuredFps<42 ? 0.65 : 1.15};
+  if(lastMeasuredFps<38) return {items:1,frameMs:0.65};
+  if(lastMeasuredFps<50) return {items:1,frameMs:1.1};
+  return {items:3,frameMs:2.6};
 }
 
 function rainQualityScale(){
   let jetView=gameStarted && activeCars().some(car=>chunkViewDistanceForCar(car)>viewDistance);
-  if(gameMode==="double" && jetView) return 0.38;
-  if(gameMode==="double") return 0.52;
-  if(jetView) return 0.62;
-  return 1;
+  if(currentFrameStressLevel>=2) return 0.34;
+  if(currentFrameStressLevel>=1) return 0.48;
+  if(gameMode==="double" && jetView) return 0.3;
+  if(gameMode==="double") return 0.42;
+  if(jetView) return 0.5;
+  return 0.72;
 }
 
 function updateJetFogAmount(){
@@ -14770,13 +14848,14 @@ function chunkSignatureForCars(){
     .join("|");
 }
 
-function fixedUpdateGame(){
+function fixedUpdateGame(options={}){
   fixedFrameIndex++;
   targetableCarsCacheFrame=-1;
   targetableCarsCache=null;
 
-  let fixedVisualInterval=currentFrameStressLevel>=3 ? 4 : currentFrameStressLevel>=2 ? 2 : 1;
-  let updateFixedVisuals=fixedFrameIndex%fixedVisualInterval===0;
+  let updateFrameVisuals=options.updateFrameVisuals ?? true;
+  let fixedVisualInterval=currentFrameStressLevel>=3 ? 6 : currentFrameStressLevel>=2 ? 3 : currentFrameStressLevel>=1 ? 2 : 1;
+  let updateFixedVisuals=updateFrameVisuals && fixedFrameIndex%fixedVisualInterval===0;
   let maintenanceInterval=currentFrameStressLevel>=3 ? 45 : currentFrameStressLevel>=2 ? 30 : currentFrameStressLevel>=1 ? 18 : 10;
   let updateMaintenance=fixedFrameIndex%maintenanceInterval===0;
 
@@ -14796,10 +14875,10 @@ function fixedUpdateGame(){
   }
   if(!finaleActive){
     updateTreasurePickups();
-    updateAmbientSpaceships();
     updateMothership();
     updateEnemies();
-    updateVillageTurrets();
+    if(currentFrameStressLevel<3 || fixedFrameIndex%2===0) updateAmbientSpaceships();
+    if(currentFrameStressLevel<3 || fixedFrameIndex%2===0) updateVillageTurrets();
     updateBossBaseDefenses();
     updateSupplyBoxes();
     updateRockets();
@@ -14827,8 +14906,10 @@ function fixedUpdateGame(){
     world.updateWind(performance.now(),rainIntensity,currentDayAmount,headlightNightAmount);
     for(let car of cars) updateVehicleHeadlights(car);
   }
-  motorAudio.update();
-  updateCameras();
+  if(updateFrameVisuals){
+    motorAudio.update();
+    updateCameras();
+  }
 
   let chunkSignature=chunkSignatureForCars();
 
@@ -14853,7 +14934,7 @@ function loop(timestamp=performance.now()){
   if(!gameStarted){
     fixedAccumulator=0;
     updateCameras();
-    world.processChunkQueue(4,true);
+    world.processChunkQueue(2,true);
     portalSystem.updatePortals(timestamp);
     portalSystem.updateDreamDimensionVisuals(timestamp);
     updateWeather();
@@ -14895,22 +14976,24 @@ function loop(timestamp=performance.now()){
     return;
   }
 
-  fixedAccumulator+=frameMs;
+  fixedAccumulator=Math.min(fixedAccumulator+frameMs,maxFixedAccumulatorMs);
 
   let steps=0;
   currentFrameStressLevel=performanceStressLevel(frameMs);
   let fixedStepLimit=fixedStepLimitForFrame(frameMs);
   let simStart=performance.now();
   while(fixedAccumulator>=fixedStepMs && steps<fixedStepLimit){
-    fixedUpdateGame();
+    let willRunAnotherStep=fixedAccumulator-fixedStepMs>=fixedStepMs && steps+1<fixedStepLimit;
+    fixedUpdateGame({updateFrameVisuals:!willRunAnotherStep});
     fixedAccumulator-=fixedStepMs;
     steps++;
   }
   recordPerfBucket("sim",performance.now()-simStart);
 
-  if(steps>=fixedStepLimit && fixedAccumulator>=fixedStepMs){
-    fixedAccumulator=fixedStepMs-0.001;
-  }
+  let simulationStillBehind=steps>=fixedStepLimit && fixedAccumulator>=fixedStepMs;
+  if(simulationStillBehind) simulationCatchupFrames=8;
+  else if(steps>1) simulationCatchupFrames=Math.max(simulationCatchupFrames,3);
+  else simulationCatchupFrames=Math.max(0,simulationCatchupFrames-1);
 
   let effectsStart=performance.now();
   if(timestamp-lastPixelRatioUpdate>500){
@@ -14920,7 +15003,7 @@ function loop(timestamp=performance.now()){
 
   let stressLevel=currentFrameStressLevel;
   if(stressLevel>=2) updateRendererPixelRatio();
-  let visualInterval=stressLevel>=3 ? 4 : stressLevel>=2 ? 2 : 1;
+  let visualInterval=simulationCatchupFrames>0 ? 8 : stressLevel>=3 ? 6 : stressLevel>=2 ? 3 : stressLevel>=1 ? 2 : 1;
   let updateVisuals=renderFrameIndex%visualInterval===0;
   if(updateVisuals){
     clouds.update();

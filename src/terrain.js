@@ -5,6 +5,7 @@ const defaultTerrainProfile={
   heightScale:1,
   hillScale:1,
   mountainScale:1,
+  ridgeMountainScale:null,
   mountainPeakPower:2,
   cragScale:1,
   cragFrequencyScale:1,
@@ -12,6 +13,11 @@ const defaultTerrainProfile={
   terrainStructureFrequencyScale:1,
   broadMountainScale:1,
   broadMountainChance:0.26,
+  broadMountainSpacing:1650,
+  broadMountainRadiusScale:1,
+  broadMountainPlateau:0,
+  broadMountainPlateauRadius:0.46,
+  broadMountainRidgeStrength:0.28,
   megaMountainScale:0,
   megaMountainSpacing:3000,
   megaPlateauHeight:70,
@@ -119,20 +125,20 @@ function smoothstep01(value){
   return value*value*(3-2*value);
 }
 
-function broadMountainCell(cellX,cellZ){
-  let key=cellX+","+cellZ;
+function broadMountainCell(cellX,cellZ,spacing,radiusScale){
+  let key=cellX+","+cellZ+","+spacing+","+radiusScale;
   let cached=broadMountainCellCache.get(key);
   if(cached) return cached;
 
   let angle=rand01(cellX*131.9+11.4,cellZ*97.2-6.8)*Math.PI*2;
   let cell={
     chanceRoll:rand01(cellX*31.7+19.3,cellZ*47.1-8.6),
-    centerX:(cellX+0.18+rand01(cellX*91.3+2.1,cellZ*77.9-4.2)*0.64)*broadMountainSpacing,
-    centerZ:(cellZ+0.18+rand01(cellX*57.6-3.7,cellZ*112.4+5.5)*0.64)*broadMountainSpacing,
+    centerX:(cellX+0.18+rand01(cellX*91.3+2.1,cellZ*77.9-4.2)*0.64)*spacing,
+    centerZ:(cellZ+0.18+rand01(cellX*57.6-3.7,cellZ*112.4+5.5)*0.64)*spacing,
     ca:Math.cos(angle),
     sa:Math.sin(angle),
-    radiusX:300+rand01(cellX*181.1-9.1,cellZ*61.3+7.4)*280,
-    radiusZ:220+rand01(cellX*43.5+13.8,cellZ*149.6-2.7)*260,
+    radiusX:(300+rand01(cellX*181.1-9.1,cellZ*61.3+7.4)*280)*radiusScale,
+    radiusZ:(220+rand01(cellX*43.5+13.8,cellZ*149.6-2.7)*260)*radiusScale,
     peak:18+rand01(cellX*211.4-17.2,cellZ*35.8+9.1)*38
   };
 
@@ -147,15 +153,17 @@ function broadMountainHeight(x,z){
   let scale=(terrainProfile.broadMountainScale ?? 1)*terrainProfile.mountainScale;
   if(scale<=0) return 0;
 
-  let gx=Math.floor(x/broadMountainSpacing);
-  let gz=Math.floor(z/broadMountainSpacing);
+  let spacing=Math.max(700,terrainProfile.broadMountainSpacing || broadMountainSpacing);
+  let radiusScale=Math.max(0.2,terrainProfile.broadMountainRadiusScale || 1);
+  let gx=Math.floor(x/spacing);
+  let gz=Math.floor(z/spacing);
   let total=0;
 
   for(let ix=-1;ix<=1;ix++){
     for(let iz=-1;iz<=1;iz++){
       let cellX=gx+ix;
       let cellZ=gz+iz;
-      let cell=broadMountainCell(cellX,cellZ);
+      let cell=broadMountainCell(cellX,cellZ,spacing,radiusScale);
       if(cell.chanceRoll>terrainProfile.broadMountainChance) continue;
 
       let dx=x-cell.centerX;
@@ -166,7 +174,14 @@ function broadMountainHeight(x,z){
       if(d>=1) continue;
 
       let dome=1-smoothstep01(d);
-      let ridge=0.72+0.28*fbm((x+cell.centerX)*0.004,(z-cell.centerZ)*0.004);
+      let plateauAmount=Math.max(0,Math.min(1,terrainProfile.broadMountainPlateau ?? 0));
+      if(plateauAmount>0){
+        let plateauRadius=Math.max(0.05,Math.min(0.9,terrainProfile.broadMountainPlateauRadius ?? 0.46));
+        let plateauDome=1-smoothstep01((d-plateauRadius)/(1-plateauRadius));
+        dome=dome+(plateauDome-dome)*plateauAmount;
+      }
+      let ridgeStrength=Math.max(0,Math.min(1,terrainProfile.broadMountainRidgeStrength ?? 0.28));
+      let ridge=1-ridgeStrength+ridgeStrength*fbm((x+cell.centerX)*0.004,(z-cell.centerZ)*0.004);
       total+=cell.peak*dome*dome*ridge*scale;
     }
   }
@@ -236,6 +251,9 @@ function megaMountainHeight(x,z){
 }
 
 function mountainCragHeight(x,z,mountainMask,broadHeight){
+  let cragScale=terrainProfile.cragScale ?? 1;
+  if(cragScale<=0) return 0;
+
   let broadMask=smoothstep01((broadHeight-5)/24);
   let detailMask=Math.max(mountainMask,broadMask);
   if(detailMask<=0.001) return 0;
@@ -250,7 +268,7 @@ function mountainCragHeight(x,z,mountainMask,broadHeight){
   let breakup=fbm01(x*0.011*frequencyScale+81.2,z*0.019*frequencyScale-32.5)-0.5;
   let crags=(Math.pow(ridgeA,3.2)-0.28)*2.6+(Math.pow(ridgeB,2.4)-0.34)*1.45+pitted*0.95+breakup*0.7;
 
-  return crags*detailMask*roadFade*terrainProfile.mountainScale*(terrainProfile.cragScale ?? 1);
+  return crags*detailMask*roadFade*terrainProfile.mountainScale*cragScale;
 }
 
 function terrainStructureHeight(x,z,continent,hills,mountainMask,broadHeight){
@@ -296,10 +314,11 @@ export function height(x,z){
   mountainMask=Math.min(1,mountainMask);
   let broadHeight=broadMountainHeight(x,z);
   let megaHeight=megaMountainHeight(x,z);
+  let ridgeMountainScale=terrainProfile.ridgeMountainScale ?? terrainProfile.mountainScale;
 
   return continent*14*terrainProfile.heightScale
     + hills*5*terrainProfile.hillScale
-    + mountains*40*mountainMask*terrainProfile.mountainScale
+    + mountains*40*mountainMask*ridgeMountainScale
     + broadHeight
     + megaHeight
     + mountainCragHeight(x,z,mountainMask,broadHeight+Math.max(0,megaHeight))

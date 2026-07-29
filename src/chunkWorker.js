@@ -1,5 +1,5 @@
 import { chunkSize, segments } from "./constants.js";
-import { groundHeight, rand, roadDistance, setWorldSeed } from "./terrain.js?v=titan-highlands-low-frequency";
+import { groundHeight, rand, roadDistance, setWorldSeed } from "./terrain.js?v=titan-wide-plateaus";
 
 const waterLevel=-20;
 const underwaterVisualDropBase=1.55;
@@ -226,12 +226,19 @@ function buildTerrainChunk(message){
   let cx=message.cx;
   let cz=message.cz;
   let envColors=message.colors || {};
+  let shoreline=message.shoreline || {};
   let lowColor=colorComponents(envColors.low ?? 0x8b3852);
   let midColor=colorComponents(envColors.mid ?? 0x5a3b70);
   let highColor=colorComponents(envColors.high ?? 0x3f3456);
   let shoreColor=colorComponents(envColors.shore ?? 0xd6b25a);
   let waterColor=colorComponents(envColors.water ?? 0x20ffd4);
-  let wetShoreColor=mixColorComponents(shoreColor,waterColor,0.42);
+  let shoreInnerHeight=Number.isFinite(shoreline.innerHeight) ? shoreline.innerHeight : 1.8;
+  let shoreOuterHeight=Number.isFinite(shoreline.outerHeight) ? shoreline.outerHeight : 12;
+  let shoreInnerBlend=Number.isFinite(shoreline.innerShoreBlend) ? shoreline.innerShoreBlend : 0.35;
+  let shoreTransitionHeight=Math.max(0.1,shoreOuterHeight-shoreInnerHeight);
+  let wetWaterMix=Number.isFinite(shoreline.wetWaterMix) ? shoreline.wetWaterMix : 0.2;
+  let terrainShoreStrength=Number.isFinite(shoreline.terrainShoreStrength) ? Math.max(0,Math.min(1,shoreline.terrainShoreStrength)) : 1;
+  let wetShoreColor=mixColorComponents(shoreColor,waterColor,wetWaterMix);
   let underwaterColor=colorComponents(envColors.underwater ?? 0x8f5a6c);
   let holeColor=colorComponents(0x09070a);
 
@@ -283,13 +290,15 @@ function buildTerrainChunk(message){
       let wallShade=0.18+Math.min(0.82,holeAmount)*0.22;
       writeColor(colors,index,holeColor,lowColor,wallShade);
     }else if(h<waterLevel) writeColor(colors,index,underwaterColor);
-    else if(h<waterLevel+1.8){
-      let t=waterSmoothstep01((h-waterLevel)/1.8);
-      writeColor(colors,index,wetShoreColor,shoreColor,t*0.35);
+    else if(h<waterLevel+shoreInnerHeight){
+      let t=waterSmoothstep01((h-waterLevel)/shoreInnerHeight);
+      let targetColor=mixColorComponents(wetShoreColor,shoreColor,t*shoreInnerBlend);
+      writeColor(colors,index,lowColor,targetColor,terrainShoreStrength);
     }
-    else if(h<waterLevel+12){
-      let t=waterSmoothstep01((h-(waterLevel+1.8))/10.2);
-      writeColor(colors,index,wetShoreColor,lowColor,t);
+    else if(h<waterLevel+shoreOuterHeight){
+      let t=waterSmoothstep01((h-(waterLevel+shoreInnerHeight))/shoreTransitionHeight);
+      let targetColor=mixColorComponents(wetShoreColor,lowColor,t);
+      writeColor(colors,index,lowColor,targetColor,terrainShoreStrength);
     }
     else if(h<15) writeColor(colors,index,lowColor);
     else if(h<30) writeColor(colors,index,midColor);
