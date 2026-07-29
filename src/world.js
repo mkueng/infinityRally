@@ -97,6 +97,7 @@ let currentEnvironment={...defaultEnvironment,...(options.getEnvironment ? optio
 
 let landMat;
 let rockMat;
+let cheapTreeCrownMats=[];
 const terrainDetailTexture=new THREE.TextureLoader().load(
   "./assets/textures/Ground056.png?v=terrain-detail-ground056",
   ()=>{
@@ -151,6 +152,34 @@ rockNormalTexture.wrapT=THREE.RepeatWrapping;
 rockNormalTexture.repeat.set(1.7,1.7);
 rockNormalTexture.anisotropy=4;
 if(THREE.NoColorSpace) rockNormalTexture.colorSpace=THREE.NoColorSpace;
+
+const cheapTreeCrownTexture=new THREE.TextureLoader().load(
+  "./assets/textures/plants/Ground001.png?v=cheap-tree-crown-ground001",
+  ()=>{
+    for(let material of cheapTreeCrownMats) material.needsUpdate=true;
+  },
+  undefined,
+  error=>console.warn("Cheap tree crown texture failed to load",error)
+);
+cheapTreeCrownTexture.wrapS=THREE.RepeatWrapping;
+cheapTreeCrownTexture.wrapT=THREE.RepeatWrapping;
+cheapTreeCrownTexture.repeat.set(1.8,1.8);
+cheapTreeCrownTexture.anisotropy=4;
+if(THREE.SRGBColorSpace) cheapTreeCrownTexture.colorSpace=THREE.SRGBColorSpace;
+
+const cheapTreeCrownNormalTexture=new THREE.TextureLoader().load(
+  "./assets/textures/plants/Ground001_1K-PNG_NormalGL.png?v=cheap-tree-crown-ground001-normal",
+  ()=>{
+    for(let material of cheapTreeCrownMats) material.needsUpdate=true;
+  },
+  undefined,
+  error=>console.warn("Cheap tree crown normal texture failed to load",error)
+);
+cheapTreeCrownNormalTexture.wrapS=THREE.RepeatWrapping;
+cheapTreeCrownNormalTexture.wrapT=THREE.RepeatWrapping;
+cheapTreeCrownNormalTexture.repeat.set(1.8,1.8);
+cheapTreeCrownNormalTexture.anisotropy=4;
+if(THREE.NoColorSpace) cheapTreeCrownNormalTexture.colorSpace=THREE.NoColorSpace;
 
 landMat=new THREE.MeshStandardMaterial({
   map:makeGroundTexture(currentEnvironment),
@@ -434,6 +463,23 @@ function waterShoreDistances(waterMask){
 
 let barkMat=new THREE.MeshStandardMaterial({color:0x24133a,emissive:0x12061f,emissiveIntensity:0.2,roughness:0.88});
 let leafMat=new THREE.MeshStandardMaterial({color:0xb66cff,emissive:0x5a22c9,emissiveIntensity:0.48,roughness:0.64});
+function makeCheapTreeCrownMaterial(color,emissive){
+  return new THREE.MeshStandardMaterial({
+    color,
+    map:cheapTreeCrownTexture,
+    normalMap:cheapTreeCrownNormalTexture,
+    normalScale:new THREE.Vector2(0.72,0.72),
+    emissive,
+    emissiveIntensity:0.18,
+    roughness:0.94,
+    metalness:0.02
+  });
+}
+cheapTreeCrownMats=[
+  makeCheapTreeCrownMaterial(0x9ed873,0x123b16),
+  makeCheapTreeCrownMaterial(0xd6d45f,0x3d3810),
+  makeCheapTreeCrownMaterial(0x63b46d,0x0b2b18)
+];
 let podMat=new THREE.MeshStandardMaterial({color:0xff6bd6,emissive:0xff2ca8,emissiveIntensity:0.78,roughness:0.52});
 let waterShimmerShader=null;
 let grassMat=new THREE.MeshStandardMaterial({color:0x9df58d,emissive:0x173d18,emissiveIntensity:0.12,roughness:0.84});
@@ -833,6 +879,9 @@ let turretBaseMat=new THREE.MeshStandardMaterial({color:0x312a3e,roughness:0.82,
 let turretHeadMat=new THREE.MeshStandardMaterial({color:0x554163,emissive:0x16091f,emissiveIntensity:0.22,roughness:0.72,metalness:0.48});
 let turretBarrelMat=new THREE.MeshStandardMaterial({color:0x151923,emissive:0x06162d,emissiveIntensity:0.32,roughness:0.56,metalness:0.7});
 let chunkSharedMaterials=new Set([
+  barkMat,
+  leafMat,
+  ...cheapTreeCrownMats,
   buildingShadowMat,
   shoreBandMat,
   radarOutpostBaseMat,
@@ -1007,6 +1056,22 @@ function applyEnvironment(environment={}){
   if(shoreBandMat.color) shoreBandMat.color.set(mixHexColor(displayWaterColor(colors.water),colors.shore || colors.water,0.72));
   setMaterialColor(barkMat,colors.bark,colors.barkEmissive);
   setMaterialColor(leafMat,colors.leaf,colors.leafEmissive);
+  let cheapCrownBase=new THREE.Color(colors.leaf);
+  let cheapCrownAccent=new THREE.Color(colors.bushAccent || colors.pod || colors.shore || colors.grass);
+  let cheapCrownDark=new THREE.Color(colors.bushDark || colors.low || colors.leaf);
+  let cheapCrownGlow=new THREE.Color(colors.leafEmissive || colors.bushEmissive || colors.grassEmissive || colors.leaf);
+  let cheapCrownVariants=[
+    {color:cheapCrownBase.clone().lerp(new THREE.Color(0xffffff),0.2),emissive:cheapCrownGlow.clone()},
+    {color:cheapCrownBase.clone().lerp(cheapCrownAccent,0.64).lerp(new THREE.Color(0xffffff),0.16),emissive:cheapCrownGlow.clone().lerp(cheapCrownAccent,0.34)},
+    {color:cheapCrownBase.clone().lerp(cheapCrownDark,0.54),emissive:cheapCrownGlow.clone().lerp(cheapCrownDark,0.48)}
+  ];
+  for(let i=0;i<cheapTreeCrownMats.length;i++){
+    let variant=cheapCrownVariants[i%cheapCrownVariants.length];
+    cheapTreeCrownMats[i].color.copy(variant.color);
+    cheapTreeCrownMats[i].emissive.copy(variant.emissive);
+    cheapTreeCrownMats[i].emissiveIntensity=(colors.bushEmissiveIntensity ?? 0.28)*0.18;
+    cheapTreeCrownMats[i].needsUpdate=true;
+  }
   setMaterialColor(podMat,colors.pod,colors.podEmissive);
   setMaterialColor(grassMat,colors.grass,colors.grassEmissive);
   setMaterialColor(bushMat,mixHexColor(colors.leaf,colors.grass,0.28),colors.bushEmissive || mixHexColor(colors.leafEmissive || colors.leaf,colors.grassEmissive || colors.grass,0.36));
@@ -1205,7 +1270,7 @@ function freezeStaticObject(object){
 function stabilizeVegetationMesh(mesh){
   if(!mesh) return;
   if(mesh.computeBoundingSphere) mesh.computeBoundingSphere();
-  mesh.frustumCulled=true;
+  mesh.frustumCulled=false;
   freezeStaticObject(mesh);
 }
 
@@ -2850,6 +2915,123 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   }
   yield;
 
+  let cheapTreeDensity=Math.max(0,detail.treeDensity);
+  let cheapTreeMinDensity=vegetation.cheapTreeMinDensity ?? 0.5;
+  let cheapTreeCount=cheapTreeDensity>=cheapTreeMinDensity
+    ? Math.max(0,Math.floor((vegetation.cheapTreeCount || 0)*cheapTreeDensity))
+    : 0;
+  let cheapTreeTrunks=cheapTreeCount>0 ? new THREE.InstancedMesh(trunkGeo,barkMat,cheapTreeCount) : null;
+  let cheapTreeCrowns=cheapTreeCount>0
+    ? cheapTreeCrownMats.map(material=>new THREE.InstancedMesh(crownGeo,material,cheapTreeCount))
+    : [];
+  let cheapTrees=cheapTreeCount>0 ? new THREE.Group() : null;
+  let cheapTreeUsed=0;
+  let cheapTreeCrownUsed=new Array(cheapTreeCrowns.length).fill(0);
+  let cheapTreeMinHeight=vegetation.cheapTreeMinHeight ?? grassMinHeight;
+  let cheapTreeMaxHeight=vegetation.cheapTreeMaxHeight ?? grassMaxHeight;
+  let cheapTreeMaxSlope=vegetation.cheapTreeMaxSlope ?? 0.2;
+  let cheapTreeSlopeSampleDistance=vegetation.cheapTreeSlopeSampleDistance ?? 28;
+  let cheapTreeRoadClearance=vegetation.cheapTreeRoadClearance ?? 62;
+  let cheapTreePatchRadius=vegetation.cheapTreePatchRadius ?? 13;
+  let cheapTreePatchMaxRange=vegetation.cheapTreePatchMaxRange ?? 6.5;
+  let cheapTreeAttempts=Math.max(cheapTreeCount,Math.floor((vegetation.cheapTreeAttempts || cheapTreeCount*12)));
+
+  for(let attempt=0;attempt<cheapTreeAttempts && cheapTreeUsed<cheapTreeCount;attempt++){
+    let wx=cx*chunkSize+(rand(cx*617+attempt*23,cz*293-attempt*17)-0.5)*chunkSize;
+    let wz=cz*chunkSize+(rand(cx*149-attempt*19,cz*881+attempt*31)-0.5)*chunkSize;
+    let wy=groundHeight(wx,wz);
+
+    if(wy<cheapTreeMinHeight || wy>cheapTreeMaxHeight) continue;
+    if(terrainSlopeAt(wx,wz,cheapTreeSlopeSampleDistance)>cheapTreeMaxSlope) continue;
+    if(roadDistance(wx,wz)<cheapTreeRoadClearance) continue;
+    if(pointInHole(holes,wx,wz,cheapTreePatchRadius+6)) continue;
+    if(!terrainPatchOk(wx,wz,cheapTreePatchRadius,36,cheapTreePatchMaxRange)) continue;
+
+    let scale=(vegetation.cheapTreeScaleBase ?? 1)*(0.72+rand(attempt*41+cx,cz-attempt*13)*0.62);
+    let heightScale=(vegetation.cheapTreeHeightScale ?? 2.6)*scale;
+    let widthScale=(vegetation.cheapTreeWidthScale ?? 1.35)*scale;
+    let crownScale=(vegetation.cheapTreeCrownScale ?? 3.1)*scale;
+    let yaw=rand(cx*199+attempt,cz*307-attempt)*Math.PI*2;
+    let leanX=(rand(cx*13+attempt,cz*19)-0.5)*(vegetation.cheapTreeLean ?? 0.08);
+    let leanZ=(rand(cx*23-attempt,cz*29)-0.5)*(vegetation.cheapTreeLean ?? 0.08);
+
+    let collider={
+      x:wx,
+      baseY:wy,
+      y:wy+heightScale*5.25,
+      z:wz,
+      r:Math.max(2.8,widthScale*2.4),
+      height:heightScale*10.5+crownScale*5.6,
+      visualRadius:crownScale*2.6,
+      visualHeight:heightScale*10.5+crownScale*5.2,
+      type:"cheapTree",
+      instances:[]
+    };
+    colliders.push(collider);
+
+    dummy.position.set(wx,wy+5.25*heightScale-0.42,wz);
+    dummy.rotation.set(leanX,yaw,leanZ);
+    dummy.scale.set(widthScale,heightScale,widthScale);
+    dummy.updateMatrix();
+    cheapTreeTrunks.setMatrixAt(cheapTreeUsed,dummy.matrix);
+    collider.instances.push({mesh:cheapTreeTrunks,index:cheapTreeUsed});
+
+    dummy.position.set(
+      wx+Math.sin(yaw)*0.85*scale,
+      wy+10.5*heightScale+crownScale*1.35,
+      wz+Math.cos(yaw)*0.85*scale
+    );
+    dummy.rotation.set(rand(attempt,cx)*Math.PI,yaw,rand(cz,attempt)*Math.PI);
+    let crownWidthSeed=rand(cx*421+attempt,cz*163-attempt);
+    let crownDepthSeed=rand(cx*239-attempt,cz*419+attempt);
+    let crownFlatnessSeed=rand(cx*617-attempt,cz*271+attempt);
+    crownWidthSeed=crownWidthSeed-Math.floor(crownWidthSeed);
+    crownDepthSeed=crownDepthSeed-Math.floor(crownDepthSeed);
+    crownFlatnessSeed=crownFlatnessSeed-Math.floor(crownFlatnessSeed);
+    let crownWidthJitter=0.92+crownWidthSeed*0.28;
+    let crownDepthJitter=0.9+crownDepthSeed*0.34;
+    let crownFlatness=0.58+crownFlatnessSeed*0.28;
+    dummy.scale.set(crownScale*1.08*crownWidthJitter,crownScale*crownFlatness,crownScale*crownDepthJitter);
+    dummy.updateMatrix();
+    let crownVariantSeed=rand(cx*331+attempt,cz*557-attempt);
+    crownVariantSeed=crownVariantSeed-Math.floor(crownVariantSeed);
+    let crownVariantIndex=Math.min(cheapTreeCrowns.length-1,Math.floor(crownVariantSeed*cheapTreeCrowns.length));
+    let crownMesh=cheapTreeCrowns[crownVariantIndex];
+    let crownIndex=cheapTreeCrownUsed[crownVariantIndex];
+    crownMesh.setMatrixAt(crownIndex,dummy.matrix);
+    cheapTreeCrownUsed[crownVariantIndex]=crownIndex+1;
+    collider.instances.push({mesh:crownMesh,index:crownIndex});
+
+    cheapTreeUsed++;
+  }
+
+  if(cheapTrees){
+    cheapTreeTrunks.count=cheapTreeUsed;
+    cheapTreeTrunks.instanceMatrix.needsUpdate=true;
+    if(cheapTreeUsed>0){
+      stabilizeVegetationMesh(cheapTreeTrunks);
+      cheapTrees.add(cheapTreeTrunks);
+      for(let i=0;i<cheapTreeCrowns.length;i++){
+        let crownMesh=cheapTreeCrowns[i];
+        crownMesh.count=cheapTreeCrownUsed[i];
+        crownMesh.instanceMatrix.needsUpdate=true;
+        if(crownMesh.count>0){
+          stabilizeVegetationMesh(crownMesh);
+          cheapTrees.add(crownMesh);
+        }else{
+          crownMesh.dispose();
+        }
+      }
+      freezeStaticObject(cheapTrees);
+      chunkRoot.add(cheapTrees);
+    }else{
+      cheapTreeTrunks.dispose();
+      for(let crownMesh of cheapTreeCrowns) crownMesh.dispose();
+      cheapTrees=null;
+    }
+  }
+  yield;
+
   let bushClusterCount=Math.max(0,Math.ceil((vegetation.bushClusters || 0)*detail.grassDensity));
   let bushesPerCluster=Math.max(1,Math.ceil((vegetation.bushesPerCluster || 1)*detail.grassDensity));
   let bushClusterRadius=(vegetation.bushClusterRadius || 18)*0.74;
@@ -3755,7 +3937,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
     landingRings.push(makeLandingRing(landingSurface,chunkRoot));
   }
 
-  return {cx,cz,root:chunkRoot,land,road,water,shoreBand,trunks,crowns,pods,grasses,bushes:bushGroup,rocks,rockShadows,rockCollidersByInstance,gravel,gravelCollidersByInstance,holeMeshes,treasureChests,radarOutposts,buildingShadows,buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,cityStreets,cityStreetDetails,cityTechDetails,landingSpaces,landingSurfaces,landingRings,villageCenters,colliders,holes:localHoles};
+  return {cx,cz,root:chunkRoot,land,road,water,shoreBand,trunks,crowns,pods,grasses,cheapTrees,bushes:bushGroup,rocks,rockShadows,rockCollidersByInstance,gravel,gravelCollidersByInstance,holeMeshes,treasureChests,radarOutposts,buildingShadows,buildingBodies,buildingRoofs,buildingWindows,buildingDoors,buildingChimneys,buildingTrims,buildingPorches,villageWalls,cityStreets,cityStreetDetails,cityTechDetails,landingSpaces,landingSurfaces,landingRings,villageCenters,colliders,holes:localHoles};
 }
 
 function updateChunksForCenters(centers){
@@ -3885,6 +4067,7 @@ function disposeChunk(chunk){
     chunk.crowns,
     chunk.pods,
     chunk.grasses,
+    chunk.cheapTrees,
     chunk.bushes,
     chunk.rockShadows,
     chunk.rocks,
@@ -3917,6 +4100,7 @@ function disposeChunk(chunk){
   if(chunk.crowns) chunk.crowns.dispose();
   if(chunk.pods) chunk.pods.dispose();
   if(chunk.grasses) chunk.grasses.dispose();
+  if(chunk.cheapTrees) disposeObjectResources(chunk.cheapTrees,{disposeGeometry:false});
   if(chunk.bushes) disposeObjectResources(chunk.bushes,{disposeGeometry:false});
   if(chunk.rockShadows) chunk.rockShadows.dispose();
   chunk.rocks.dispose();
@@ -4105,15 +4289,15 @@ function chunkDistanceSqToCenters(chunk,centers){
 function applyChunkRenderStress(chunk,stressLevel,centers){
   if(!chunk) return;
   let distanceSq=chunkDistanceSqToCenters(chunk,centers);
-  let hideFarGrass=distanceSq>36 || (stressLevel>=1 && distanceSq>16);
+  let hideFarGrass=distanceSq>36;
   let hideMidVegetation=stressLevel>=2 && distanceSq>8;
-  let hideNearVegetation=stressLevel>=3 && distanceSq>4;
   let hideDecor=(stressLevel>=1 && distanceSq>16) || (stressLevel>=2 && distanceSq>9);
   let hideMoreDecor=(stressLevel>=2 && distanceSq>9) || (stressLevel>=3 && distanceSq>4);
   let hideFarWater=stressLevel>=3 && distanceSq>16;
 
-  setChunkObjectVisible(chunk.grasses,!hideFarGrass && !hideNearVegetation);
-  setChunkObjectVisible(chunk.bushes,!hideMidVegetation && !hideNearVegetation);
+  setChunkObjectVisible(chunk.grasses,!hideFarGrass);
+  setChunkObjectVisible(chunk.bushes,!hideMidVegetation);
+  setChunkObjectVisible(chunk.cheapTrees,true);
   setChunkObjectVisible(chunk.trunks,true);
   setChunkObjectVisible(chunk.crowns,true);
   setChunkObjectVisible(chunk.pods,true);
