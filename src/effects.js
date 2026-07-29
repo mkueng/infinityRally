@@ -156,6 +156,7 @@ export function createLowHangingHaze(scene,getCarPosition,getEnvironment=()=>({}
   let hazeData=[];
   let cloudBankData=[];
   let cloudBankSprites=[];
+  let cloudBankUpdateFrame=0;
   let hazeColor=new THREE.Color(0xbfd7bd);
   let hazeGeometry=new THREE.BufferGeometry();
   hazeGeometry.setAttribute("position",new THREE.BufferAttribute(positions,3));
@@ -443,6 +444,8 @@ export function createLowHangingHaze(scene,getCarPosition,getEnvironment=()=>({}
       hazePoints.visible=false;
       cloudBankGroup.visible=true;
       cloudSheetGroup.visible=false;
+      cloudBankUpdateFrame++;
+      if(cloudBankSprites.length>0 && cloudBankUpdateFrame%2!==0) return;
       updateCloudBanks(config,centerX,centerY,centerZ);
       return;
     }

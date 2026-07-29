@@ -135,7 +135,7 @@ export const worldEnvironments=[
     terrainDetail:{strength:0.84,textureMix:0.68,scale:0.032,mountainStrength:0,normalScale:0.34},
     sky:["#04140d","#0b3522","#1c6b44","#6ea35b","#dbe88f"],
     fog:0x4f8061,
-    fogRange:{near:95,far:430,minNear:70,minDepth:280},
+    fogRange:{near:80,far:390,minNear:60,minDepth:250},
     colors:{
       underwater:0x103b32,shore:0x7ea85b,low:0x1f5f39,mid:0x39784b,high:0x78a464,
       water:0x2fe0a8,waterEmissive:0x087157,bark:0x172512,barkEmissive:0x061006,
@@ -145,9 +145,9 @@ export const worldEnvironments=[
     groundTexture:{base:"#2d6540",dark:[20,58,35],bright:[92,152,72],streak:"126,255,128"},
     rainChance:0.36,
     rainIntensity:[0.12,0.5],
-    lowHaze:null,
+    lowHaze:{mode:"cloudBanks",count:120,range:640,minRadius:180,fadeStart:480,fadeEnd:640,nearFadeRadius:190,opacity:0.92,color:0xaac878,heightMin:18,heightMax:82,widthMin:180,widthMax:410,heightScale:0.24,rise:4,drift:0.18},
     settlements:{villagesPerChunk:0.55,villageSpawnChance:0.22,patchRadiusScale:0.88,smallTownMaxRange:13.5,largeTownMaxRange:15},
-    vegetation:{treeClusters:2,treesPerCluster:6,treeClusterRadius:42,crownsPerTree:6,podsPerTree:2,trunkHeightBase:1.05,trunkHeightVariance:0.4,trunkWidthBase:0.78,trunkWidthVariance:0.24,leanAmount:0.18,crownBaseScale:1.12,crownScaleStep:0.06,crownSpreadBase:1.6,crownSpreadVariance:2.6,crownLiftBase:8.8,crownLiftStep:0.36,crownWidthScale:1.18,crownFlatness:0.82,crownDepthScale:1.16,podScaleBase:0.22,podScaleVariance:0.18,podLiftBase:6.8,podLiftVariance:1.8,podElongation:1.2,grassClusters:86,grassPerCluster:680,grassClusterRadius:42,grassMinHeight:-18,grassMaxHeight:24,grassMaxSlope:0.22,grassSlopeSampleDistance:22,bushClusters:62,bushesPerCluster:30,bushClusterRadius:48,bushScaleBase:1.28,bushMinHeight:-16,bushMaxHeight:22,bushMaxSlope:0.18,bushSlopeSampleDistance:24}
+    vegetation:{treeClusters:0,treesPerCluster:6,treeClusterRadius:42,crownsPerTree:6,podsPerTree:2,trunkHeightBase:1.05,trunkHeightVariance:0.4,trunkWidthBase:0.78,trunkWidthVariance:0.24,leanAmount:0.18,crownBaseScale:1.12,crownScaleStep:0.06,crownSpreadBase:1.6,crownSpreadVariance:2.6,crownLiftBase:8.8,crownLiftStep:0.36,crownWidthScale:1.18,crownFlatness:0.82,crownDepthScale:1.16,podScaleBase:0.22,podScaleVariance:0.18,podLiftBase:6.8,podLiftVariance:1.8,podElongation:1.2,grassClusters:54,grassPerCluster:340,grassClusterRadius:46,grassMinHeight:-18,grassMaxHeight:24,grassMaxSlope:0.22,grassSlopeSampleDistance:22,maxGrassInstancesPerChunk:14000,bushClusters:0,bushesPerCluster:30,bushClusterRadius:48,bushScaleBase:1.28,bushMinHeight:-16,bushMaxHeight:22,bushMaxSlope:0.18,bushSlopeSampleDistance:24}
   },
   {
     name:"neon city",

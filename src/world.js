@@ -1204,7 +1204,8 @@ function freezeStaticObject(object){
 
 function stabilizeVegetationMesh(mesh){
   if(!mesh) return;
-  mesh.frustumCulled=false;
+  if(mesh.computeBoundingSphere) mesh.computeBoundingSphere();
+  mesh.frustumCulled=true;
   freezeStaticObject(mesh);
 }
 
@@ -2631,16 +2632,21 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   let podsPerTree=Math.max(0,Math.floor(vegetation.podsPerTree*detail.partDensity));
   let maxTrees=clusterCount*treesPerCluster;
 
-  let trunks=new THREE.InstancedMesh(trunkGeo,barkMat,maxTrees);
-  let crowns=new THREE.InstancedMesh(crownGeo,leafMat,maxTrees*crownsPerTree);
-  let pods=new THREE.InstancedMesh(podGeo,podMat,maxTrees*podsPerTree);
-
   let dummy=new THREE.Object3D();
+  let trunks=null;
+  let crowns=null;
+  let pods=null;
   let treeUsed=0;
   let crownUsed=0;
   let podUsed=0;
 
-  for(let c=0;c<clusterCount;c++){
+  if(maxTrees>0){
+    trunks=new THREE.InstancedMesh(trunkGeo,barkMat,maxTrees);
+    crowns=new THREE.InstancedMesh(crownGeo,leafMat,maxTrees*crownsPerTree);
+    pods=new THREE.InstancedMesh(podGeo,podMat,Math.max(1,maxTrees*podsPerTree));
+  }
+
+  for(let c=0;c<clusterCount && trunks;c++){
     let crx=rand(cx*91+c,cz*37-c);
     let crz=rand(cx*53-c,cz*79+c);
 
@@ -2747,16 +2753,35 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
     if(c<clusterCount-1) yield;
   }
 
-  trunks.count=treeUsed;
-  crowns.count=crownUsed;
-  pods.count=podUsed;
-  trunks.instanceMatrix.needsUpdate=true;
-  crowns.instanceMatrix.needsUpdate=true;
-  pods.instanceMatrix.needsUpdate=true;
-  stabilizeVegetationMesh(trunks);
-  stabilizeVegetationMesh(crowns);
-  stabilizeVegetationMesh(pods);
-  chunkRoot.add(trunks,crowns,pods);
+  if(trunks){
+    trunks.count=treeUsed;
+    crowns.count=crownUsed;
+    pods.count=podUsed;
+    trunks.instanceMatrix.needsUpdate=true;
+    crowns.instanceMatrix.needsUpdate=true;
+    pods.instanceMatrix.needsUpdate=true;
+    if(treeUsed>0){
+      stabilizeVegetationMesh(trunks);
+      chunkRoot.add(trunks);
+    }else{
+      trunks.dispose();
+      trunks=null;
+    }
+    if(crownUsed>0){
+      stabilizeVegetationMesh(crowns);
+      chunkRoot.add(crowns);
+    }else{
+      crowns.dispose();
+      crowns=null;
+    }
+    if(podUsed>0){
+      stabilizeVegetationMesh(pods);
+      chunkRoot.add(pods);
+    }else{
+      pods.dispose();
+      pods=null;
+    }
+  }
   yield;
 
   let grassClusterCount=Math.max(0,Math.ceil(vegetation.grassClusters*detail.grassDensity));
@@ -2766,12 +2791,14 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   let grassMaxHeight=vegetation.grassMaxHeight ?? 28;
   let grassMaxSlope=vegetation.grassMaxSlope ?? Infinity;
   let grassSlopeSampleDistance=vegetation.grassSlopeSampleDistance ?? 18;
-  let maxGrasses=grassClusterCount*grassPerCluster;
+  let rawMaxGrasses=grassClusterCount*grassPerCluster;
+  let grassBudget=Math.max(0,vegetation.maxGrassInstancesPerChunk ?? 18000);
+  let maxGrasses=Math.min(rawMaxGrasses,Math.ceil(grassBudget*Math.max(0.08,Math.min(1,detail.grassDensity))));
 
-  let grasses=new THREE.InstancedMesh(grassGeo,grassMat,maxGrasses);
+  let grasses=maxGrasses>0 ? new THREE.InstancedMesh(grassGeo,grassMat,maxGrasses) : null;
   let grassUsed=0;
 
-  for(let c=0;c<grassClusterCount;c++){
+  for(let c=0;c<grassClusterCount && grassUsed<maxGrasses;c++){
     let crx=rand(cx*234+c,cz*567-c);
     let crz=rand(cx*890-c,cz*12+c);
 
@@ -2783,7 +2810,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
     if(terrainSlopeAt(centerX,centerZ,grassSlopeSampleDistance)>grassMaxSlope) continue;
     if(roadDistance(centerX,centerZ)<35) continue;
 
-    for(let i=0;i<grassPerCluster;i++){
+    for(let i=0;i<grassPerCluster && grassUsed<maxGrasses;i++){
       let a=rand(cx*345+c*11+i,cz*678-i)*Math.PI*2;
       let r=Math.pow(rand(cx*901+i,cz*234+c),.5)*grassClusterRadius;
 
@@ -2810,10 +2837,17 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
     if(c<grassClusterCount-1 && c%3===2) yield;
   }
 
-  grasses.count=grassUsed;
-  grasses.instanceMatrix.needsUpdate=true;
-  stabilizeVegetationMesh(grasses);
-  chunkRoot.add(grasses);
+  if(grasses){
+    grasses.count=grassUsed;
+    grasses.instanceMatrix.needsUpdate=true;
+    if(grassUsed>0){
+      stabilizeVegetationMesh(grasses);
+      chunkRoot.add(grasses);
+    }else{
+      grasses.dispose();
+      grasses=null;
+    }
+  }
   yield;
 
   let bushClusterCount=Math.max(0,Math.ceil((vegetation.bushClusters || 0)*detail.grassDensity));
@@ -2828,27 +2862,31 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   let bushAccentColor=new THREE.Color(envColors.bushAccent || envColors.pod || envColors.shore || envColors.grass);
   let bushDarkColor=new THREE.Color(envColors.bushDark || envColors.low || envColors.leaf);
   let bushGlowColor=new THREE.Color(envColors.bushEmissive || mixHexColor(envColors.leafEmissive || envColors.leaf,envColors.grassEmissive || envColors.grass,0.36));
-  let bushGroup=new THREE.Group();
+  let bushGroup=null;
   let bushVariants=[
     {color:bushBaseColor.clone(),emissive:bushGlowColor.clone(),intensity:1},
     {color:bushBaseColor.clone().lerp(bushAccentColor,0.38).multiplyScalar(1.12),emissive:bushGlowColor.clone().lerp(bushAccentColor,0.28),intensity:1.08},
     {color:bushBaseColor.clone().lerp(bushDarkColor,0.42).multiplyScalar(0.86),emissive:bushGlowColor.clone().lerp(bushDarkColor,0.32),intensity:0.86},
     {color:bushBaseColor.clone().lerp(new THREE.Color(envColors.shore || envColors.grass),0.24).multiplyScalar(1.04),emissive:bushGlowColor.clone().lerp(new THREE.Color(envColors.shore || envColors.grass),0.22),intensity:0.96}
   ];
-  let bushMeshes=bushVariants.map(variant=>{
-    let material=bushMat.clone();
-    material.vertexColors=false;
-    material.color.copy(variant.color);
-    material.emissive.copy(variant.emissive);
-    material.emissiveIntensity=(envColors.bushEmissiveIntensity ?? 0.18)*variant.intensity;
-    let mesh=new THREE.InstancedMesh(bushGeo,material,maxBushes);
-    mesh.count=0;
-    bushGroup.add(mesh);
-    return mesh;
-  });
+  let bushMeshes=[];
+  if(bushClusterCount>0){
+    bushGroup=new THREE.Group();
+    bushMeshes=bushVariants.map(variant=>{
+      let material=bushMat.clone();
+      material.vertexColors=false;
+      material.color.copy(variant.color);
+      material.emissive.copy(variant.emissive);
+      material.emissiveIntensity=(envColors.bushEmissiveIntensity ?? 0.18)*variant.intensity;
+      let mesh=new THREE.InstancedMesh(bushGeo,material,maxBushes);
+      mesh.count=0;
+      bushGroup.add(mesh);
+      return mesh;
+    });
+  }
   let bushUsedByVariant=new Array(bushMeshes.length).fill(0);
 
-  for(let c=0;c<bushClusterCount;c++){
+  for(let c=0;c<bushClusterCount && bushGroup;c++){
     let crx=rand(cx*523+c,cz*167-c);
     let crz=rand(cx*278-c,cz*613+c);
 
@@ -2892,13 +2930,26 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
     if(c<bushClusterCount-1 && c%3===2) yield;
   }
 
-  for(let i=0;i<bushMeshes.length;i++){
-    bushMeshes[i].count=bushUsedByVariant[i];
-    bushMeshes[i].instanceMatrix.needsUpdate=true;
-    stabilizeVegetationMesh(bushMeshes[i]);
+  if(bushGroup){
+    for(let i=0;i<bushMeshes.length;i++){
+      let mesh=bushMeshes[i];
+      mesh.count=bushUsedByVariant[i];
+      mesh.instanceMatrix.needsUpdate=true;
+      if(mesh.count>0){
+        stabilizeVegetationMesh(mesh);
+      }else{
+        bushGroup.remove(mesh);
+        if(mesh.material) mesh.material.dispose();
+        mesh.dispose();
+      }
+    }
+    if(bushGroup.children.length>0){
+      freezeStaticObject(bushGroup);
+      chunkRoot.add(bushGroup);
+    }else{
+      bushGroup=null;
+    }
   }
-  freezeStaticObject(bushGroup);
-  chunkRoot.add(bushGroup);
   yield;
 
   let rockCount=Math.max(1,Math.floor((cityMode ? 6 : 30)*Math.max(0.18,featureDensity)));
@@ -3862,11 +3913,11 @@ function disposeChunk(chunk){
   if(chunk.road.geometry) chunk.road.geometry.dispose();
   if(chunk.water && chunk.water.geometry) chunk.water.geometry.dispose();
   if(chunk.shoreBand && chunk.shoreBand.geometry) chunk.shoreBand.geometry.dispose();
-  chunk.trunks.dispose();
-  chunk.crowns.dispose();
-  chunk.pods.dispose();
-  chunk.grasses.dispose();
-  if(chunk.bushes && typeof chunk.bushes.dispose==="function") chunk.bushes.dispose();
+  if(chunk.trunks) chunk.trunks.dispose();
+  if(chunk.crowns) chunk.crowns.dispose();
+  if(chunk.pods) chunk.pods.dispose();
+  if(chunk.grasses) chunk.grasses.dispose();
+  if(chunk.bushes) disposeObjectResources(chunk.bushes,{disposeGeometry:false});
   if(chunk.rockShadows) chunk.rockShadows.dispose();
   chunk.rocks.dispose();
   if(chunk.gravel) chunk.gravel.dispose();
@@ -4054,7 +4105,7 @@ function chunkDistanceSqToCenters(chunk,centers){
 function applyChunkRenderStress(chunk,stressLevel,centers){
   if(!chunk) return;
   let distanceSq=chunkDistanceSqToCenters(chunk,centers);
-  let hideFarGrass=stressLevel>=1 && distanceSq>16;
+  let hideFarGrass=distanceSq>36 || (stressLevel>=1 && distanceSq>16);
   let hideMidVegetation=stressLevel>=2 && distanceSq>8;
   let hideNearVegetation=stressLevel>=3 && distanceSq>4;
   let hideDecor=(stressLevel>=1 && distanceSq>16) || (stressLevel>=2 && distanceSq>9);
@@ -4062,7 +4113,7 @@ function applyChunkRenderStress(chunk,stressLevel,centers){
   let hideFarWater=stressLevel>=3 && distanceSq>16;
 
   setChunkObjectVisible(chunk.grasses,!hideFarGrass && !hideNearVegetation);
-  setChunkObjectVisible(chunk.bushes,true);
+  setChunkObjectVisible(chunk.bushes,!hideMidVegetation && !hideNearVegetation);
   setChunkObjectVisible(chunk.trunks,true);
   setChunkObjectVisible(chunk.crowns,true);
   setChunkObjectVisible(chunk.pods,true);
