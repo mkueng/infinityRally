@@ -4,11 +4,11 @@ import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed
 import { createInput } from "./input.js?v=progressive-pointer-aim";
 import { createHud } from "./hud.js?v=larger-compass-unit-labels";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createLowHangingHaze, createRain, createStars, createWheelTracks } from "./effects.js?v=performance-broad-pass";
-import { createWorld } from "./world.js?v=rock-instance-collision-fallback";
+import { createWorld } from "./world.js?v=no-start-test-buggies";
 import { createMotorAudio } from "./audio.js?v=mission-accomplished-voice";
-import { worldEnvironments } from "./environments.js?v=titan-wide-plateaus";
+import { worldEnvironments } from "./environments.js?v=titan-thinner-night-fog";
 import { difficultySettings } from "./gameConfig.js?v=ammo-caps";
-import { loadBackPackModel, loadBaseStationModel, loadCarModel, loadEnemyBattleShipModel, loadJetModel, loadLandingSpaceModel, loadTradingOutpostModel, loadTreasureChestModels, makeMechModel } from "./models.js?v=car-lowered-robot-height-original";
+import { addPatchyCarDust, enemyBuggyDustPatchOptions, loadBackPackModel, loadBaseStationModel, loadCarModel, loadEnemyBattleShipModel, loadEnemyBuggyModel, loadJetModel, loadLandingSpaceModel, loadTradingOutpostModel, loadTreasureChestModels, makeMechModel, robotDustPatchOptions } from "./models.js?v=very-dark-car-colors";
 import { makeDistantPlanetHazeTexture, makeDistantPlanetLightTexture, makeDistantPlanetVeilTexture, makeSkyTexture } from "./textures.js?v=stronger-sky-gradient-2";
 import { createPortalSystem } from "./portals.js";
 import { approach, clamp, clamp01, hash01, randomRange, smoothStep } from "./utils.js";
@@ -41,40 +41,34 @@ const weatherSnapThreshold=0.003;
 const stormSkyRainExponent=0.72;
 const stormSkyBlend=0.82;
 const dreamSkyBlend=0.92;
-const nightSkyBlend=0.88;
+const nightSkyDarkness=0.88;
+const nightFogDarkness=0.72;
 const weatherSkyBucketSteps=24;
-const nightSkyBucketSteps=32;
 const dreamSkyBucketSteps=32;
 const skyBucketChangeThreshold=0.001;
 const rainLightDim=0.24;
-const fogNightBlend=0.72;
 const fogDreamBlend=0.9;
 const dreamVisualThreshold=0.001;
-const hemiDayColor=0xffb8d4;
-const hemiGroundDayColor=0x21484d;
+const hemiDayColor=0xffffff;
+const hemiGroundDayColor=0xffffff;
 const hemiInitialIntensity=1.35;
-const hemiBaseIntensity=0.42;
-const hemiDayIntensityRange=0.93;
-const hemiNightColorBlend=0.82;
-const hemiNightGroundBlend=0.72;
+const hemiBaseIntensity=0.1;
+const hemiDayIntensityRange=1.25;
 const hemiDreamIntensityBoost=0.28;
 const hemiDreamColorBlend=0.82;
 const hemiDreamGroundBlend=0.9;
-const sunDayColor=0xffd29b;
+const sunDayColor=0xffffff;
 const sunInitialIntensity=2.05;
 const sunInitialPosition=[-3.5,6.5,2.2];
 const sunOrbitRadius=5.5;
 const sunBaseHeight=1.2;
 const sunLiftHeight=8.5;
-const sunBaseIntensity=0.22;
-const sunDayIntensityRange=1.83;
-const sunNightColorBlend=0.92;
+const sunBaseIntensity=0.02;
+const sunDayIntensityRange=2.03;
 const sunDreamIntensityReduction=0.18;
 const sunDreamColorBlend=0.86;
 const rainFogNearReduction=120;
-const nightFogNearReduction=120;
 const rainFogFarReduction=650;
-const nightFogFarReduction=450;
 const jetFogFarReduction=700;
 const minNormalFogNear=520;
 const minNormalFogDepth=650;
@@ -94,7 +88,6 @@ let baseFogNear=initialBaseFogNear;
 let baseFogFar=initialBaseFogFar;
 let jetFogAmount=0;
 let lastSkyWeatherIntensity=-1;
-let lastSkyNightAmount=-1;
 let lastSkyDreamAmount=-1;
 let skyDome=null;
 let skyDomeMat=null;
@@ -102,16 +95,11 @@ let hemiLight=null;
 let sun=null;
 let currentDayAmount=1;
 let headlightNightAmount=0;
-let hemiNightColor=new THREE.Color(0x6f86c8);
-let hemiGroundNightColor=new THREE.Color(0x07101b);
-let sunNightColor=new THREE.Color(0x9db8ff);
-let fogNightColor=new THREE.Color(0x081226);
 let dreamFogColor=new THREE.Color(0xdac6ff);
 let dreamHemiColor=new THREE.Color(0xe6ceff);
 let dreamGroundColor=new THREE.Color(0x2b1b4d);
 let dreamSunColor=new THREE.Color(0xffd8f4);
 const stormSkyStops=["#040711","#09121e","#172534","#2f3c45","#5f6660"];
-const nightSkyStops=["#02040c","#071121","#0d1930","#18223c","#26304a"];
 const dreamSkyStops=["#100521","#38235f","#7f62bf","#d6aeff","#fff5ff"];
 let portalSystem=null;
 
@@ -211,8 +199,7 @@ function weatherSkyStops(){
 }
 
 function timeOfDaySkyStops(now=performance.now()){
-  let nightAmount=dayNightState(now).nightAmount*nightSkyBlend;
-  return weatherSkyStops().map((color,index)=>blendHexColor(color,nightSkyStops[index] || nightSkyStops[nightSkyStops.length-1],nightAmount));
+  return weatherSkyStops();
 }
 
 function setWorldSkyTexture(texture){
@@ -229,22 +216,17 @@ function setWorldSkyTexture(texture){
 
 function updateSkyForWeather(force=false,now=performance.now()){
   let weatherBucket=Math.round(rainIntensity*weatherSkyBucketSteps)/weatherSkyBucketSteps;
-  let nightState=dayNightState(now);
-  let nightBucket=Math.round(nightState.nightAmount*nightSkyBucketSteps)/nightSkyBucketSteps;
   let dreamBucket=Math.round(dreamTransitionAmount()*dreamSkyBucketSteps)/dreamSkyBucketSteps;
   if(!force
     && Math.abs(weatherBucket-lastSkyWeatherIntensity)<skyBucketChangeThreshold
-    && Math.abs(nightBucket-lastSkyNightAmount)<skyBucketChangeThreshold
     && Math.abs(dreamBucket-lastSkyDreamAmount)<skyBucketChangeThreshold) return;
   lastSkyWeatherIntensity=weatherBucket;
-  lastSkyNightAmount=nightBucket;
   lastSkyDreamAmount=dreamBucket;
   setWorldSkyTexture(makeSkyTexture({...currentEnvironment,sky:timeOfDaySkyStops(now)}));
 }
 
 function refreshSceneEnvironment(){
   lastSkyWeatherIntensity=-1;
-  lastSkyNightAmount=-1;
   lastSkyDreamAmount=-1;
   baseFogNear=currentEnvironment.fogRange && Number.isFinite(currentEnvironment.fogRange.near)
     ? currentEnvironment.fogRange.near
@@ -268,8 +250,8 @@ function updateDayNight(now=performance.now(),forceSky=false){
 
   if(hemiLight){
     hemiLight.intensity=(hemiBaseIntensity+day*hemiDayIntensityRange)*rainDim;
-    hemiLight.color.set(hemiDayColor).lerp(hemiNightColor,night*hemiNightColorBlend);
-    hemiLight.groundColor.set(hemiGroundDayColor).lerp(hemiGroundNightColor,night*hemiNightGroundBlend);
+    hemiLight.color.set(hemiDayColor);
+    hemiLight.groundColor.set(hemiGroundDayColor);
     if(dreamTransitionAmount()>dreamVisualThreshold){
       let dreamLight=smoothStep(dreamTransitionAmount());
       hemiLight.intensity*=1+dreamLight*hemiDreamIntensityBoost;
@@ -283,7 +265,7 @@ function updateDayNight(now=performance.now(),forceSky=false){
     let sunLift=Math.max(0,state.sunHeight);
     sun.position.set(Math.cos(sunAngle)*sunOrbitRadius,sunBaseHeight+sunLift*sunLiftHeight,Math.sin(sunAngle)*sunOrbitRadius);
     sun.intensity=(sunBaseIntensity+day*sunDayIntensityRange)*rainDim;
-    sun.color.set(sunDayColor).lerp(sunNightColor,night*sunNightColorBlend);
+    sun.color.set(sunDayColor);
     if(dreamTransitionAmount()>dreamVisualThreshold){
       let dreamLight=smoothStep(dreamTransitionAmount());
       sun.intensity*=1-dreamLight*sunDreamIntensityReduction;
@@ -293,14 +275,22 @@ function updateDayNight(now=performance.now(),forceSky=false){
 
   if(scene.fog){
     let dreamFog=smoothStep(dreamTransitionAmount());
-    scene.fog.color.set(currentEnvironment.fog || 0x7b4771).lerp(fogNightColor,night*fogNightBlend).lerp(dreamFogColor,dreamFog*fogDreamBlend);
-    let fogNear=baseFogNear-rainIntensity*rainFogNearReduction-night*nightFogNearReduction;
-    let fogFar=baseFogFar-rainIntensity*rainFogFarReduction-night*nightFogFarReduction-jetFogAmount*jetFogFarReduction;
+    scene.fog.color.set(currentEnvironment.fog || 0x7b4771).multiplyScalar(1-night*nightFogDarkness).lerp(dreamFogColor,dreamFog*fogDreamBlend);
+    let fogNear=baseFogNear-rainIntensity*rainFogNearReduction;
+    let fogFar=baseFogFar-rainIntensity*rainFogFarReduction-jetFogAmount*jetFogFarReduction;
     let fogClamp=currentEnvironment.fogRange || {};
+    if(night>0.001){
+      fogNear+=night*(fogClamp.nightNearBoost ?? 0);
+      fogFar+=night*(fogClamp.nightFarBoost ?? 0);
+    }
     let normalNear=Math.max(fogClamp.minNear ?? minNormalFogNear,fogNear);
     let normalFar=Math.max(normalNear+(fogClamp.minDepth ?? minNormalFogDepth),fogFar);
     scene.fog.near=normalNear+(dreamFogNear-normalNear)*dreamFog;
     scene.fog.far=normalFar+(dreamFogFar-normalFar)*dreamFog;
+  }
+
+  if(skyDomeMat && skyDomeMat.color){
+    skyDomeMat.color.setScalar(1-night*nightSkyDarkness);
   }
 
   updateSkyForWeather(forceSky,now);
@@ -1013,7 +1003,6 @@ function createFirstPersonVisorPane(left,width){
     "opacity:0.55"
   ]);
 
-  pane._rainLayer=createRainSplatterLayer(pane);
   firstPersonVisorOverlay.appendChild(pane);
   return pane;
 }
@@ -1094,17 +1083,14 @@ function updateFirstPersonVisorOverlay(){
   firstPersonVisorPanes[0].style.display=split ? "none" : "block";
   firstPersonVisorPanes[1].style.display=split ? "block" : "none";
   firstPersonVisorPanes[2].style.display=split ? "block" : "none";
-  let rainAmount=smoothStep(clamp((rainIntensity-0.04)/0.58,0,1));
   for(let i=0;i<firstPersonVisorPanes.length;i++){
     let pane=firstPersonVisorPanes[i];
-    let paneVisible=pane.style.display!=="none";
     let carAmount=firstPersonPaneCarAmount(i);
     if(pane._robotLayer) pane._robotLayer.style.opacity=String(1-carAmount*0.82);
     if(pane._carLayer) pane._carLayer.style.opacity=String(carAmount);
     if(pane._rainLayer){
-      let rainVisible=paneVisible && rainAmount>0.03;
-      pane._rainLayer.style.display=rainVisible ? "block" : "none";
-      pane._rainLayer.style.opacity=rainVisible ? String(rainAmount*(0.5+carAmount*0.22)) : "0";
+      pane._rainLayer.style.display="none";
+      pane._rainLayer.style.opacity="0";
     }
   }
 }
@@ -1467,6 +1453,7 @@ let mothershipHoverAltitude=56;
 let mothershipDelay=mothershipMinDelay+Math.floor(Math.random()*mothershipRandomDelay);
 let baseStationModel=null;
 let enemyShipModel=null;
+let enemyBuggyModel=null;
 let tradingOutpostModel=null;
 let tradingOutpost=null;
 let testingTradingOutpost=null;
@@ -1548,6 +1535,8 @@ let tradingBombAmount=1;
 let jetPurchaseBombAmount=10;
 let maxBoostCharge=100;
 let hoverBoostRechargeRate=maxBoostCharge/(30*60);
+let robotBoostFlightMaxAltitude=34;
+let jetFlightMaxAltitude=92;
 let maxFuel=100;
 let carFuelDrainRate=0.003;
 let jetFuelDrainRate=carFuelDrainRate*2;
@@ -1728,10 +1717,11 @@ let droneCoreMat=new THREE.MeshBasicMaterial({color:0x9fd8ff,transparent:true,op
 let boatHullMat=new THREE.MeshStandardMaterial({color:0x1a2630,emissive:0x06121a,emissiveIntensity:0.28,roughness:0.58,metalness:0.62});
 let boatDeckMat=new THREE.MeshStandardMaterial({color:0x4f6172,emissive:0x101820,emissiveIntensity:0.16,roughness:0.52,metalness:0.58});
 let boatMissileMat=new THREE.MeshStandardMaterial({color:0x7f2f25,emissive:0x2f0703,emissiveIntensity:0.42,roughness:0.4,metalness:0.5});
-let buggyHullMat=new THREE.MeshStandardMaterial({color:0x26302b,emissive:0x07110d,emissiveIntensity:0.24,roughness:0.68,metalness:0.48});
-let buggyArmorMat=new THREE.MeshStandardMaterial({color:0x5d5142,emissive:0x120d08,emissiveIntensity:0.18,roughness:0.58,metalness:0.62});
-let buggyWheelMat=new THREE.MeshStandardMaterial({color:0x101315,roughness:0.86,metalness:0.12});
-let buggyLauncherMat=new THREE.MeshStandardMaterial({color:0x7f2f25,emissive:0x2f0703,emissiveIntensity:0.48,roughness:0.42,metalness:0.58});
+let buggyHullMat=new THREE.MeshStandardMaterial({color:0x0d1210,emissive:0x010302,emissiveIntensity:0.12,roughness:0.72,metalness:0.5});
+let buggyArmorMat=new THREE.MeshStandardMaterial({color:0x201c17,emissive:0x030201,emissiveIntensity:0.08,roughness:0.66,metalness:0.64});
+let buggyWheelMat=new THREE.MeshStandardMaterial({color:0x050607,roughness:0.9,metalness:0.12});
+let buggyLauncherMat=new THREE.MeshStandardMaterial({color:0x33110d,emissive:0x090100,emissiveIntensity:0.26,roughness:0.52,metalness:0.58});
+let buggyTrimMat=new THREE.MeshStandardMaterial({color:0x342d21,roughness:0.58,metalness:0.58});
 let spiderBodyMat=new THREE.MeshStandardMaterial({color:0x151821,emissive:0x220912,emissiveIntensity:0.38,roughness:0.76,metalness:0.52});
 let spiderLegMat=new THREE.MeshStandardMaterial({color:0x3a2334,emissive:0x120512,emissiveIntensity:0.26,roughness:0.68,metalness:0.48});
 let mothershipHullMat=new THREE.MeshStandardMaterial({color:0x211c32,emissive:0x09051a,emissiveIntensity:0.42,roughness:0.72,metalness:0.58});
@@ -2334,7 +2324,7 @@ function createCarState(id,lateralOffset,controls,camera,gamepadIndex){
     cameraYaw:0,
     cameraDownhillAmount:0,
     group,
-    shadow:createCarShadow(scene),
+    shadow:createCarShadow(scene,{opacity:0.66,minOpacity:0.34}),
     x:0,
     y:20,
     renderY:20,
@@ -10188,6 +10178,7 @@ function updateEnemy(enemy,settings=currentDifficulty(),targetableCars=enemyTarg
         pad.mesh.rotation.x=rotX;
       }
     }
+    animateEnemyBuggyWheels(enemy.buggyModel,enemy.speed);
     if(enemy.buggyModel.userData.launcher){
       let localAim=clamp(normalizeAngle(aimTargetAngle-enemy.angle),-0.64,0.64);
       enemy.buggyModel.userData.launcher.rotation.y+=(localAim-enemy.buggyModel.userData.launcher.rotation.y)*0.16;
@@ -10554,8 +10545,17 @@ function updateFlightThrust(car,surfaceY){
   }
 
   car.boostCharge=Math.max(0,car.boostCharge-(altitude<18 ? 0.34 : 0.18));
-  let altitudeLift=altitude<18 ? 0.052 : 0.018;
-  car.vy=clamp(car.vy+altitudeLift,-0.08,0.62);
+  if(altitude>=robotBoostFlightMaxAltitude){
+    car.y=Math.min(car.y,surfaceY+robotBoostFlightMaxAltitude);
+    car.vy=Math.min(car.vy,0);
+    car.onGround=false;
+    return true;
+  }
+
+  let ceilingEase=clamp((robotBoostFlightMaxAltitude-altitude)/8,0,1);
+  let altitudeLift=(altitude<18 ? 0.052 : 0.018)*ceilingEase;
+  let maxUpVelocity=0.08+0.54*ceilingEase;
+  car.vy=clamp(car.vy+altitudeLift,-0.08,maxUpVelocity);
   car.onGround=false;
   return true;
 }
@@ -11344,7 +11344,7 @@ function makeVehicleHeadlights(accentColor){
   rig.userData.targets=[];
 
   for(let side of [-1,1]){
-    let spot=new THREE.SpotLight(0xfff1c8,0,130,0.4,0.5,1.12);
+    let spot=new THREE.SpotLight(0xfff1c8,0,260,0.46,0.58,0.82);
     let target=new THREE.Object3D();
     let lens=new THREE.Mesh(lensGeo,lensMat.clone());
 
@@ -11373,7 +11373,7 @@ function updateVehicleHeadlights(car){
   let z=(0.92*(1-carBlend)+2.1*carBlend);
   let x=(0.42*(1-carBlend)+0.78*carBlend);
   let targetY=(2.55*(1-carBlend)+0.28*carBlend);
-  let targetZ=(15.5*(1-carBlend)+24*carBlend);
+  let targetZ=(27*(1-carBlend)+42*carBlend);
 
   rig.visible=power>0.01;
   for(let i=0;i<2;i++){
@@ -11383,12 +11383,63 @@ function updateVehicleHeadlights(car){
     let lens=rig.userData.lenses[i];
 
     spot.position.set(side*x,y,z);
-    spot.intensity=power*(carBlend>0.55 ? 11.5 : 8.8);
-    spot.distance=carBlend>0.55 ? 145 : 118;
-    spot.angle=carBlend>0.55 ? 0.34 : 0.42;
+    spot.intensity=power*(carBlend>0.55 ? 28 : 22);
+    spot.distance=carBlend>0.55 ? 280 : 230;
+    spot.angle=carBlend>0.55 ? 0.42 : 0.5;
     target.position.set(side*x*0.7,targetY,targetZ);
     lens.position.set(side*x,y,z+0.05);
     lens.material.opacity=0.26+power*0.74;
+  }
+}
+
+function collectPlayerCarWheels(model){
+  let wheels=[];
+  if(!model) return wheels;
+  model.traverse(child=>{
+    if(child.isMesh && child.userData && child.userData.playerCarWheel){
+      let axis=child.userData.playerCarWheelAxis || "y";
+      if(axis==="x"){
+        child.userData.playerCarWheelBaseRotationX=Number.isFinite(child.userData.playerCarWheelBaseRotationX)
+          ? child.userData.playerCarWheelBaseRotationX
+          : child.rotation.x;
+      }else{
+        child.userData.playerCarWheelBaseRotationY=Number.isFinite(child.userData.playerCarWheelBaseRotationY)
+          ? child.userData.playerCarWheelBaseRotationY
+          : child.rotation.y;
+      }
+      wheels.push(child);
+    }
+  });
+  return wheels;
+}
+
+function animatePlayerCarWheels(car){
+  let carModel=car && car.carModel;
+  if(!carModel || !carModel.userData) return;
+  let wheels=carModel.userData.wheels || [];
+  if(!wheels.length) return;
+  let speed=car && Number.isFinite(car.speed) ? car.speed : 0;
+  let visibleAmount=clamp((car.morphProgress-0.56)/0.22,0,1)*(1-clamp((car.jetProgress || 0)/0.45,0,1));
+  let spin=(carModel.userData.wheelSpin || 0)+speed*(carModel.userData.wheelSpinRate || 0.62)*visibleAmount;
+  carModel.userData.wheelSpin=spin;
+
+  for(let wheel of wheels){
+    if(!wheel) continue;
+    let direction=wheel.userData && Number.isFinite(wheel.userData.playerCarWheelDirection)
+      ? wheel.userData.playerCarWheelDirection
+      : 1;
+    let axis=wheel.userData && wheel.userData.playerCarWheelAxis || "y";
+    if(axis==="x"){
+      let base=wheel.userData && Number.isFinite(wheel.userData.playerCarWheelBaseRotationX)
+        ? wheel.userData.playerCarWheelBaseRotationX
+        : 0;
+      wheel.rotation.x=base+spin*direction;
+    }else{
+      let base=wheel.userData && Number.isFinite(wheel.userData.playerCarWheelBaseRotationY)
+        ? wheel.userData.playerCarWheelBaseRotationY
+        : 0;
+      wheel.rotation.y=base+spin*direction;
+    }
   }
 }
 
@@ -11430,6 +11481,9 @@ function attachBackPackToPlayerRobot(car,model){
 function setMorphCarModel(car,model){
   if(car.carModel) car.group.remove(car.carModel);
   model.visible=false;
+  model.userData.wheels=collectPlayerCarWheels(model);
+  model.userData.wheelSpin=0;
+  model.userData.wheelSpinRate=0.62;
   car.carModel=model;
   car.group.add(model);
   updateMorphVisual(car);
@@ -11667,13 +11721,89 @@ function makeRobotBoatModel(seed=0){
   return boat;
 }
 
+function collectEnemyBuggyWheels(model){
+  let wheels=[];
+  if(!model) return wheels;
+  model.traverse(child=>{
+    if(child.isMesh && child.userData && child.userData.enemyBuggyWheel){
+      let axis=child.userData.enemyBuggyWheelAxis || "x";
+      if(axis==="y"){
+        child.userData.enemyBuggyWheelBaseRotationY=Number.isFinite(child.userData.enemyBuggyWheelBaseRotationY)
+          ? child.userData.enemyBuggyWheelBaseRotationY
+          : child.rotation.y;
+      }else{
+        child.userData.enemyBuggyWheelBaseRotationX=Number.isFinite(child.userData.enemyBuggyWheelBaseRotationX)
+          ? child.userData.enemyBuggyWheelBaseRotationX
+          : child.rotation.x;
+      }
+      wheels.push(child);
+    }
+  });
+  return wheels;
+}
+
+function animateEnemyBuggyWheels(buggyModel,speed){
+  if(!buggyModel || !buggyModel.userData) return;
+  let wheels=buggyModel.userData.wheels || [];
+  if(!wheels.length) return;
+  let spin=(buggyModel.userData.wheelSpin || 0)+speed*(buggyModel.userData.wheelSpinRate || 0.34);
+  buggyModel.userData.wheelSpin=spin;
+  for(let wheel of wheels){
+    if(!wheel) continue;
+    let direction=wheel.userData && Number.isFinite(wheel.userData.enemyBuggyWheelDirection)
+      ? wheel.userData.enemyBuggyWheelDirection
+      : 1;
+    let axis=wheel.userData && wheel.userData.enemyBuggyWheelAxis || "x";
+    if(axis==="y"){
+      let base=wheel.userData && Number.isFinite(wheel.userData.enemyBuggyWheelBaseRotationY)
+        ? wheel.userData.enemyBuggyWheelBaseRotationY
+        : 0;
+      wheel.rotation.y=base-spin*direction;
+    }else{
+      let base=wheel.userData && Number.isFinite(wheel.userData.enemyBuggyWheelBaseRotationX)
+        ? wheel.userData.enemyBuggyWheelBaseRotationX
+        : 0;
+      wheel.rotation.x=base+spin*direction;
+    }
+  }
+}
+
 function makeEnemyBuggyModel(seed=0){
+  if(enemyBuggyModel){
+    let buggy=enemyBuggyModel.clone(true);
+    let launcher=buggy.getObjectByName("enemy-buggy-launcher-anchor");
+    let wheels=collectEnemyBuggyWheels(buggy);
+    buggy.userData.tracks=[];
+    buggy.userData.trackOffset=0;
+    buggy.userData.wheels=wheels;
+    buggy.userData.wheelSpin=0;
+    buggy.userData.wheelSpinRate=0.32;
+    buggy.userData.launcher=launcher || null;
+    return buggy;
+  }
+
   let buggy=new THREE.Group();
+  let wheels=[];
   let variant=Math.abs(Math.sin(seed*31.4159)*43758.5453)%1;
+
+  function dustBuggyMesh(mesh){
+    if(!mesh || !mesh.material) return;
+    let name=(mesh.name || "").toLowerCase();
+    if(name.includes("windshield") || name.includes("light") || name.includes("wheel") || name.includes("hub")) return;
+    let materials=Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for(let i=0;i<materials.length;i++){
+      let material=materials[i];
+      if(!material || material.transparent || material.opacity<0.92) continue;
+      if(material.emissiveIntensity && material.emissiveIntensity>0.42) continue;
+      materials[i]=addPatchyCarDust(material,seed*0.31+mesh.id*0.49+i*1.77+11.2,enemyBuggyDustPatchOptions);
+    }
+    mesh.material=Array.isArray(mesh.material) ? materials : materials[0];
+  }
 
   function addPart(mesh){
     mesh.castShadow=true;
     mesh.receiveShadow=true;
+    dustBuggyMesh(mesh);
     buggy.add(mesh);
     return mesh;
   }
@@ -11683,7 +11813,7 @@ function makeEnemyBuggyModel(seed=0){
   chassis.scale.x=0.96+variant*0.12;
   addPart(chassis);
 
-  let skidPlate=new THREE.Mesh(new THREE.BoxGeometry(5.18,0.28,7.25),enemyTrimMat.clone());
+  let skidPlate=new THREE.Mesh(new THREE.BoxGeometry(5.18,0.28,7.25),buggyTrimMat.clone());
   skidPlate.position.set(0,0.62,0.02);
   skidPlate.rotation.x=0.02;
   addPart(skidPlate);
@@ -11707,6 +11837,7 @@ function makeEnemyBuggyModel(seed=0){
   addPart(turretDeck);
 
   let windshield=new THREE.Mesh(new THREE.BoxGeometry(1.92,0.58,0.1),enemyEyeMat.clone());
+  windshield.name="buggy-windshield";
   windshield.position.set(0,2.74,0.66);
   windshield.rotation.x=-0.16;
   addPart(windshield);
@@ -11759,24 +11890,34 @@ function makeEnemyBuggyModel(seed=0){
     trackGroup.add(sideArmor);
 
     for(let z of [-2.74,2.74]){
-      let sprocket=new THREE.Mesh(new THREE.CylinderGeometry(0.64,0.64,0.92,18),enemyTrimMat.clone());
+      let sprocket=new THREE.Mesh(new THREE.CylinderGeometry(0.64,0.64,0.92,18),buggyTrimMat.clone());
       sprocket.position.set(0,0,z);
       sprocket.rotation.z=Math.PI*0.5;
       sprocket.castShadow=true;
       sprocket.receiveShadow=true;
+      sprocket.userData.enemyBuggyWheel=true;
+      sprocket.userData.enemyBuggyWheelAxis="y";
+      sprocket.userData.enemyBuggyWheelDirection=1;
+      sprocket.userData.enemyBuggyWheelBaseRotationY=sprocket.rotation.y;
       trackGroup.add(sprocket);
+      wheels.push(sprocket);
 
       let hub=new THREE.Mesh(new THREE.CylinderGeometry(0.32,0.32,0.98,12),buggyLauncherMat.clone());
       hub.position.set(0,0,z);
       hub.rotation.z=Math.PI*0.5;
       hub.castShadow=true;
       hub.receiveShadow=true;
+      hub.userData.enemyBuggyWheel=true;
+      hub.userData.enemyBuggyWheelAxis="y";
+      hub.userData.enemyBuggyWheelDirection=1;
+      hub.userData.enemyBuggyWheelBaseRotationY=hub.rotation.y;
       trackGroup.add(hub);
+      wheels.push(hub);
     }
 
     let pads=[];
     for(let i=0;i<20;i++){
-      let pad=new THREE.Mesh(new THREE.BoxGeometry(1.12,0.18,0.36),enemyTrimMat.clone());
+      let pad=new THREE.Mesh(new THREE.BoxGeometry(1.12,0.18,0.36),buggyTrimMat.clone());
       pad.castShadow=true;
       pad.receiveShadow=true;
       trackGroup.add(pad);
@@ -11795,7 +11936,7 @@ function makeEnemyBuggyModel(seed=0){
     flankPlate.rotation.z=side*0.035;
     addPart(flankPlate);
 
-    let nerfBar=new THREE.Mesh(new THREE.CylinderGeometry(0.08,0.08,6.4,8),enemyTrimMat.clone());
+    let nerfBar=new THREE.Mesh(new THREE.CylinderGeometry(0.08,0.08,6.4,8),buggyTrimMat.clone());
     nerfBar.position.set(side*3.08,1.46,-0.08);
     nerfBar.rotation.x=Math.PI*0.5;
     nerfBar.rotation.z=side*0.03;
@@ -11806,14 +11947,14 @@ function makeEnemyBuggyModel(seed=0){
   rollCage.position.set(0,3.14,-0.46);
   buggy.add(rollCage);
   for(let side of [-1,1]){
-    let upright=new THREE.Mesh(new THREE.CylinderGeometry(0.07,0.07,1.42,8),enemyTrimMat.clone());
+    let upright=new THREE.Mesh(new THREE.CylinderGeometry(0.07,0.07,1.42,8),buggyTrimMat.clone());
     upright.position.set(side*1.32,-0.08,-0.76);
     upright.rotation.z=side*0.14;
     upright.castShadow=true;
     upright.receiveShadow=true;
     rollCage.add(upright);
 
-    let frontPost=new THREE.Mesh(new THREE.CylinderGeometry(0.065,0.065,1.32,8),enemyTrimMat.clone());
+    let frontPost=new THREE.Mesh(new THREE.CylinderGeometry(0.065,0.065,1.32,8),buggyTrimMat.clone());
     frontPost.position.set(side*1.08,-0.22,0.54);
     frontPost.rotation.x=-0.18;
     frontPost.rotation.z=side*0.1;
@@ -11821,13 +11962,13 @@ function makeEnemyBuggyModel(seed=0){
     frontPost.receiveShadow=true;
     rollCage.add(frontPost);
   }
-  let roofBar=new THREE.Mesh(new THREE.BoxGeometry(2.9,0.1,1.55),enemyTrimMat.clone());
+  let roofBar=new THREE.Mesh(new THREE.BoxGeometry(2.9,0.1,1.55),buggyTrimMat.clone());
   roofBar.position.set(0,0.72,-0.12);
   roofBar.castShadow=true;
   roofBar.receiveShadow=true;
   rollCage.add(roofBar);
 
-  let bumper=new THREE.Mesh(new THREE.BoxGeometry(5.2,0.42,0.46),enemyTrimMat.clone());
+  let bumper=new THREE.Mesh(new THREE.BoxGeometry(5.2,0.42,0.46),buggyTrimMat.clone());
   bumper.position.set(0,1.36,3.9);
   addPart(bumper);
 
@@ -11844,7 +11985,14 @@ function makeEnemyBuggyModel(seed=0){
 
   buggy.userData.tracks=tracks;
   buggy.userData.trackOffset=0;
+  buggy.userData.wheels=wheels;
+  buggy.userData.wheelSpin=0;
+  buggy.userData.wheelSpinRate=0.4;
   buggy.userData.launcher=launcher;
+  buggy.traverse(child=>{
+    if(child.isMesh) dustBuggyMesh(child);
+  });
+  buggy.scale.setScalar(1.5);
   return buggy;
 }
 
@@ -12036,9 +12184,9 @@ function createEnemyState(index,x,z,type="mech"){
   if(spider) group.add(spider);
   if(boat) group.add(boat);
   if(buggy) group.add(buggy);
-  let collisionRadius=isGiant ? 7.9 : isBoss ? 5.8 : isBoat ? 5.6 : isBuggy ? 4.8 : isGuard ? 3.15 : isSpider ? 3.2 : isDrone ? 2.9 : 2.35;
-  let aimRadius=isGiant ? 10.5 : isBoss ? 9.5 : isBoat ? 7.5 : isBuggy ? 7.2 : isSpider ? 4.8 : isDrone ? 4.2 : isGuard ? 5.0 : 4.5;
-  let hitHeight=isGiant ? 12.5 : isBoss ? 8.5 : isBoat ? 4.6 : isBuggy ? 4.8 : isDrone ? 5.2 : isSpider ? 3.6 : 5.2;
+  let collisionRadius=isGiant ? 7.9 : isBoss ? 5.8 : isBoat ? 5.6 : isBuggy ? 7.2 : isGuard ? 3.15 : isSpider ? 3.2 : isDrone ? 2.9 : 2.35;
+  let aimRadius=isGiant ? 10.5 : isBoss ? 9.5 : isBoat ? 7.5 : isBuggy ? 10.8 : isSpider ? 4.8 : isDrone ? 4.2 : isGuard ? 5.0 : 4.5;
+  let hitHeight=isGiant ? 12.5 : isBoss ? 8.5 : isBoat ? 4.6 : isBuggy ? 7.2 : isDrone ? 5.2 : isSpider ? 3.6 : 5.2;
   let baseHealth=isGiant ? 420 : isBoss ? 260 : isGuard ? 82 : isBoat ? 72 : isBuggy ? 92 : isDrone ? 34 : isSpider ? 24 : 36;
   let startY=isBoat ? waterLevel+0.56 : drivingSurfaceHeight(x,z)+(isDrone ? 20 : 0);
   let walkMaxSpeed=isGiant ? 0.24 : isBoss ? 0.2 : isGuard ? 0.32 : isBuggy ? 0.54 : 0.4;
@@ -12057,7 +12205,7 @@ function createEnemyState(index,x,z,type="mech"){
     blocksTradingOutpostFootprint:isGiant,
     active:true,
     group,
-    shadow:(isDrone || isBoat) ? null : createCarShadow(scene,isBuggy ? {width:7.2,length:8.8,opacity:0.56,minOpacity:0.3} : {}),
+    shadow:(isDrone || isBoat) ? null : createCarShadow(scene,isBuggy ? {width:10.8,length:13.2,opacity:0.74,minOpacity:0.42} : {}),
     mechModel:mech,
     droneModel:drone,
     spiderModel:spider,
@@ -12948,6 +13096,7 @@ function updateMorphVisual(car){
     car.carModel.position.y=baseY+(1-vehicleReveal)*0.86+Math.sin(p*Math.PI*5)*0.06*transformShake;
     car.carModel.rotation.x=(1-vehicleReveal)*0.34-0.08*wheelDrop*(1-lockIn);
     car.carModel.rotation.z=Math.sin(performance.now()*0.061)*0.028*transformShake*(1-lockIn);
+    animatePlayerCarWheels(car);
   }
 
   if(car.jetModel){
@@ -13435,7 +13584,7 @@ function updateCar(car){
   let groundAutoLanded=false;
   let autoLandingApproachY=autoLanding ? landingSurface.y+12 : null;
   let autoLandingDeckY=null;
-  let jetAltitudeMax=154;
+  let jetAltitudeMax=surfaceY+jetFlightMaxAltitude;
   if(jetHovering && !gameOver && !carDisabled){
     let climbInput=(autoLanding || fuelAutoLanding || manualAutoLanding) ? 0 : Math.max(0,car.liftInput || 0);
     car.speed=clamp(car.speed+climbInput*0.027,0,jetMaxSpeed);
@@ -13519,6 +13668,20 @@ function updateCar(car){
   if(!gameOver && !carDisabled) car.vy-=flying ? gravityStrength*0.22 : jetHovering ? 0 : gravityStrength;
   let landingVy=car.vy;
   car.y+=car.vy;
+  if(flying && !jetHovering){
+    let robotBoostCeiling=surfaceY+robotBoostFlightMaxAltitude;
+    if(car.y>robotBoostCeiling){
+      car.y=robotBoostCeiling;
+      car.vy=Math.min(car.vy,0);
+    }
+  }else if(jetHovering && !autoLanding && !fuelAutoLanding && !manualAutoLanding){
+    let jetCeiling=surfaceY+jetFlightMaxAltitude;
+    if(car.y>jetCeiling){
+      car.y=jetCeiling;
+      car.vy=Math.min(car.vy,0);
+      car.jetAltitudeTarget=Math.min(car.jetAltitudeTarget || jetCeiling,jetCeiling);
+    }
+  }
 
   if(!gameOver && !carDisabled && jetHovering && !autoLanding && !fuelAutoLanding && !manualAutoLanding){
     let terrainCollision=terrainCollisionAlongSegment(prevX,prevY,prevZ,car.x,car.y,car.z,1.15);
@@ -15791,6 +15954,14 @@ startupAssetPromises.push(trackStartupAsset(loadEnemyBattleShipModel()
   })
   .catch(error=>{
     console.error("Failed to load enemy ship model:",error);
+  })));
+
+startupAssetPromises.push(trackStartupAsset(loadEnemyBuggyModel()
+  .then(model=>{
+    enemyBuggyModel=model;
+  })
+  .catch(error=>{
+    console.error("Failed to load enemy buggy model:",error);
   })));
 
 startupAssetPromises.push(trackStartupAsset(loadLandingSpaceModel()

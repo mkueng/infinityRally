@@ -135,12 +135,12 @@ export const worldEnvironments=[
     terrainDetail:{strength:0.38,textureMix:0.24,scale:0.026,mountainStrength:0,normalScale:0.18},
     sky:["#04140d","#0b3522","#1c6b44","#6ea35b","#dbe88f"],
     fog:0x4f8061,
-    fogRange:{near:220,far:680,minNear:180,minDepth:420},
+    fogRange:{near:420,far:1400,minNear:360,minDepth:860,nightNearBoost:260,nightFarBoost:720},
     colors:{
       underwater:0x163a30,shore:0x6f5a3d,low:0x255c38,mid:0x39784b,high:0x78a464,
       water:0x2fae91,waterEmissive:0x065644,bark:0x172512,barkEmissive:0x061006,
       leaf:0x45c95a,leafEmissive:0x0e5c22,pod:0xe6db5e,podEmissive:0x7a6f08,
-      grass:0x8bf05f,grassEmissive:0x265f16,bushEmissive:0x70ff52,bushEmissiveIntensity:0.78,bushAccent:0xd7ef58,bushDark:0x1d7a38,rock:0xd45a42,rockEmissive:0x5c160d,rockEmissiveIntensity:0.34,wall:0x4f704b,roof:0x203621,trim:0xa5c977,brick:0x496b3f
+      grass:0x8bf05f,grassEmissive:0x265f16,bushEmissive:0x70ff52,bushEmissiveIntensity:0.78,bushAccent:0xd7ef58,bushDark:0x1d7a38,rock:0x6f8b55,rockEmissive:0x1f4a18,rockEmissiveIntensity:0.22,wall:0x4f704b,roof:0x203621,trim:0xa5c977,brick:0x496b3f
     },
     shoreline:{wetWaterMix:0,innerHeight:5.2,outerHeight:24,innerShoreBlend:0.12,wetShaderWaterMix:0,wetShaderHeight:18,wetShaderStrength:0,terrainShoreStrength:0.32,shoreBandWaterMix:0,showBand:false,useClippedWater:true,waterMinVisibleDepth:11},
     rocks:{highAltitudeStart:26,highAltitudeFull:56,highAltitudeMaxScale:1.28,veryHighMaxScale:0.92},

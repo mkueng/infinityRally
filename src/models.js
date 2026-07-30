@@ -12,6 +12,7 @@ carDustTexture.anisotropy=4;
 if(THREE.SRGBColorSpace) carDustTexture.colorSpace=THREE.SRGBColorSpace;
 
 function shouldDustCarMesh(mesh,material){
+  if(mesh.userData && mesh.userData.playerCarWheel) return false;
   let name=`${mesh.name || ""} ${material.name || ""}`.toLowerCase();
   if(material.transparent || material.opacity<0.92) return false;
   if(name.includes("7720667")) return false;
@@ -27,7 +28,58 @@ function shouldDustRobotMesh(mesh){
   return true;
 }
 
-function addPatchyCarDust(material,seed=0,options={}){
+export const robotDustPatchOptions={
+  strength:0.54,
+  uvScale:0.82,
+  sideUvScale:0.66,
+  verticalUvScale:0.48,
+  patchScale:1.08,
+  fineScale:2.05,
+  blend:0.56,
+  maskLow:0.42,
+  maskHigh:0.74,
+  fineLow:0.08,
+  fineHigh:0.58,
+  surfaceBase:0.62,
+  topAmount:0.24,
+  sideAmount:0.2
+};
+
+export const enemyBuggyDustPatchOptions={
+  strength:0.76,
+  uvScale:0.7,
+  sideUvScale:0.56,
+  verticalUvScale:0.42,
+  patchScale:0.92,
+  fineScale:1.84,
+  blend:0.64,
+  maskLow:0.34,
+  maskHigh:0.7,
+  fineLow:0.06,
+  fineHigh:0.55,
+  surfaceBase:0.72,
+  topAmount:0.34,
+  sideAmount:0.32
+};
+
+const playerCarDirtPatchOptions={
+  strength:0.58,
+  uvScale:0.16,
+  sideUvScale:0.12,
+  verticalUvScale:0.062,
+  patchScale:0.3,
+  fineScale:0.72,
+  blend:0.58,
+  maskLow:0.42,
+  maskHigh:0.78,
+  fineLow:0.1,
+  fineHigh:0.6,
+  surfaceBase:0.64,
+  topAmount:0.28,
+  sideAmount:0.24
+};
+
+export function addPatchyCarDust(material,seed=0,options={}){
   if(material.userData && material.userData.carDustApplied) return material;
 
   let settings={
@@ -156,6 +208,97 @@ function addPatchyCarDust(material,seed=0,options={}){
   return dusted;
 }
 
+function shouldDustEnemyBuggyMesh(mesh,material){
+  if(mesh.userData && mesh.userData.enemyBuggyWheel) return false;
+  let name=`${mesh.name || ""} ${material.name || ""}`.toLowerCase();
+  if(material.transparent || material.opacity<0.92) return false;
+  if(name.includes("11593967")) return false;
+  if(name.includes("16121600") || name.includes("16776448")) return false;
+  return true;
+}
+
+function isEnemyBuggyAssetWheelMesh(mesh){
+  if(!mesh || !mesh.geometry || !mesh.material) return false;
+  let materials=Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+  let materialName=materials.map(material=>material && material.name || "").join(" ").toLowerCase();
+  if(!materialName.includes("color_2829873") && !materialName.includes("color_16448250")) return false;
+
+  mesh.geometry.computeBoundingBox();
+  let bounds=mesh.geometry.boundingBox;
+  if(!bounds) return false;
+  let size=bounds.getSize(new THREE.Vector3());
+  let axleDepth=size.x;
+  let wheelHeight=size.y;
+  let wheelRadiusDepth=size.z;
+  return axleDepth>=5.5
+    && axleDepth<=12.5
+    && wheelHeight>=11
+    && wheelHeight<=23
+    && wheelRadiusDepth>=11
+    && wheelRadiusDepth<=23;
+}
+
+function prepareEnemyBuggyAssetWheel(mesh){
+  mesh.geometry.computeBoundingBox();
+  let bounds=mesh.geometry.boundingBox;
+  if(!bounds) return;
+  let center=bounds.getCenter(new THREE.Vector3());
+  mesh.geometry.translate(-center.x,-center.y,-center.z);
+  mesh.geometry.computeBoundingBox();
+  mesh.position.x+=center.x;
+  mesh.position.y+=center.y;
+  mesh.position.z+=center.z;
+  mesh.userData.enemyBuggyWheel=true;
+  mesh.userData.enemyBuggyWheelAxis="x";
+  mesh.userData.enemyBuggyWheelDirection=1;
+  mesh.userData.enemyBuggyWheelBaseRotationX=mesh.rotation.x;
+}
+
+function isPlayerCarAssetWheelMesh(mesh){
+  if(!mesh || !mesh.geometry || !mesh.material) return false;
+  let materials=Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+  let materialName=materials.map(material=>material && material.name || "").join(" ").toLowerCase();
+  if(!materialName.includes("color_2829873")) return false;
+
+  mesh.geometry.computeBoundingBox();
+  let bounds=mesh.geometry.boundingBox;
+  if(!bounds) return false;
+  let size=bounds.getSize(new THREE.Vector3());
+  let wheelWidth=size.x;
+  let axleDepth=size.y;
+  let wheelHeight=size.z;
+  return wheelWidth>=18
+    && wheelWidth<=22
+    && axleDepth>=9
+    && axleDepth<=13
+    && wheelHeight>=18
+    && wheelHeight<=22;
+}
+
+function preparePlayerCarAssetWheel(mesh){
+  mesh.geometry.computeBoundingBox();
+  let bounds=mesh.geometry.boundingBox;
+  if(!bounds) return;
+  let center=bounds.getCenter(new THREE.Vector3());
+  mesh.geometry.translate(-center.x,-center.y,-center.z);
+  mesh.geometry.computeBoundingBox();
+  mesh.position.x+=center.x;
+  mesh.position.y+=center.y;
+  mesh.position.z+=center.z;
+  mesh.userData.playerCarWheel=true;
+  mesh.userData.playerCarWheelAxis="y";
+  mesh.userData.playerCarWheelDirection=1;
+  mesh.userData.playerCarWheelBaseRotationY=mesh.rotation.y;
+}
+
+function darkenVehicleMaterial(material,amount=0.66,emissiveAmount=0.72){
+  if(!material || !material.color) return;
+  if(material.userData && material.userData.vehicleDarkened) return;
+  material.color.multiplyScalar(amount);
+  if(material.emissive) material.emissive.multiplyScalar(emissiveAmount);
+  material.userData={...(material.userData || {}),vehicleDarkened:true};
+}
+
 export function normalizeCarModel(car){
   let model=new THREE.Group();
   let asset=new THREE.Group();
@@ -188,6 +331,9 @@ export function normalizeCarModel(car){
     if(child.isMesh){
       child.castShadow=true;
       child.receiveShadow=true;
+      if(isPlayerCarAssetWheelMesh(child)){
+        preparePlayerCarAssetWheel(child);
+      }
       if(child.geometry) child.geometry.computeVertexNormals();
       if(child.material){
         let materials=Array.isArray(child.material) ? child.material : [child.material];
@@ -202,9 +348,15 @@ export function normalizeCarModel(car){
             material.depthWrite=false;
             material.roughness=0.14;
             material.metalness=0.08;
+          }else if(material.name==="color_14900002"){
+            darkenVehicleMaterial(material,0.5,0.62);
+          }else if(material.name==="color_2829873"){
+            darkenVehicleMaterial(material,0.58,0.62);
+          }else{
+            darkenVehicleMaterial(material,0.42,0.62);
           }
           if(shouldDustCarMesh(child,material)){
-            materials[i]=addPatchyCarDust(material,child.id*0.37+i*1.91);
+            materials[i]=addPatchyCarDust(material,child.id*0.37+i*1.91,playerCarDirtPatchOptions);
           }
         }
         child.material=Array.isArray(child.material) ? materials : materials[0];
@@ -424,6 +576,108 @@ export function loadEnemyBattleShipModel(){
         objLoader.load(
           "tinker.obj",
           object=>resolve(normalizeEnemyBattleShipModel(object)),
+          undefined,
+          reject
+        );
+      },
+      undefined,
+      reject
+    );
+  });
+}
+
+export function normalizeEnemyBuggyModel(buggy){
+  let model=new THREE.Group();
+  let asset=new THREE.Group();
+  buggy.rotation.x=-Math.PI/2;
+  asset.rotation.y=0;
+  asset.add(buggy);
+  model.add(asset);
+  model.updateMatrixWorld(true);
+
+  let box=new THREE.Box3().setFromObject(model);
+  let size=new THREE.Vector3();
+  let center=new THREE.Vector3();
+  box.getSize(size);
+  box.getCenter(center);
+
+  let scale=7.35/Math.max(size.x,size.z,0.001);
+  model.scale.setScalar(scale*1.5);
+  model.updateMatrixWorld(true);
+
+  box.setFromObject(model);
+  box.getCenter(center);
+  asset.position.x-=center.x/scale;
+  asset.position.z-=center.z/scale;
+  model.updateMatrixWorld(true);
+
+  box.setFromObject(model);
+  asset.position.y-=box.min.y/scale;
+
+  model.traverse(child=>{
+    if(child.isMesh){
+      child.castShadow=true;
+      child.receiveShadow=true;
+      if(isEnemyBuggyAssetWheelMesh(child)){
+        prepareEnemyBuggyAssetWheel(child);
+      }
+      if(child.geometry) child.geometry.computeVertexNormals();
+      if(child.material){
+        let materials=Array.isArray(child.material) ? child.material : [child.material];
+        for(let i=0;i<materials.length;i++){
+          let material=materials[i];
+          material.side=THREE.FrontSide;
+          material.roughness=material.roughness ?? 0.62;
+          material.metalness=material.metalness ?? 0.34;
+          if(material.name==="color_11593967"){
+            darkenVehicleMaterial(material,0.68,0.62);
+            material.emissive=new THREE.Color(0x123238);
+            material.emissiveIntensity=0.22;
+            material.roughness=0.24;
+          }else if(material.name==="color_16121600" || material.name==="color_16776448"){
+            darkenVehicleMaterial(material,0.56,0.62);
+            material.emissive=new THREE.Color(0x4a3b00);
+            material.emissiveIntensity=0.18;
+          }else if(material.name==="color_2829873" || material.name==="color_6383466"){
+            darkenVehicleMaterial(material,0.48,0.62);
+          }else{
+            darkenVehicleMaterial(material,0.38,0.62);
+          }
+          if(shouldDustEnemyBuggyMesh(child,material)){
+            materials[i]=addPatchyCarDust(material,child.id*0.47+i*2.13+8.4,enemyBuggyDustPatchOptions);
+          }
+        }
+        child.material=Array.isArray(child.material) ? materials : materials[0];
+      }
+    }
+  });
+
+  let launcherAnchor=new THREE.Object3D();
+  launcherAnchor.name="enemy-buggy-launcher-anchor";
+  launcherAnchor.position.set(0,4.1,1.65);
+  model.add(launcherAnchor);
+  model.userData.tracks=[];
+  model.userData.trackOffset=0;
+  model.userData.launcher=launcherAnchor;
+  return model;
+}
+
+export function loadEnemyBuggyModel(){
+  let mtlLoader=new MTLLoader();
+  mtlLoader.setPath("assets/enemyBuggy/");
+
+  return new Promise((resolve,reject)=>{
+    mtlLoader.load(
+      "obj.mtl",
+      materials=>{
+        materials.preload();
+
+        let objLoader=new OBJLoader();
+        objLoader.setPath("assets/enemyBuggy/");
+        objLoader.setMaterials(materials);
+        objLoader.load(
+          "tinker.obj",
+          object=>resolve(normalizeEnemyBuggyModel(object)),
           undefined,
           reject
         );
@@ -1237,22 +1491,7 @@ export function makeMechModel(accentColor=0xb83a32,options={}){
       child.userData.baseRotation=child.rotation.clone();
       child.userData.baseScale=child.scale.clone();
       if(robotDust && child.material && shouldDustRobotMesh(child)){
-        child.material=addPatchyCarDust(child.material,child.id*0.43+2.7,{
-          strength:0.54,
-          uvScale:0.82,
-          sideUvScale:0.66,
-          verticalUvScale:0.48,
-          patchScale:1.08,
-          fineScale:2.05,
-          blend:0.56,
-          maskLow:0.42,
-          maskHigh:0.74,
-          fineLow:0.08,
-          fineHigh:0.58,
-          surfaceBase:0.62,
-          topAmount:0.24,
-          sideAmount:0.2
-        });
+        child.material=addPatchyCarDust(child.material,child.id*0.43+2.7,robotDustPatchOptions);
       }
     }
   });

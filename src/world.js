@@ -167,8 +167,8 @@ const rockTexture=new THREE.TextureLoader().load(
 );
 rockTexture.wrapS=THREE.RepeatWrapping;
 rockTexture.wrapT=THREE.RepeatWrapping;
-rockTexture.repeat.set(1.7,1.7);
-rockTexture.anisotropy=4;
+rockTexture.repeat.set(3.2,3.2);
+rockTexture.anisotropy=8;
 if(THREE.SRGBColorSpace) rockTexture.colorSpace=THREE.SRGBColorSpace;
 
 const rockNormalTexture=new THREE.TextureLoader().load(
@@ -181,8 +181,8 @@ const rockNormalTexture=new THREE.TextureLoader().load(
 );
 rockNormalTexture.wrapS=THREE.RepeatWrapping;
 rockNormalTexture.wrapT=THREE.RepeatWrapping;
-rockNormalTexture.repeat.set(1.7,1.7);
-rockNormalTexture.anisotropy=4;
+rockNormalTexture.repeat.set(3.2,3.2);
+rockNormalTexture.anisotropy=8;
 if(THREE.NoColorSpace) rockNormalTexture.colorSpace=THREE.NoColorSpace;
 
 const cheapTreeCrownTexture=new THREE.TextureLoader().load(
@@ -229,11 +229,12 @@ landMat.onBeforeCompile=shader=>{
   shader.uniforms.terrainDetailTextureMix={value:currentEnvironment.terrainDetail?.textureMix ?? 1};
   shader.uniforms.mountainDetailStrength={value:currentEnvironment.terrainDetail?.mountainStrength ?? 1};
   shader.uniforms.landWetWaterLevel={value:waterLevel+waterSurfaceVisualLift};
-  shader.uniforms.landWetShoreColor={value:new THREE.Color(0xd6b25a)};
-  shader.uniforms.landWetWaterColor={value:new THREE.Color(0x20ffd4)};
-  shader.uniforms.landWetStrength={value:0.34};
+  shader.uniforms.landWetShoreColor={value:new THREE.Color()};
+  shader.uniforms.landWetWaterColor={value:new THREE.Color()};
+  shader.uniforms.landWetStrength={value:0};
   shader.uniforms.landWetBandHeight={value:currentEnvironment.shoreline?.wetShaderHeight ?? 9.5};
   landMat.userData.shader=shader;
+  applyLandWetShaderEnvironment(shader);
   shader.vertexShader=shader.vertexShader.replace(
     "#include <common>",
     [
@@ -573,10 +574,11 @@ waterMat.onBeforeCompile=shader=>{
       "float shimmerB=waterValueNoise(waterUv*0.113+vec2(-waterShimmerTime*0.36,waterShimmerTime*0.5));",
       "float shimmer=pow(max(shimmerA*0.62+shimmerB*0.48-0.48,0.0),2.6);",
       "float dayShimmer=waterDayAmount*0.46;",
-      "float nightShimmer=waterNightAmount*0.3;",
+      "float nightShimmer=waterNightAmount*0.06;",
       "float shimmerAmount=shimmer*(dayShimmer+nightShimmer)*waterRainFade;",
-      "vec3 shimmerColor=mix(vec3(0.28,0.92,1.0),vec3(0.92,1.0,0.98),clamp(waterDayAmount,0.0,1.0));",
-      "gl_FragColor.rgb=mix(gl_FragColor.rgb,gl_FragColor.rgb+shimmerColor,shimmerAmount);",
+      "vec3 nightShimmerColor=gl_FragColor.rgb*0.55+vec3(0.12);",
+      "vec3 shimmerColor=mix(nightShimmerColor,vec3(0.92,1.0,0.98),clamp(waterDayAmount,0.0,1.0));",
+      "gl_FragColor.rgb=mix(gl_FragColor.rgb,gl_FragColor.rgb+shimmerColor*0.45,shimmerAmount);",
       "#include <dithering_fragment>"
     ].join("\n")
   );
@@ -804,13 +806,13 @@ function makeShoreBandGeometryFromTerrain(terrainPositions){
 }
 
 rockMat=new THREE.MeshStandardMaterial({
-  color:0x3f334b,
+  color:0xffffff,
   map:rockTexture,
   normalMap:rockNormalTexture,
-  normalScale:new THREE.Vector2(1.05,1.05),
+  normalScale:new THREE.Vector2(1.65,1.65),
   emissive:0x000000,
   emissiveIntensity:0,
-  roughness:0.84,
+  roughness:0.92,
   metalness:0.03
 });
 let gravelMat=new THREE.MeshStandardMaterial({color:0x5a5164,roughness:1,metalness:0.02});
@@ -1069,6 +1071,17 @@ function displayWaterEmissive(color){
   return displayed.getHex();
 }
 
+function applyLandWetShaderEnvironment(shader){
+  if(!shader || !shader.uniforms) return;
+  let colors=environmentColors();
+  let shoreline=environmentShoreline();
+  if(shader.uniforms.landWetWaterLevel) shader.uniforms.landWetWaterLevel.value=waterLevel+waterSurfaceVisualLift;
+  if(shader.uniforms.landWetShoreColor) shader.uniforms.landWetShoreColor.value.set(mixHexColor(colors.shore || colors.low,colors.low || colors.shore,0.2));
+  if(shader.uniforms.landWetWaterColor) shader.uniforms.landWetWaterColor.value.set(mixHexColor(colors.shore || colors.low,displayWaterColor(colors.water),shoreline.wetShaderWaterMix ?? 0.16));
+  if(shader.uniforms.landWetStrength) shader.uniforms.landWetStrength.value=shoreline.wetShaderStrength ?? 0.34;
+  if(shader.uniforms.landWetBandHeight) shader.uniforms.landWetBandHeight.value=shoreline.wetShaderHeight ?? 9.5;
+}
+
 function applyEnvironment(environment={}){
   currentEnvironment={
     ...defaultEnvironment,
@@ -1084,6 +1097,7 @@ function applyEnvironment(environment={}){
   landMat.map=makeGroundTexture(currentEnvironment);
   landMat.normalScale.setScalar(currentEnvironment.terrainDetail?.normalScale ?? 0.38);
   landMat.needsUpdate=true;
+  setTerraformBloomAmount(0);
   setMaterialColor(waterMat,displayWaterColor(colors.water),displayWaterEmissive(colors.waterEmissive || colors.water));
   if(landMat.userData.shader){
     let shader=landMat.userData.shader;
@@ -1091,11 +1105,7 @@ function applyEnvironment(environment={}){
     if(shader.uniforms.terrainDetailStrength) shader.uniforms.terrainDetailStrength.value=currentEnvironment.terrainDetail?.strength ?? 0.54;
     if(shader.uniforms.terrainDetailTextureMix) shader.uniforms.terrainDetailTextureMix.value=currentEnvironment.terrainDetail?.textureMix ?? 1;
     if(shader.uniforms.mountainDetailStrength) shader.uniforms.mountainDetailStrength.value=currentEnvironment.terrainDetail?.mountainStrength ?? 1;
-    if(shader.uniforms.landWetWaterLevel) shader.uniforms.landWetWaterLevel.value=waterLevel+waterSurfaceVisualLift;
-    if(shader.uniforms.landWetShoreColor) shader.uniforms.landWetShoreColor.value.set(mixHexColor(colors.shore || colors.low,colors.low || colors.shore,0.2));
-    if(shader.uniforms.landWetWaterColor) shader.uniforms.landWetWaterColor.value.set(mixHexColor(colors.shore || colors.low,displayWaterColor(colors.water),shoreline.wetShaderWaterMix ?? 0.16));
-    if(shader.uniforms.landWetStrength) shader.uniforms.landWetStrength.value=shoreline.wetShaderStrength ?? 0.34;
-    if(shader.uniforms.landWetBandHeight) shader.uniforms.landWetBandHeight.value=shoreline.wetShaderHeight ?? 9.5;
+    applyLandWetShaderEnvironment(shader);
   }
   if(shoreBandMat.color) shoreBandMat.color.set(mixHexColor(colors.shore || colors.low,displayWaterColor(colors.water),shoreline.shoreBandWaterMix ?? 0.28));
   setMaterialColor(barkMat,colors.bark,colors.barkEmissive);
@@ -1120,7 +1130,7 @@ function applyEnvironment(environment={}){
   setMaterialColor(grassMat,colors.grass,colors.grassEmissive);
   setMaterialColor(bushMat,mixHexColor(colors.leaf,colors.grass,0.28),colors.bushEmissive || mixHexColor(colors.leafEmissive || colors.leaf,colors.grassEmissive || colors.grass,0.36));
   bushMat.emissiveIntensity=colors.bushEmissiveIntensity ?? 0.18;
-  setMaterialColor(rockMat,colors.rock,colors.rockEmissive);
+  setMaterialColor(rockMat,0xffffff,colors.rockEmissive);
   rockMat.emissiveIntensity=colors.rockEmissiveIntensity ?? 0;
   setMaterialColor(gravelMat,mixHexColor(colors.rock,colors.shore,0.36));
   setMaterialColor(buildingWallMat,colors.wall);
@@ -1154,7 +1164,7 @@ function createChunkWorker(){
   if(options.disableChunkWorker || typeof Worker==="undefined") return null;
 
   try{
-    let worker=new Worker(new URL("./chunkWorker.js?v=titan-wide-plateaus",import.meta.url),{type:"module"});
+    let worker=new Worker(new URL("./chunkWorker.js?v=wet-shader-env-colors",import.meta.url),{type:"module"});
     let template=makeTerrainVertexTemplate();
     worker.postMessage({
       type:"setTerrainTemplate",
@@ -1750,10 +1760,12 @@ function damageBossBase(obstacle,amount=1){
 
 function obstacleMovementRadius(obstacle,padding=0){
   let radius=obstacle && Number.isFinite(obstacle.r) ? obstacle.r : 0;
-  if(obstacle && obstacle.type==="smallRock" && obstacle.gravelRock){
+  if(obstacle && obstacle.type==="rock"){
+    radius=Math.max(radius,(obstacle.visualRadius || radius)*1.28,2.6);
+  }else if(obstacle && obstacle.type==="smallRock" && obstacle.gravelRock){
     radius=Math.max(0.62,Math.min(radius,(obstacle.visualRadius || radius)*0.82));
   }else if(obstacle && obstacle.type==="smallRock"){
-    radius=Math.max(1.45,Math.min(radius,(obstacle.visualRadius || radius)*0.95));
+    radius=Math.max(1.45,Math.max(radius,(obstacle.visualRadius || radius)*1.12));
   }
   return radius+padding;
 }
@@ -1795,7 +1807,7 @@ function verticalBoundsOverlap(actorBounds,obstacle){
     : obstacleBounds.bottom;
   let exposedObstacleHeight=Math.max(0,obstacleBounds.top-obstacleBaseY);
   let canStepOver=obstacle
-    && (obstacle.type==="rock" || obstacle.type==="smallRock" || obstacle.type==="wall")
+    && (obstacle.type==="smallRock" || obstacle.type==="wall")
     && Number.isFinite(actorBounds.stepHeight)
     && exposedObstacleHeight<=actorBounds.stepHeight;
   if(canStepOver) return false;
@@ -3277,6 +3289,11 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   rockShadows.renderOrder=1;
   let rockUsed=0;
   let rockCollidersByInstance=[];
+  let rockBaseColor=new THREE.Color(envColors.rock || 0xd45a42);
+  let rockDarkColor=rockBaseColor.clone().lerp(new THREE.Color(0x2b1712),0.48);
+  let rockWarmColor=rockBaseColor.clone().lerp(new THREE.Color(0xd88945),0.32);
+  let rockDustColor=rockBaseColor.clone().lerp(new THREE.Color(envColors.shore || 0x8a6a4a),0.24);
+  let rockInstanceColor=new THREE.Color();
 
   for(let i=0;i<rockCount;i++){
     let rx=rand(cx*222+i,cz*888-i);
@@ -3337,6 +3354,14 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
     dummy.updateMatrix();
 
     rocks.setMatrixAt(rockUsed,dummy.matrix);
+    let colorRoll=rand(i*41+cx*19,cz*23-i);
+    let shadeRoll=rand(i*59-cx*7,cz*31+i);
+    rockInstanceColor.copy(rockBaseColor);
+    if(colorRoll<0.32) rockInstanceColor.lerp(rockDarkColor,0.22+shadeRoll*0.34);
+    else if(colorRoll<0.68) rockInstanceColor.lerp(rockWarmColor,0.16+shadeRoll*0.26);
+    else rockInstanceColor.lerp(rockDustColor,0.12+shadeRoll*0.28);
+    rockInstanceColor.multiplyScalar(0.84+rand(i*83+cx,cz*11-i)*0.28);
+    rocks.setColorAt(rockUsed,rockInstanceColor);
     rockUsed++;
   }
 
@@ -3344,6 +3369,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   rockShadows.count=rockUsed;
   rocks.instanceMatrix.needsUpdate=true;
   rockShadows.instanceMatrix.needsUpdate=true;
+  if(rocks.instanceColor) rocks.instanceColor.needsUpdate=true;
   if(rocks.computeBoundingSphere) rocks.computeBoundingSphere();
   if(rocks.computeBoundingBox) rocks.computeBoundingBox();
   if(rockShadows.computeBoundingSphere) rockShadows.computeBoundingSphere();
@@ -4550,8 +4576,8 @@ function updateWind(time,rainIntensity=0,dayAmount=1,nightAmount=0){
   let rain=Math.max(0,Math.min(1,rainIntensity));
   if(waterShimmerShader){
     if(waterShimmerShader.uniforms.waterShimmerTime) waterShimmerShader.uniforms.waterShimmerTime.value=time*0.001;
-    if(waterShimmerShader.uniforms.waterDayAmount) waterShimmerShader.uniforms.waterDayAmount.value=Math.max(0,Math.min(1,dayAmount));
-    if(waterShimmerShader.uniforms.waterNightAmount) waterShimmerShader.uniforms.waterNightAmount.value=Math.max(0,Math.min(1,nightAmount));
+    if(waterShimmerShader.uniforms.waterDayAmount) waterShimmerShader.uniforms.waterDayAmount.value=1;
+    if(waterShimmerShader.uniforms.waterNightAmount) waterShimmerShader.uniforms.waterNightAmount.value=0;
     if(waterShimmerShader.uniforms.waterRainIntensity) waterShimmerShader.uniforms.waterRainIntensity.value=rain;
   }
 
