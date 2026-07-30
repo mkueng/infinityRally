@@ -132,7 +132,7 @@ export const worldEnvironments=[
   {
     name:"titan highlands",
     terrain:{heightScale:1.28,hillScale:0.5,mountainScale:1.56,ridgeMountainScale:0.05,mountainPeakPower:2.6,cragScale:0,cragFrequencyScale:0.28,terrainStructureScale:0.12,terrainStructureFrequencyScale:0.3,broadMountainScale:1.24,broadMountainChance:0.66,broadMountainSpacing:2350,broadMountainRadiusScale:2.45,broadMountainPlateau:1,broadMountainPlateauRadius:0.68,broadMountainRidgeStrength:0.035,megaMountainScale:0,megaMountainSpacing:3200,megaPlateauHeight:78,megaValleyDepth:42,megaRidgeHeight:88,megaRidgeSoftness:1.75,baseHeight:6.5,roadWave1:310,roadWave2:86,roadWave3:60,roadFrequencyScale:0.86},
-    terrainDetail:{strength:0.38,textureMix:0.24,scale:0.026,mountainStrength:0,normalScale:0.18},
+    terrainDetail:{strength:0.68,textureMix:0.56,scale:0.027,mountainStrength:0,normalScale:0.32},
     sky:["#04140d","#0b3522","#1c6b44","#6ea35b","#dbe88f"],
     fog:0x4f8061,
     fogRange:{near:420,far:1400,minNear:360,minDepth:860,nightNearBoost:260,nightFarBoost:720},
@@ -142,7 +142,7 @@ export const worldEnvironments=[
       leaf:0x45c95a,leafEmissive:0x0e5c22,pod:0xe6db5e,podEmissive:0x7a6f08,
       grass:0x8bf05f,grassEmissive:0x265f16,bushEmissive:0x70ff52,bushEmissiveIntensity:0.78,bushAccent:0xd7ef58,bushDark:0x1d7a38,rock:0x6f8b55,rockEmissive:0x1f4a18,rockEmissiveIntensity:0.22,wall:0x4f704b,roof:0x203621,trim:0xa5c977,brick:0x496b3f
     },
-    shoreline:{wetWaterMix:0,innerHeight:5.2,outerHeight:24,innerShoreBlend:0.12,wetShaderWaterMix:0,wetShaderHeight:18,wetShaderStrength:0,terrainShoreStrength:0.32,shoreBandWaterMix:0,showBand:false,useClippedWater:true,waterMinVisibleDepth:11},
+    shoreline:{wetWaterMix:0,innerHeight:5.2,outerHeight:24,innerShoreBlend:0.12,wetShaderWaterMix:0,wetShaderHeight:18,wetShaderStrength:0,terrainShoreStrength:0.32,shoreBandWaterMix:0,showBand:false,useClippedWater:true,waterMinVisibleDepth:4.5,waterOpacity:0.72,minWaterTriangleArea:0.42},
     rocks:{highAltitudeStart:26,highAltitudeFull:56,highAltitudeMaxScale:1.28,veryHighMaxScale:0.92},
     groundTexture:{base:"#2d6540",dark:[20,58,35],bright:[92,152,72],streak:"126,255,128"},
     rainChance:0.22,

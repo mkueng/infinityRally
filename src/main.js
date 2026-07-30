@@ -4,9 +4,9 @@ import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed
 import { createInput } from "./input.js?v=progressive-pointer-aim";
 import { createHud } from "./hud.js?v=larger-compass-unit-labels";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createLowHangingHaze, createRain, createStars, createWheelTracks } from "./effects.js?v=performance-broad-pass";
-import { createWorld } from "./world.js?v=slower-strong-water-motion";
+import { createWorld } from "./world.js?v=titan-water-edge-fix";
 import { createMotorAudio } from "./audio.js?v=mission-accomplished-voice";
-import { worldEnvironments } from "./environments.js?v=titan-thinner-night-fog";
+import { worldEnvironments } from "./environments.js?v=titan-highland-ground-detail-plus";
 import { difficultySettings } from "./gameConfig.js?v=ammo-caps";
 import { addPatchyCarDust, enemyBuggyDustPatchOptions, loadBackPackModel, loadBaseStationModel, loadCarModel, loadEnemyBattleShipModel, loadEnemyBuggyModel, loadJetModel, loadLandingSpaceModel, loadTradingOutpostModel, loadTreasureChestModels, makeMechModel, robotDustPatchOptions } from "./models.js?v=very-dark-car-colors";
 import { makeDistantPlanetHazeTexture, makeDistantPlanetLightTexture, makeDistantPlanetVeilTexture, makeSkyTexture } from "./textures.js?v=stronger-sky-gradient-2";
@@ -14010,9 +14010,13 @@ function updateCameraForCar(car){
 
     let lookAhead=36;
     let lookPitch=updateCameraPitchOffset(car,firstPersonPitchTargetForCar(car));
+    let groundVehicleViewAmount=morphBlend*(1-jetBlend);
+    let vehiclePitchLiftTarget=-(car.pitch || 0)*18*groundVehicleViewAmount;
+    if(!Number.isFinite(car.firstPersonVehiclePitchLift)) car.firstPersonVehiclePitchLift=vehiclePitchLiftTarget;
+    car.firstPersonVehiclePitchLift+=(vehiclePitchLiftTarget-car.firstPersonVehiclePitchLift)*0.1;
     let pitchLift=jetMode
       ? clamp(-(car.pitch || 0)*18-(car.jetBank || 0)*2+lookPitch*1.15,-11,11)
-      : clamp(lookPitch*1.15, -9, 10);
+      : clamp(car.firstPersonVehiclePitchLift+lookPitch*1.15, -9, 10);
     if(robotMode && walkMotion>0.001){
       pitchLift+=Math.sin(walkPhase*2)*0.085*walkMotion;
     }
@@ -14022,6 +14026,13 @@ function updateCameraForCar(car){
       camY+1.2+pitchLift,
       camZ+lookForwardZ*lookAhead
     );
+    let groundVehicleRollTarget=(car.surfaceRoll || 0)*groundVehicleViewAmount;
+    if(!Number.isFinite(car.firstPersonVehicleRoll)) car.firstPersonVehicleRoll=groundVehicleRollTarget;
+    car.firstPersonVehicleRoll+=(groundVehicleRollTarget-car.firstPersonVehicleRoll)*0.1;
+    let groundVehicleRoll=car.firstPersonVehicleRoll;
+    if(Math.abs(groundVehicleRoll)>0.0001){
+      car.camera.rotateZ(-groundVehicleRoll);
+    }
     if(jetMode){
       car.camera.rotateZ(-(car.jetBank || 0)*0.72);
     }
@@ -14035,6 +14046,8 @@ function updateCameraForCar(car){
   car.firstPersonForwardOffset=NaN;
   car.firstPersonWalkMotion=0;
   car.firstPersonYawOffset=0;
+  car.firstPersonVehiclePitchLift=NaN;
+  car.firstPersonVehicleRoll=NaN;
   if(Math.abs(car.camera.near-0.1)>0.001){
     car.camera.near=0.1;
     car.camera.updateProjectionMatrix();

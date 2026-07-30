@@ -77,7 +77,9 @@ export function createWorld(scene,options={}){
       shoreBandWaterMix:0,
       showBand:false,
       useClippedWater:false,
-      waterMinVisibleDepth:0
+      waterMinVisibleDepth:0,
+      waterOpacity:0.62,
+      minWaterTriangleArea:0.16
     },
     rocks:{
       highAltitudeStart:34,
@@ -362,7 +364,7 @@ let waterMat=new THREE.MeshStandardMaterial({
   emissive:0x036f6d,
   emissiveIntensity:0.38,
   transparent:true,
-  opacity:.56,
+  opacity:currentEnvironment.shoreline?.waterOpacity ?? 0.62,
   depthWrite:false,
   depthTest:true,
   side:THREE.DoubleSide
@@ -584,7 +586,7 @@ waterMat.onBeforeCompile=shader=>{
   );
 };
 
-function makeWaterGeometryFromTerrain(terrainPositions,minVisibleDepth=0){
+function makeWaterGeometryFromTerrain(terrainPositions,minVisibleDepth=0,minTriangleArea=0.16){
   if(!terrainPositions) return null;
 
   let gridSize=segments+1;
@@ -688,8 +690,12 @@ function makeWaterGeometryFromTerrain(terrainPositions,minVisibleDepth=0){
 
     let first=addVertex(clipped[0]);
     for(let i=1;i<clipped.length-1;i++){
-      let i1=addVertex(clipped[i]);
-      let i2=addVertex(clipped[i+1]);
+      let b=clipped[i];
+      let c=clipped[i+1];
+      let area=Math.abs((b.x-clipped[0].x)*(c.z-clipped[0].z)-(c.x-clipped[0].x)*(b.z-clipped[0].z))*0.5;
+      if(area<minTriangleArea) continue;
+      let i1=addVertex(b);
+      let i2=addVertex(c);
       indices.push(first,i1,i2);
     }
   }
@@ -1123,6 +1129,7 @@ function applyEnvironment(environment={}){
   landMat.needsUpdate=true;
   setTerraformBloomAmount(0);
   setMaterialColor(waterMat,displayWaterColor(colors.water),displayWaterEmissive(colors.waterEmissive || colors.water));
+  waterMat.opacity=shoreline.waterOpacity ?? 0.62;
   if(landMat.userData.shader){
     let shader=landMat.userData.shader;
     if(shader.uniforms.terrainDetailScale) shader.uniforms.terrainDetailScale.value=currentEnvironment.terrainDetail?.scale ?? 0.024;
@@ -2843,7 +2850,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   let shoreBand=new THREE.Object3D();
   if(chunkHasWater){
     let waterGeo=shoreline.useClippedWater
-      ? makeWaterGeometryFromTerrain(pos,shoreline.waterMinVisibleDepth ?? 0)
+      ? makeWaterGeometryFromTerrain(pos,shoreline.waterMinVisibleDepth ?? 0,shoreline.minWaterTriangleArea ?? 0.16)
       : makeWaterPlaneGeometry();
     if(waterGeo){
       water=new THREE.Mesh(waterGeo,waterMat);
