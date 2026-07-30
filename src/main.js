@@ -4,7 +4,7 @@ import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed
 import { createInput } from "./input.js?v=progressive-pointer-aim";
 import { createHud } from "./hud.js?v=larger-compass-unit-labels";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createLowHangingHaze, createRain, createStars, createWheelTracks } from "./effects.js?v=performance-broad-pass";
-import { createWorld } from "./world.js?v=no-start-test-buggies";
+import { createWorld } from "./world.js?v=slower-strong-water-motion";
 import { createMotorAudio } from "./audio.js?v=mission-accomplished-voice";
 import { worldEnvironments } from "./environments.js?v=titan-thinner-night-fog";
 import { difficultySettings } from "./gameConfig.js?v=ammo-caps";

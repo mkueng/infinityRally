@@ -570,15 +570,15 @@ waterMat.onBeforeCompile=shader=>{
     [
       "vec2 waterUv=vWaterWorldPosition.xz;",
       "float waterRainFade=1.0-clamp(waterRainIntensity*0.55,0.0,0.72);",
-      "float shimmerA=waterValueNoise(waterUv*0.058+vec2(waterShimmerTime*0.58,waterShimmerTime*0.25));",
-      "float shimmerB=waterValueNoise(waterUv*0.113+vec2(-waterShimmerTime*0.36,waterShimmerTime*0.5));",
-      "float shimmer=pow(max(shimmerA*0.62+shimmerB*0.48-0.48,0.0),2.6);",
-      "float dayShimmer=waterDayAmount*0.46;",
-      "float nightShimmer=waterNightAmount*0.06;",
+      "float shimmerA=waterValueNoise(waterUv*0.064+vec2(waterShimmerTime*0.58,waterShimmerTime*0.25));",
+      "float shimmerB=waterValueNoise(waterUv*0.128+vec2(-waterShimmerTime*0.38,waterShimmerTime*0.5));",
+      "float shimmer=pow(max(shimmerA*0.72+shimmerB*0.56-0.44,0.0),2.25);",
+      "float dayShimmer=waterDayAmount*0.58;",
+      "float nightShimmer=waterNightAmount*0.09;",
       "float shimmerAmount=shimmer*(dayShimmer+nightShimmer)*waterRainFade;",
       "vec3 nightShimmerColor=gl_FragColor.rgb*0.55+vec3(0.12);",
       "vec3 shimmerColor=mix(nightShimmerColor,vec3(0.92,1.0,0.98),clamp(waterDayAmount,0.0,1.0));",
-      "gl_FragColor.rgb=mix(gl_FragColor.rgb,gl_FragColor.rgb+shimmerColor*0.45,shimmerAmount);",
+      "gl_FragColor.rgb=mix(gl_FragColor.rgb,gl_FragColor.rgb+shimmerColor*0.58,shimmerAmount);",
       "#include <dithering_fragment>"
     ].join("\n")
   );
@@ -858,7 +858,31 @@ let bossBaseGlowMat=new THREE.MeshBasicMaterial({color:0xff4fc8,transparent:true
 let trunkGeo=new THREE.CylinderGeometry(.28,1.08,10.5,6);
 let crownGeo=new THREE.IcosahedronGeometry(2.35,1);
 let podGeo=new THREE.SphereGeometry(.72,8,6);
-let grassGeo=new THREE.ConeGeometry(.065,1.2,2);
+function makeCurvedGrassGeometry(){
+  let height=1.2;
+  let baseHalfWidth=0.055;
+  let midHalfWidth=0.038;
+  let tipLean=0.16;
+  let geo=new THREE.BufferGeometry();
+  geo.setAttribute("position",new THREE.Float32BufferAttribute([
+    -baseHalfWidth,0,0,
+    baseHalfWidth,0,0,
+    -midHalfWidth,height*0.52,tipLean*0.34,
+    midHalfWidth,height*0.52,tipLean*0.34,
+    0,height,tipLean
+  ],3));
+  geo.setAttribute("uv",new THREE.Float32BufferAttribute([
+    0,0,
+    1,0,
+    0.18,0.52,
+    0.82,0.52,
+    0.5,1
+  ],2));
+  geo.setIndex([0,1,2,1,3,2,2,3,4]);
+  geo.computeVertexNormals();
+  return geo;
+}
+let grassGeo=makeCurvedGrassGeometry();
 let bushGeo=new THREE.IcosahedronGeometry(1,1);
 function makeRockGeometry(){
   let geo=new THREE.DodecahedronGeometry(1,1);
@@ -3039,7 +3063,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
 
       let scale=.4+rand(i,cx-cz)*.8;
 
-      dummy.position.set(wx,wy+1.2*scale,wz);
+      dummy.position.set(wx,wy,wz);
       dummy.rotation.set(0,rand(i*3,cx+cz)*Math.PI*2,0);
       dummy.scale.set(scale*1.12,.7+scale,scale*1.12);
       dummy.updateMatrix();
