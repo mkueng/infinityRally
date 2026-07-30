@@ -4,7 +4,7 @@ import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed
 import { createInput } from "./input.js?v=progressive-pointer-aim";
 import { createHud } from "./hud.js?v=larger-compass-unit-labels";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createLowHangingHaze, createRain, createStars, createWheelTracks } from "./effects.js?v=performance-broad-pass";
-import { createWorld } from "./world.js?v=rock-collision-no-damage";
+import { createWorld } from "./world.js?v=mountainside-car-tilt";
 import { createMotorAudio } from "./audio.js?v=mission-accomplished-voice";
 import { worldEnvironments } from "./environments.js?v=titan-wide-plateaus";
 import { difficultySettings } from "./gameConfig.js?v=ammo-caps";
@@ -13674,14 +13674,26 @@ function updateCar(car){
   let frontZ=car.z+Math.cos(car.angle)*pitchSampleDist;
   let backX=car.x-Math.sin(car.angle)*pitchSampleDist;
   let backZ=car.z-Math.cos(car.angle)*pitchSampleDist;
+  let rightX=Math.cos(car.angle);
+  let rightZ=-Math.sin(car.angle);
   let frontY=surfaceHeightForActor(car,frontX,frontZ);
   let backY=surfaceHeightForActor(car,backX,backZ);
+  let sideSampleDist=car.morphProgress>0.65 ? 2.65 : 2.25;
+  let leftY=surfaceHeightForActor(car,car.x-rightX*sideSampleDist,car.z-rightZ*sideSampleDist);
+  let rightY=surfaceHeightForActor(car,car.x+rightX*sideSampleDist,car.z+rightZ*sideSampleDist);
   let ceilingPitchRelease=jetHovering && (car.jetAltitudeTarget || 0)>=jetAltitudeMax-0.4;
   let jetLiftPitch=ceilingPitchRelease ? 0 : (car.liftInput || 0);
   let jetPitch=clamp(-jetLiftPitch*0.18-Math.max(0,car.speed)*0.025,-0.3,0.12);
   let robotHoverPitch=clamp(-Math.max(0,car.speed)*0.035-car.vy*0.08,-0.16,0.12);
   let targetPitch=jetHovering ? jetPitch : flying ? robotHoverPitch : -Math.atan2(frontY-backY,pitchSampleDist*2);
   car.pitch+=(targetPitch-car.pitch)*(flying ? 0.095 : 0.18);
+  let carModeTilt=car.morphProgress>0.65 && car.jetProgress<0.35;
+  let robotModeTilt=car.morphProgress<0.35 && car.jetProgress<0.35;
+  let slopeRollTarget=(!jetHovering && !airborne && !flying)
+    ? clamp(Math.atan2(rightY-leftY,sideSampleDist*2)*(carModeTilt ? 1.05 : robotModeTilt ? 0.42 : 0.72),-0.34,0.34)
+    : 0;
+  if(!Number.isFinite(car.surfaceRoll)) car.surfaceRoll=0;
+  car.surfaceRoll+=(slopeRollTarget-car.surfaceRoll)*(carModeTilt ? 0.18 : 0.12);
   let jetBankTarget=jetHovering ? clamp((car.turnInputEase || 0)*-0.46+(car.turnVelocity || 0)*-4.4,-0.58,0.58) : 0;
   car.jetBank+=(jetBankTarget-(car.jetBank || 0))*(jetHovering ? 0.07 : 0.18);
 
@@ -13690,7 +13702,7 @@ function updateCar(car){
   car.group.position.set(car.x,renderY,car.z);
   car.group.rotation.y=car.angle+car.trickYaw;
   car.group.rotation.x=car.pitch+car.trickPitch;
-  car.group.rotation.z=car.trickRoll+(car.jetBank || 0);
+  car.group.rotation.z=car.trickRoll+(car.jetBank || 0)+(car.surfaceRoll || 0);
   updateMechAnimation(car);
   updateMorphVisual(car);
   updatePlayerLaserInput(car);
