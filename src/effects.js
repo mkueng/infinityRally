@@ -1,6 +1,6 @@
 import { THREE } from "./three.js";
 import { cloudCount } from "./constants.js";
-import { makeCarShadowTexture, makeCloudTexture, makeDustTexture, makeHazeTexture } from "./textures.js?v=larger-cloud-variants";
+import { makeCarShadowTexture, makeCloudTexture, makeDustTexture, makeHazeTexture } from "./textures.js?v=unclipped-cloud-variants";
 import { groundHeight, rand } from "./terrain.js";
 
 function normalizeTrackAngle(angle){
@@ -813,6 +813,7 @@ export function createRain(scene,getCarPosition,getRainIntensity=()=>0,getRainQu
   let rainDirX=-0.18;
   let rainDirZ=0.08;
   let splashCursor=0;
+  let waterSplashTimer=0;
   let splashes=[];
 
   for(let i=0;i<maxDrops;i++){
@@ -844,9 +845,14 @@ export function createRain(scene,getCarPosition,getRainIntensity=()=>0,getRainQu
     depthWrite:false,
     depthTest:true,
     blending:THREE.AdditiveBlending,
+    side:THREE.DoubleSide,
+    polygonOffset:true,
+    polygonOffsetFactor:-2,
+    polygonOffsetUnits:-2,
     fog:true
   });
   let splashGroup=new THREE.Group();
+  splashGroup.renderOrder=12;
   splashGroup.visible=false;
   scene.add(splashGroup);
   for(let i=0;i<maxSplashes;i++){
@@ -870,7 +876,7 @@ export function createRain(scene,getCarPosition,getRainIntensity=()=>0,getRainQu
   function spawnSplash(x,y,z,intensity){
     let splash=splashes[splashCursor];
     splashCursor=(splashCursor+1)%splashes.length;
-    splash.position.set(x,y+0.018,z);
+    splash.position.set(x,y+0.16,z);
     splash.rotation.z=Math.random()*Math.PI*2;
     splash.visible=true;
     splash.userData.age=0;
@@ -878,6 +884,24 @@ export function createRain(scene,getCarPosition,getRainIntensity=()=>0,getRainQu
     splash.userData.baseScale=0.56+Math.random()*0.84+intensity*0.42;
     splash.scale.setScalar(splash.userData.baseScale);
     splash.material.opacity=0.34+intensity*0.24;
+  }
+
+  function spawnAmbientWaterSplashes(centerX,centerZ,waterLevel,intensity,quality){
+    if(!Number.isFinite(waterLevel)) return;
+    waterSplashTimer+=0.016*(0.45+intensity*1.4)*Math.max(0.45,quality);
+    let spawnInterval=0.11+Math.max(0,1-intensity)*0.18;
+    let maxSpawns=3;
+    while(waterSplashTimer>=spawnInterval && maxSpawns>0){
+      waterSplashTimer-=spawnInterval;
+      maxSpawns--;
+      let angle=Math.random()*Math.PI*2;
+      let radius=32+Math.pow(Math.random(),0.72)*220;
+      let x=centerX+Math.cos(angle)*radius;
+      let z=centerZ+Math.sin(angle)*radius;
+      if(groundHeight(x,z)<waterLevel-0.12){
+        spawnSplash(x,waterLevel+0.1,z,intensity);
+      }
+    }
   }
 
   function updateSplashes(intensity){
@@ -978,6 +1002,7 @@ export function createRain(scene,getCarPosition,getRainIntensity=()=>0,getRainQu
 
     geometry.setDrawRange(0,activeDrops*2);
     geometry.attributes.position.needsUpdate=true;
+    spawnAmbientWaterSplashes(carX,carZ,waterLevel,intensity,quality);
     updateSplashes(intensity);
   }
 
