@@ -25,6 +25,10 @@ export function createWorld(scene,options={}){
   let rockRaycaster=new THREE.Raycaster();
   let rockRayDirection=new THREE.Vector3();
   let rockRayHits=[];
+  let rockInstanceMatrix=new THREE.Matrix4();
+  let rockInstancePosition=new THREE.Vector3();
+  let rockInstanceQuaternion=new THREE.Quaternion();
+  let rockInstanceScale=new THREE.Vector3();
   let activeChunkBuild=null;
   let lastChunkBuildTime=0;
   let chunkWorker=null;
@@ -1784,11 +1788,16 @@ function obstacleVerticalBounds(obstacle){
 function verticalBoundsOverlap(actorBounds,obstacle){
   if(!actorBounds) return true;
   let obstacleBounds=obstacleVerticalBounds(obstacle);
+  let obstacleBaseY=Number.isFinite(obstacle.baseY)
+    ? obstacle.baseY
+    : Number.isFinite(obstacle.x) && Number.isFinite(obstacle.z)
+    ? groundHeight(obstacle.x,obstacle.z)
+    : obstacleBounds.bottom;
+  let exposedObstacleHeight=Math.max(0,obstacleBounds.top-obstacleBaseY);
   let canStepOver=obstacle
     && (obstacle.type==="rock" || obstacle.type==="smallRock" || obstacle.type==="wall")
-    && Number.isFinite(actorBounds.surfaceY)
     && Number.isFinite(actorBounds.stepHeight)
-    && obstacleBounds.top<=actorBounds.surfaceY+actorBounds.stepHeight;
+    && exposedObstacleHeight<=actorBounds.stepHeight;
   if(canStepOver) return false;
   let actorBottom=Number.isFinite(actorBounds.bottom) ? actorBounds.bottom : -Infinity;
   let actorTop=Number.isFinite(actorBounds.top) ? actorBounds.top : Infinity;
@@ -1897,11 +1906,61 @@ function obstacleCollisionInfo(x,z,padding=carRadius,actorBounds=null){
     }
   }
 
+  function considerVisibleRockInstance(mesh,collidersByInstance,index){
+    if(!actorBounds || !mesh || index<0 || index>=mesh.count) return;
+    let collider=collidersByInstance ? collidersByInstance[index] : null;
+    if(collider && collider.destroyed) return;
+
+    mesh.getMatrixAt(index,rockInstanceMatrix);
+    rockInstanceMatrix.decompose(rockInstancePosition,rockInstanceQuaternion,rockInstanceScale);
+    if(Math.abs(rockInstanceScale.x)+Math.abs(rockInstanceScale.y)+Math.abs(rockInstanceScale.z)<0.001) return;
+
+    let radius=Math.max(
+      collider && Number.isFinite(collider.r) ? collider.r : 0,
+      Math.max(Math.abs(rockInstanceScale.x),Math.abs(rockInstanceScale.z))*1.38,
+      1.15
+    );
+    let halfHeight=Math.max(Math.abs(rockInstanceScale.y)*1.42,0.35);
+    let obstacle=collider || {
+      x:rockInstancePosition.x,
+      z:rockInstancePosition.z,
+      type:"rock",
+      instances:[{mesh,index}]
+    };
+    obstacle.x=Number.isFinite(obstacle.x) ? obstacle.x : rockInstancePosition.x;
+    obstacle.z=Number.isFinite(obstacle.z) ? obstacle.z : rockInstancePosition.z;
+    obstacle.baseY=Number.isFinite(obstacle.baseY) ? obstacle.baseY : groundHeight(rockInstancePosition.x,rockInstancePosition.z);
+    obstacle.bottomY=Number.isFinite(obstacle.bottomY) ? obstacle.bottomY : rockInstancePosition.y-halfHeight;
+    obstacle.topY=Number.isFinite(obstacle.topY) ? obstacle.topY : rockInstancePosition.y+halfHeight;
+    obstacle.y=Number.isFinite(obstacle.y) ? obstacle.y : (obstacle.bottomY+obstacle.topY)*0.5;
+    obstacle.r=Math.max(Number.isFinite(obstacle.r) ? obstacle.r : 0,radius);
+    obstacle.visualRadius=Math.max(Number.isFinite(obstacle.visualRadius) ? obstacle.visualRadius : 0,radius);
+    obstacle.visualHeight=Math.max(Number.isFinite(obstacle.visualHeight) ? obstacle.visualHeight : 0,obstacle.topY-obstacle.bottomY);
+    obstacle.height=Math.max(Number.isFinite(obstacle.height) ? obstacle.height : 0,obstacle.topY-obstacle.bottomY);
+    if(!verticalBoundsOverlap(actorBounds,obstacle)) return;
+
+    let hitRadius=obstacleMovementRadius(obstacle,padding);
+    let dx=x-obstacle.x;
+    let dz=z-obstacle.z;
+    let distSq=dx*dx+dz*dz;
+    if(distSq>=hitRadius*hitRadius) return;
+
+    let dist=Math.sqrt(Math.max(0.000001,distSq));
+    let overlap=hitRadius-dist;
+    if(overlap>bestOverlap){
+      bestOverlap=overlap;
+      best={obstacle,radius:hitRadius,dist,overlap,dx,dz};
+    }
+  }
+
   for(let dx=-1;dx<=1;dx++){
     for(let dz=-1;dz<=1;dz++){
       let chunk=chunks.get(chunkKey(pcx+dx,pcz+dz));
       if(!chunk || !chunk.colliders) continue;
       for(let obstacle of chunk.colliders) considerObstacle(obstacle);
+      if(actorBounds && chunk.rocks){
+        for(let i=0;i<chunk.rocks.count;i++) considerVisibleRockInstance(chunk.rocks,chunk.rockCollidersByInstance,i);
+      }
     }
   }
 
@@ -2103,14 +2162,20 @@ function rockObstacleAlongSegmentExact(fromX,fromY,fromZ,toX,toY,toZ,hitInfo=nul
   let bestPoint=null;
 
   function checkMesh(mesh,collidersByInstance){
-    if(!mesh || !mesh.visible || !collidersByInstance) return;
+    if(!mesh || !mesh.visible) return;
     rockRayHits.length=0;
     rockRaycaster.intersectObject(mesh,false,rockRayHits);
     for(let hit of rockRayHits){
       if(!hit || hit.instanceId==null || hit.distance>=bestDistance) continue;
-      let collider=collidersByInstance[hit.instanceId];
-      if(!collider || collider.destroyed) continue;
-      best=collider;
+      let collider=collidersByInstance ? collidersByInstance[hit.instanceId] : null;
+      if(collider && collider.destroyed) continue;
+      best=collider || {
+        x:hit.point ? hit.point.x : fromX+rockRayDirection.x*hit.distance,
+        y:hit.point ? hit.point.y : fromY+rockRayDirection.y*hit.distance,
+        z:hit.point ? hit.point.z : fromZ+rockRayDirection.z*hit.distance,
+        type:"rock",
+        instances:[{mesh,index:hit.instanceId}]
+      };
       bestDistance=hit.distance;
       bestPoint=hit.point;
     }

@@ -4,7 +4,7 @@ import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed
 import { createInput } from "./input.js?v=progressive-pointer-aim";
 import { createHud } from "./hud.js?v=larger-compass-unit-labels";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createLowHangingHaze, createRain, createStars, createWheelTracks } from "./effects.js?v=performance-broad-pass";
-import { createWorld } from "./world.js?v=mountainside-car-tilt";
+import { createWorld } from "./world.js?v=rock-instance-collision-fallback";
 import { createMotorAudio } from "./audio.js?v=mission-accomplished-voice";
 import { worldEnvironments } from "./environments.js?v=titan-wide-plateaus";
 import { difficultySettings } from "./gameConfig.js?v=ammo-caps";
@@ -2288,14 +2288,14 @@ function actorObstacleVerticalBounds(actor,x=null,z=null){
   let robotMode=(actor.morphProgress || 0)<0.35 && !(actor.jetMode || (actor.jetProgress || 0)>0.35);
   let carMode=(actor.morphProgress || 0)>0.65 && !(actor.jetMode || (actor.jetProgress || 0)>0.35);
   let stepHeight=actor===giantTestRobot
-    ? 4.6
+    ? 3.2
     : robotMode
-    ? 1.65
+    ? 1.05
     : carMode
-    ? 0.95
+    ? 0.7
     : actor.jetMode || (actor.jetProgress || 0)>0.35
-    ? 2.2
-    : 1.1;
+    ? 1.35
+    : 0.85;
   return {
     bottom:baseY+footLift,
     top:baseY+Math.max(0.8,hitHeight),
