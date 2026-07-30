@@ -210,12 +210,22 @@ export function makeCarShadowTexture(){
   return tex;
 }
 
-export function makeCloudTexture(){
+export function makeCloudTexture(variant=0){
   let canvas=document.createElement("canvas");
   canvas.width=512;
   canvas.height=256;
   let ctx=canvas.getContext("2d");
   ctx.clearRect(0,0,512,256);
+  let seed=variant*37.17+11.3;
+
+  function cloudHash(n){
+    return Math.sin(n*127.1+seed*311.7)*43758.5453%1;
+  }
+
+  function cloudRand(n){
+    let value=cloudHash(n);
+    return value<0 ? value+1 : value;
+  }
 
   function puff(x,y,r,alpha){
     let gradient=ctx.createRadialGradient(x,y,0,x,y,r);
@@ -229,14 +239,28 @@ export function makeCloudTexture(){
     ctx.fill();
   }
 
-  puff(92,138,68,0.68);
-  puff(158,118,82,0.86);
-  puff(230,108,92,0.92);
-  puff(315,118,90,0.84);
-  puff(394,140,72,0.68);
-  puff(250,142,108,0.48);
-  puff(176,154,78,0.32);
-  puff(340,154,82,0.3);
+  let puffCount=8+Math.floor(cloudRand(1)*5);
+  let centerLift=(cloudRand(2)-0.5)*18;
+  let stretch=0.82+cloudRand(3)*0.46;
+  for(let i=0;i<puffCount;i++){
+    let t=puffCount<=1 ? 0.5 : i/(puffCount-1);
+    let arch=Math.sin(t*Math.PI);
+    let x=58+t*392+(cloudRand(i*5+4)-0.5)*58;
+    let y=142+centerLift-arch*(24+cloudRand(i*5+5)*28)+(cloudRand(i*5+6)-0.5)*34;
+    let radius=(50+arch*52+cloudRand(i*5+7)*48)*stretch;
+    let alpha=(0.34+arch*0.44+cloudRand(i*5+8)*0.18)*(0.86+cloudRand(i*5+9)*0.22);
+    puff(x,y,radius,alpha);
+  }
+
+  let underPuffCount=3+Math.floor(cloudRand(41)*4);
+  for(let i=0;i<underPuffCount;i++){
+    let t=(i+0.5)/underPuffCount;
+    let x=82+t*344+(cloudRand(i*7+43)-0.5)*74;
+    let y=152+(cloudRand(i*7+44)-0.5)*28;
+    let radius=68+cloudRand(i*7+45)*74;
+    let alpha=0.18+cloudRand(i*7+46)*0.22;
+    puff(x,y,radius,alpha);
+  }
 
   let tex=new THREE.CanvasTexture(canvas);
   tex.minFilter=THREE.LinearFilter;

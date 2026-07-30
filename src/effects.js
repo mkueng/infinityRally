@@ -1,6 +1,6 @@
 import { THREE } from "./three.js";
 import { cloudCount } from "./constants.js";
-import { makeCarShadowTexture, makeCloudTexture, makeDustTexture, makeHazeTexture } from "./textures.js?v=haze-puff-field";
+import { makeCarShadowTexture, makeCloudTexture, makeDustTexture, makeHazeTexture } from "./textures.js?v=larger-cloud-variants";
 import { groundHeight, rand } from "./terrain.js";
 
 function normalizeTrackAngle(angle){
@@ -62,26 +62,54 @@ export function createClouds(scene,getCarPosition){
   let cloudSprites=[];
   let cloudTime=0;
 
+  function clearClouds(){
+    let oldMaps=new Set();
+    for(let cloud of cloudSprites){
+      cloudGroup.remove(cloud);
+      if(cloud.material){
+        if(cloud.material.map) oldMaps.add(cloud.material.map);
+        cloud.material.dispose();
+      }
+    }
+    for(let map of oldMaps) map.dispose();
+    cloudSprites.length=0;
+  }
+
   function makeClouds(){
-    let cloudTexture=makeCloudTexture();
+    clearClouds();
+    let cloudTextures=[
+      makeCloudTexture(0),
+      makeCloudTexture(1),
+      makeCloudTexture(2),
+      makeCloudTexture(3),
+      makeCloudTexture(4)
+    ];
     let cloudRange=12800;
     let cloudRand=(a,b)=>rand(a,b)*0.5+0.5;
 
     for(let i=0;i<cloudCount;i++){
+      let sizeT=Math.pow(cloudRand(i*59,29),0.62);
+      let aspectT=cloudRand(i*67,33);
+      let textureIndex=Math.min(cloudTextures.length-1,Math.floor(cloudRand(i*101,97)*cloudTextures.length));
       let material=new THREE.SpriteMaterial({
-        map:cloudTexture,
+        map:cloudTextures[textureIndex],
         color:0xffffff,
         transparent:true,
-        opacity:0.035+cloudRand(i*17,91)*0.075,
+        opacity:0.032+cloudRand(i*17,91)*0.068,
         depthWrite:false,
         fog:false
       });
+      material.rotation=(cloudRand(i*89,41)-0.5)*0.32;
       let cloud=new THREE.Sprite(material);
       let baseX=(cloudRand(i*23,7)-0.5)*cloudRange;
       let baseZ=(cloudRand(i*31,11)-0.5)*cloudRange;
-      let baseY=155+cloudRand(i*43,19)*210;
-      let width=980+cloudRand(i*59,29)*1280;
-      let height=190+cloudRand(i*61,31)*190;
+      let baseY=165+cloudRand(i*43,19)*245;
+      let width=(1450+sizeT*2550)*(0.86+aspectT*0.36);
+      let height=(220+cloudRand(i*61,31)*420)*(0.84+(1-aspectT)*0.34);
+      if(cloudRand(i*107,51)>0.78){
+        width*=1.28+cloudRand(i*109,57)*0.32;
+        height*=1.08+cloudRand(i*113,63)*0.18;
+      }
       let windAngle=-0.45+cloudRand(i*73,47)*0.35;
       let windSpeed=18+cloudRand(i*71,37)*16;
 
@@ -137,7 +165,7 @@ export function createClouds(scene,getCarPosition){
     }
   }
 
-  return {makeClouds,update};
+  return {makeClouds,update,dispose:clearClouds};
 }
 
 export function createLowHangingHaze(scene,getCarPosition,getEnvironment=()=>({})){
