@@ -249,6 +249,7 @@ function buildTerrainChunk(message){
   let heights=new Float32Array(vertexCount);
   let holeAmounts=new Float32Array(vertexCount);
   let waterMask=new Uint8Array(vertexCount);
+  let waterDepths=new Float32Array(vertexCount);
   let colors=new Float32Array(vertexCount*3);
   let chunkHasWater=false;
 
@@ -267,9 +268,11 @@ function buildTerrainChunk(message){
       }
     }
 
-    if(baseH<waterLevel){
+    let waterDepth=waterLevel-baseH;
+    if(waterDepth>0){
       chunkHasWater=true;
       waterMask[index]=1;
+      waterDepths[index]=waterDepth;
     }
 
     heights[index]=h;
@@ -305,7 +308,7 @@ function buildTerrainChunk(message){
     else writeColor(colors,index,highColor);
   }
 
-  return {heights,colors,holes:localHoles,terrainHoles,chunkHasWater};
+  return {heights,colors,holes:localHoles,terrainHoles,chunkHasWater,waterDepths};
 }
 
 self.onmessage=event=>{
@@ -328,8 +331,9 @@ self.onmessage=event=>{
       colors:result.colors,
       holes:result.holes,
       terrainHoles:result.terrainHoles,
-      chunkHasWater:result.chunkHasWater
-    },[result.heights.buffer,result.colors.buffer]);
+      chunkHasWater:result.chunkHasWater,
+      waterDepths:result.waterDepths
+    },[result.heights.buffer,result.colors.buffer,result.waterDepths.buffer]);
   }catch(error){
     self.postMessage({
       type:"terrainError",

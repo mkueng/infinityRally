@@ -76,7 +76,7 @@ export function createWorld(scene,options={}){
       terrainShoreStrength:1,
       shoreBandWaterMix:0,
       showBand:false,
-      useClippedWater:false,
+      useClippedWater:true,
       waterMinVisibleDepth:0,
       waterOpacity:0.62,
       minWaterTriangleArea:0.16
@@ -127,7 +127,7 @@ export function createWorld(scene,options={}){
     vegetation:{...defaultEnvironment.vegetation,...(initialEnvironment.vegetation || {})}
   };
   const roadsEnabled=false;
-  const waterSurfaceVisualLift=0.62;
+  const waterSurfaceVisualLift=0.22;
 
 let landMat;
 let rockMat;
@@ -367,7 +367,10 @@ let waterMat=new THREE.MeshStandardMaterial({
   opacity:currentEnvironment.shoreline?.waterOpacity ?? 0.62,
   depthWrite:false,
   depthTest:true,
-  side:THREE.DoubleSide
+  side:THREE.DoubleSide,
+  polygonOffset:true,
+  polygonOffsetFactor:-1,
+  polygonOffsetUnits:-1
 });
 let shoreBandMat=new THREE.MeshBasicMaterial({
   color:0x8feee7,
@@ -586,7 +589,7 @@ waterMat.onBeforeCompile=shader=>{
   );
 };
 
-function makeWaterGeometryFromTerrain(terrainPositions,minVisibleDepth=0,minTriangleArea=0.16){
+function makeWaterGeometryFromTerrain(terrainPositions,minVisibleDepth=0,minTriangleArea=0.16,waterDepths=null){
   if(!terrainPositions) return null;
 
   let gridSize=segments+1;
@@ -597,6 +600,9 @@ function makeWaterGeometryFromTerrain(terrainPositions,minVisibleDepth=0,minTria
   let vertexMap=new Map();
   let waterMargin=0.3;
   let waterThreshold=waterLevel+waterMargin-Math.max(0,minVisibleDepth);
+  let minDepth=Math.max(0,minVisibleDepth);
+  let wetDepthThreshold=Math.max(0.001,minDepth);
+  let hasWaterDepths=waterDepths && waterDepths.length>=gridSize*gridSize;
 
   function terrainIndex(ix,iz){
     return iz*gridSize+ix;
@@ -643,11 +649,29 @@ function makeWaterGeometryFromTerrain(terrainPositions,minVisibleDepth=0,minTria
     return h0+(h1-h0)*tz;
   }
 
+  function gridDepth(gx,gz){
+    if(!hasWaterDepths) return Math.max(0,waterLevel+waterMargin-gridHeight(gx,gz));
+    let x0=Math.max(0,Math.min(segments,Math.floor(gx)));
+    let z0=Math.max(0,Math.min(segments,Math.floor(gz)));
+    let x1=Math.min(segments,x0+1);
+    let z1=Math.min(segments,z0+1);
+    let tx=Math.max(0,Math.min(1,gx-x0));
+    let tz=Math.max(0,Math.min(1,gz-z0));
+    let d00=waterDepths[terrainIndex(x0,z0)] || 0;
+    let d10=waterDepths[terrainIndex(x1,z0)] || 0;
+    let d01=waterDepths[terrainIndex(x0,z1)] || 0;
+    let d11=waterDepths[terrainIndex(x1,z1)] || 0;
+    let d0=d00+(d10-d00)*tx;
+    let d1=d01+(d11-d01)*tx;
+    return d0+(d1-d0)*tz;
+  }
+
   function terrainVertex(gx,gz){
     return {
       x:localX(gx),
       z:localZ(gz),
       h:gridHeight(gx,gz),
+      depth:gridDepth(gx,gz),
       u:gx/segments,
       v:gz/segments,
       gx,
@@ -656,13 +680,14 @@ function makeWaterGeometryFromTerrain(terrainPositions,minVisibleDepth=0,minTria
   }
 
   function shoreVertex(a,b){
-    let denom=b.h-a.h;
-    let t=Math.abs(denom)<0.0001 ? 0.5 : (waterThreshold-a.h)/denom;
+    let denom=b.depth-a.depth;
+    let t=Math.abs(denom)<0.0001 ? 0.5 : (wetDepthThreshold-a.depth)/denom;
     t=Math.max(0,Math.min(1,t));
     return {
       x:a.x+(b.x-a.x)*t,
       z:a.z+(b.z-a.z)*t,
       h:waterThreshold,
+      depth:wetDepthThreshold,
       u:a.u+(b.u-a.u)*t,
       v:a.v+(b.v-a.v)*t
     };
@@ -675,8 +700,8 @@ function makeWaterGeometryFromTerrain(terrainPositions,minVisibleDepth=0,minTria
     for(let i=0;i<input.length;i++){
       let current=input[i];
       let previous=input[(i+input.length-1)%input.length];
-      let currentWet=current.h<=waterThreshold;
-      let previousWet=previous.h<=waterThreshold;
+      let currentWet=current.depth>=wetDepthThreshold;
+      let previousWet=previous.depth>=wetDepthThreshold;
 
       if(currentWet){
         if(!previousWet) clipped.push(shoreVertex(previous,current));
@@ -706,7 +731,7 @@ function makeWaterGeometryFromTerrain(terrainPositions,minVisibleDepth=0,minTria
       let v10=terrainVertex(ix+1,iz);
       let v01=terrainVertex(ix,iz+1);
       let v11=terrainVertex(ix+1,iz+1);
-      let wetCount=(v00.h<=waterThreshold ? 1 : 0)+(v10.h<=waterThreshold ? 1 : 0)+(v01.h<=waterThreshold ? 1 : 0)+(v11.h<=waterThreshold ? 1 : 0);
+      let wetCount=(v00.depth>=wetDepthThreshold ? 1 : 0)+(v10.depth>=wetDepthThreshold ? 1 : 0)+(v01.depth>=wetDepthThreshold ? 1 : 0)+(v11.depth>=wetDepthThreshold ? 1 : 0);
       if(wetCount===0) continue;
 
       if(wetCount===4){
@@ -1195,7 +1220,7 @@ function createChunkWorker(){
   if(options.disableChunkWorker || typeof Worker==="undefined") return null;
 
   try{
-    let worker=new Worker(new URL("./chunkWorker.js?v=wet-shader-env-colors",import.meta.url),{type:"module"});
+    let worker=new Worker(new URL("./chunkWorker.js?v=water-depth-mask",import.meta.url),{type:"module"});
     let template=makeTerrainVertexTemplate();
     worker.postMessage({
       type:"setTerrainTemplate",
@@ -2747,6 +2772,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   let treasureChests=[];
   let radarOutposts=[];
   let chunkHasWater=!!(precomputedTerrain && precomputedTerrain.chunkHasWater);
+  let waterDepths=precomputedTerrain && precomputedTerrain.waterDepths ? precomputedTerrain.waterDepths : null;
   let geo=new THREE.PlaneGeometry(chunkSize,chunkSize,segments,segments);
   geo.rotateX(-Math.PI/2);
 
@@ -2772,6 +2798,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
     let vertexCount=pos.count;
     let holeAmounts=new Float32Array(vertexCount);
     let waterMask=new Uint8Array(vertexCount);
+    waterDepths=new Float32Array(vertexCount);
 
     for(let i=0;i<pos.count;i++){
       let wx=pos.getX(i)+cx*chunkSize;
@@ -2788,9 +2815,11 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
         }
       }
 
-      if(baseH<waterLevel){
+      let waterDepth=waterLevel-baseH;
+      if(waterDepth>0){
         chunkHasWater=true;
         waterMask[i]=1;
+        waterDepths[i]=waterDepth;
       }
 
       pos.setY(i,h);
@@ -2849,9 +2878,10 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   let water=new THREE.Object3D();
   let shoreBand=new THREE.Object3D();
   if(chunkHasWater){
-    let waterGeo=shoreline.useClippedWater
-      ? makeWaterGeometryFromTerrain(pos,shoreline.waterMinVisibleDepth ?? 0,shoreline.minWaterTriangleArea ?? 0.16)
-      : makeWaterPlaneGeometry();
+    let useFullWaterPlane=shoreline.useClippedWater===false && shoreline.useFullWaterPlane===true;
+    let waterGeo=useFullWaterPlane
+      ? makeWaterPlaneGeometry()
+      : makeWaterGeometryFromTerrain(pos,shoreline.waterMinVisibleDepth ?? 0,shoreline.minWaterTriangleArea ?? 0.16,waterDepths);
     if(waterGeo){
       water=new THREE.Mesh(waterGeo,waterMat);
       water.position.set(cx*chunkSize,waterLevel+waterSurfaceVisualLift,cz*chunkSize);

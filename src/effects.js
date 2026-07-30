@@ -84,7 +84,6 @@ export function createClouds(scene,getCarPosition){
       makeCloudTexture(3),
       makeCloudTexture(4)
     ];
-    let cloudRange=12800;
     let cloudRand=(a,b)=>rand(a,b)*0.5+0.5;
 
     for(let i=0;i<cloudCount;i++){
@@ -101,66 +100,51 @@ export function createClouds(scene,getCarPosition){
       });
       material.rotation=(cloudRand(i*89,41)-0.5)*0.32;
       let cloud=new THREE.Sprite(material);
-      let baseX=(cloudRand(i*23,7)-0.5)*cloudRange;
-      let baseZ=(cloudRand(i*31,11)-0.5)*cloudRange;
-      let baseY=165+cloudRand(i*43,19)*245;
-      let width=(1450+sizeT*2550)*(0.86+aspectT*0.36);
-      let height=(220+cloudRand(i*61,31)*420)*(0.84+(1-aspectT)*0.34);
+      let angle=cloudRand(i*23,7)*Math.PI*2;
+      let radius=7200+cloudRand(i*31,11)*4200;
+      let baseY=720+cloudRand(i*43,19)*620;
+      let width=(1900+sizeT*3400)*(0.86+aspectT*0.36);
+      let height=(300+cloudRand(i*61,31)*520)*(0.84+(1-aspectT)*0.34);
       if(cloudRand(i*107,51)>0.78){
         width*=1.28+cloudRand(i*109,57)*0.32;
         height*=1.08+cloudRand(i*113,63)*0.18;
       }
-      let windAngle=-0.45+cloudRand(i*73,47)*0.35;
-      let windSpeed=18+cloudRand(i*71,37)*16;
+      let windSpeed=0.00022+cloudRand(i*71,37)*0.00026;
 
-      cloud.position.set(baseX,baseY,baseZ);
       cloud.scale.set(width,height,1);
       cloud.userData={
-        baseX,
-        baseZ,
+        angle,
+        radius,
         baseY,
         width,
         height,
-        windX:Math.cos(windAngle)*windSpeed,
-        windZ:Math.sin(windAngle)*windSpeed,
-        bobAmount:8+cloudRand(i*83,13)*18,
-        bobSpeed:0.08+cloudRand(i*97,23)*0.08,
+        windSpeed,
+        radiusBob:120+cloudRand(i*73,47)*260,
+        bobAmount:16+cloudRand(i*83,13)*34,
+        bobSpeed:0.035+cloudRand(i*97,23)*0.045,
         phase:cloudRand(i*109,53)*Math.PI*2
       };
+      cloud.position.set(
+        Math.cos(angle)*radius,
+        baseY,
+        Math.sin(angle)*radius
+      );
       cloudGroup.add(cloud);
       cloudSprites.push(cloud);
     }
   }
 
-  function wrapCloudCoord(value,center,range){
-    let half=range*0.5;
-    while(value<center-half) value+=range;
-    while(value>center+half) value-=range;
-    return value;
-  }
-
   function update(){
     let {carX,carZ}=getCarPosition();
     cloudTime+=0.016;
-    let range=12800;
 
     for(let cloud of cloudSprites){
       let data=cloud.userData;
-      let x=wrapCloudCoord(data.baseX+cloudTime*data.windX,carX,range);
-      let z=wrapCloudCoord(
-        data.baseZ+cloudTime*data.windZ+Math.sin(cloudTime*0.12+data.phase)*55,
-        carZ,
-        range
-      );
+      let angle=data.angle+cloudTime*data.windSpeed;
+      let radius=data.radius+Math.sin(cloudTime*0.04+data.phase)*data.radiusBob;
+      let x=carX+Math.cos(angle)*radius;
+      let z=carZ+Math.sin(angle)*radius;
       let y=data.baseY+Math.sin(cloudTime*data.bobSpeed+data.phase)*data.bobAmount;
-      let dx=x-carX;
-      let dz=z-carZ;
-      let minDist=3600;
-      if(dx*dx+dz*dz<minDist*minDist){
-        let angle=Math.atan2(dz || 1,dx || 1);
-        x=carX+Math.cos(angle)*minDist;
-        z=carZ+Math.sin(angle)*minDist;
-      }
       cloud.position.set(x,y,z);
     }
   }

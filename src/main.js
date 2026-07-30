@@ -3,10 +3,10 @@ import { carRadius, gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize, v
 import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=titan-wide-plateaus";
 import { createInput } from "./input.js?v=progressive-pointer-aim";
 import { createHud } from "./hud.js?v=larger-compass-unit-labels";
-import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createLowHangingHaze, createRain, createStars, createWheelTracks } from "./effects.js?v=single-player-rain-splashes";
-import { createWorld } from "./world.js?v=titan-water-edge-fix";
+import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createLowHangingHaze, createRain, createStars, createWheelTracks } from "./effects.js?v=horizon-cloud-band";
+import { createWorld } from "./world.js?v=water-attached-shore";
 import { createMotorAudio } from "./audio.js?v=mission-accomplished-voice";
-import { worldEnvironments } from "./environments.js?v=titan-highland-ground-detail-plus";
+import { worldEnvironments } from "./environments.js?v=water-attached-shore";
 import { difficultySettings } from "./gameConfig.js?v=ammo-caps";
 import { addPatchyCarDust, enemyBuggyDustPatchOptions, loadBackPackModel, loadBaseStationModel, loadCarModel, loadEnemyBattleShipModel, loadEnemyBuggyModel, loadJetModel, loadLandingSpaceModel, loadTradingOutpostModel, loadTreasureChestModels, makeMechModel, robotDustPatchOptions } from "./models.js?v=very-dark-car-colors";
 import { makeDistantPlanetHazeTexture, makeDistantPlanetLightTexture, makeDistantPlanetVeilTexture, makeSkyTexture } from "./textures.js?v=stronger-sky-gradient-2";
