@@ -1,6 +1,6 @@
 import { THREE } from "./three.js";
 import { cloudCount } from "./constants.js";
-import { makeCarShadowTexture, makeCloudTexture, makeDustTexture, makeHazeTexture } from "./textures.js?v=larger-cloud-variants";
+import { makeCarShadowTexture, makeCloudTexture, makeDustTexture, makeHazeTexture } from "./textures.js?v=uncropped-cloud-texture";
 import { groundHeight, rand } from "./terrain.js";
 
 function normalizeTrackAngle(angle){

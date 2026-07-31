@@ -3,7 +3,7 @@ import { carRadius, gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize, v
 import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=titan-wide-plateaus";
 import { createInput } from "./input.js?v=progressive-pointer-aim";
 import { createHud } from "./hud.js?v=larger-compass-unit-labels";
-import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createLowHangingHaze, createRain, createStars, createWheelTracks } from "./effects.js?v=larger-cloud-variants";
+import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createLowHangingHaze, createStars, createWheelTracks } from "./effects.js?v=uncropped-cloud-texture";
 import { createWorld } from "./world.js?v=titan-water-edge-fix";
 import { createMotorAudio } from "./audio.js?v=mission-accomplished-voice";
 import { worldEnvironments } from "./environments.js?v=titan-highland-ground-detail-plus";
@@ -130,16 +130,7 @@ function randomRainIntensity(environment,scale=1){
 }
 
 function chooseWeatherTarget(environment){
-  let wetness=environment.rainChance || 0;
-  let roll=Math.random();
-  let clearChance=Math.max(weatherClearChanceFloor,weatherClearChanceBase-wetness*weatherClearWetnessScale);
-  let drizzleChance=Math.min(weatherDrizzleChanceMax,weatherDrizzleChanceBase+wetness*weatherDrizzleWetnessScale);
-  let rainChance=Math.min(weatherRainChanceMax,weatherRainChanceBase+wetness*weatherRainWetnessScale);
-
-  if(roll<clearChance) return 0;
-  if(roll<clearChance+drizzleChance) return randomRainIntensity(environment,weatherDrizzleIntensityScale);
-  if(roll<clearChance+drizzleChance+rainChance) return randomRainIntensity(environment,weatherRainIntensityScale);
-  return randomRainIntensity(environment,weatherStormIntensityScale);
+  return 0;
 }
 
 function scheduleNextWeatherChange(now=performance.now()){
@@ -307,8 +298,6 @@ function updateWeather(){
   if(Math.abs(weatherTargetIntensity-rainIntensity)<weatherSnapThreshold) rainIntensity=weatherTargetIntensity;
 
   updateDayNight(now);
-  let audibleRainIntensity=rainRenderingSuppressed() ? 0 : rainIntensity;
-  if(typeof motorAudio!=="undefined" && motorAudio.updateRain) motorAudio.updateRain(audibleRainIntensity);
 }
 
 let scene=new THREE.Scene();
@@ -659,101 +648,11 @@ firstPersonVisorOverlay.style.cssText=[
 ].join(";");
 document.body.appendChild(firstPersonVisorOverlay);
 
-let firstPersonRainSplatterStyle=document.createElement("style");
-firstPersonRainSplatterStyle.textContent=[
-  "@keyframes cockpitRainDropRun{",
-  "0%{transform:translate3d(0,-16px,0) skewX(var(--drop-skew)) scale(0.82);opacity:0}",
-  "12%{opacity:var(--drop-opacity)}",
-  "74%{opacity:var(--drop-opacity)}",
-  "100%{transform:translate3d(var(--drop-drift),78px,0) skewX(var(--drop-skew)) scale(1.08);opacity:0}",
-  "}",
-  "@keyframes cockpitRainStreakRun{",
-  "0%{transform:translate3d(0,-44px,0) rotate(var(--streak-tilt));opacity:0}",
-  "14%{opacity:var(--streak-opacity)}",
-  "78%{opacity:var(--streak-opacity)}",
-  "100%{transform:translate3d(var(--streak-drift),96px,0) rotate(var(--streak-tilt));opacity:0}",
-  "}"
-].join("");
-document.head.appendChild(firstPersonRainSplatterStyle);
-
 function addVisorPart(parent,styles){
   let part=document.createElement("div");
   part.style.cssText=styles.join(";");
   parent.appendChild(part);
   return part;
-}
-
-function createRainSplatterLayer(parent){
-  let layer=document.createElement("div");
-  layer.style.cssText=[
-    "position:absolute",
-    "inset:0",
-    "opacity:0",
-    "pointer-events:none",
-    "overflow:hidden",
-    "display:none",
-    "transition:opacity 220ms linear"
-  ].join(";");
-  parent.appendChild(layer);
-
-  for(let i=0;i<10;i++){
-    let size=3.2+(i%9)*1.08+(i%6===0 ? 4.2 : 0)+(i%11===0 ? 2.8 : 0);
-    let dropHeight=size*(1.72+(i%5)*0.18);
-    let left=(8+(i*37)%86)+((i%3)-1)*1.8;
-    let top=(7+(i*53)%78)+((i%5)-2)*1.2;
-    let opacity=0.42+(i%5)*0.055;
-    let duration=(5.4+(i%6)*0.72).toFixed(2);
-    let delay=(-(i*0.47)%5.2).toFixed(2);
-    let drift=((i%5)-2)*3.4;
-    let skew=((i%5)-2)*0.8;
-    let radius=i%4===0 ? "48% 52% 54% 46% / 28% 30% 72% 70%" : "50% 50% 56% 44% / 24% 26% 76% 74%";
-    addVisorPart(layer,[
-      "position:absolute",
-      `left:${left}%`,
-      `top:${top}%`,
-      `width:${size}px`,
-      `height:${dropHeight}px`,
-      `border-radius:${radius}`,
-      `opacity:${opacity}`,
-      `--drop-opacity:${opacity}`,
-      `--drop-drift:${drift}px`,
-      `--drop-skew:${skew}deg`,
-      `animation:cockpitRainDropRun ${duration}s linear ${delay}s infinite`,
-      "will-change:transform,opacity",
-      `transform:skewX(${skew}deg)`,
-      "background:radial-gradient(ellipse at 32% 20%, rgba(255,255,255,0.92) 0 8%, rgba(255,255,255,0.2) 15%, rgba(166,221,240,0.18) 42%, rgba(58,101,121,0.25) 74%, rgba(255,255,255,0.03) 100%)",
-      "border:1px solid rgba(228,253,255,0.42)",
-      "box-shadow:inset 1px 1px 2px rgba(255,255,255,0.3), inset -1px -2px 2px rgba(29,71,92,0.24)"
-    ]);
-  }
-
-  for(let i=0;i<4;i++){
-    let left=6+(i*29)%88;
-    let top=4+(i*41)%70;
-    let height=34+(i%5)*13;
-    let width=2+(i%3)*0.65;
-    let duration=(3.8+(i%5)*0.55).toFixed(2);
-    let delay=(-(i*0.63)%4.6).toFixed(2);
-    let drift=((i%4)-1.5)*5.8;
-    addVisorPart(layer,[
-      "position:absolute",
-      `left:${left}%`,
-      `top:${top}%`,
-      `width:${width}px`,
-      `height:${height}px`,
-      "border-radius:999px",
-      "opacity:0.5",
-      "--streak-opacity:0.5",
-      `--streak-drift:${drift}px`,
-      "--streak-tilt:8deg",
-      `animation:cockpitRainStreakRun ${duration}s linear ${delay}s infinite`,
-      "will-change:transform,opacity",
-      "background:linear-gradient(90deg, rgba(255,255,255,0.18), rgba(236,252,255,0.62) 34%, rgba(96,150,174,0.34) 62%, rgba(255,255,255,0.08))",
-      "box-shadow:inset 1px 0 1px rgba(255,255,255,0.34), inset -1px 0 2px rgba(31,74,96,0.22)"
-    ]);
-  }
-
-  return layer;
 }
 
 function createFirstPersonVisorPane(left,width){
@@ -1088,10 +987,6 @@ function updateFirstPersonVisorOverlay(){
     let carAmount=firstPersonPaneCarAmount(i);
     if(pane._robotLayer) pane._robotLayer.style.opacity=String(1-carAmount*0.82);
     if(pane._carLayer) pane._carLayer.style.opacity=String(carAmount);
-    if(pane._rainLayer){
-      pane._rainLayer.style.display="none";
-      pane._rainLayer.style.opacity="0";
-    }
   }
 }
 let terraformFadeOverlay=document.createElement("div");
@@ -2119,18 +2014,6 @@ function enemyTargetableCars(){
   return targetableCarsCache;
 }
 
-function rainRenderingSuppressed(){
-  if(!gameStarted) return false;
-
-  for(let car of activeCars()){
-    if(!car || car.health<=0 || !car.group.visible) continue;
-    if(car.jetMode || car.jetProgress>0.35) return true;
-    if(actorInsideHomeBase(car)) return true;
-  }
-
-  return false;
-}
-
 function activeEnemies(){
   return enemies.filter(enemy=>enemy.active && enemy.health>0);
 }
@@ -2458,33 +2341,6 @@ let stars=createStars(scene,()=>{
   return {x:x/active.length,y:y/active.length,z:z/active.length};
 },()=>dayNightState().nightAmount,()=>rainIntensity);
 let birds=createBirds(scene,()=>({carX:playerCar.x,carZ:playerCar.z}));
-function playerRainDirection(){
-  let x=0;
-  let z=0;
-  let speedSum=0;
-  let count=0;
-  for(let car of activeCars()){
-    if(!car || !car.group.visible || car.health<=0) continue;
-    let speed=car.speed || 0;
-    let speedAbs=Math.abs(speed);
-    if(speedAbs<0.025) continue;
-    let travelAngle=speed>=0 ? car.velAngle : car.velAngle+Math.PI;
-    x+=Math.sin(travelAngle)*speedAbs;
-    z+=Math.cos(travelAngle)*speedAbs;
-    speedSum+=speedAbs;
-    count++;
-  }
-  if(!count || speedSum<=0.001) return {x:0,z:0,speed:0};
-  return {x:x/speedSum,z:z/speedSum,speed:speedSum/count};
-}
-
-function rainViewerUnderWater(){
-  let visibleCars=activeCars().filter(car=>car && car.group.visible && car.health>0 && car.camera);
-  if(!visibleCars.length) visibleCars=[playerCar];
-  return visibleCars.some(car=>car.camera.position.y<waterLevel+0.22 && waterDepthAt(car.camera.position.x,car.camera.position.z)>0.18);
-}
-
-let rain=createRain(scene,()=>({carX:px,carY:py,carZ:pz}),()=>rainRenderingSuppressed() ? 0 : rainIntensity,()=>rainQualityScale(),playerRainDirection,()=>waterLevel,rainViewerUnderWater);
 let lowHaze=createLowHangingHaze(scene,()=>({carX:px,carY:py,carZ:pz}),()=>currentEnvironment);
 let ambientMotes=createAmbientMotes(scene,()=>({carX:px,carY:py,carZ:pz}),()=>rainIntensity);
 let dust=createDust(scene);
@@ -4519,7 +4375,7 @@ function restoreSavedRuntimeStatus(status){
   if(jetUnlocked) purchasedTradingItems.add("jet");
   enemyWaveDelay=Math.max(0,Math.floor(finiteOr(status.enemyWaveDelay,enemyWaveDelay)));
   enemyPatrolDelay=Math.max(0,Math.floor(finiteOr(status.enemyPatrolDelay,enemyPatrolDelay)));
-  rainIntensity=Math.max(0,Math.min(1,finiteOr(status.rainIntensity,rainIntensity)));
+  rainIntensity=0;
   weatherTargetIntensity=Math.max(0,Math.min(1,finiteOr(status.weatherTargetIntensity,weatherTargetIntensity)));
   nextWeatherChange=performance.now()+Math.max(1000,finiteOr(status.weatherChangeRemaining,weatherChangeMinMs));
   scannedBossBases=new Set(Array.isArray(status.scannedBossBases) ? status.scannedBossBases.filter(item=>item && Number.isFinite(item.x) && Number.isFinite(item.z)) : []);
@@ -15002,16 +14858,6 @@ function chunkBuildBudget(){
   return {items:3,frameMs:2.6};
 }
 
-function rainQualityScale(){
-  let jetView=gameStarted && activeCars().some(car=>chunkViewDistanceForCar(car)>viewDistance);
-  if(currentFrameStressLevel>=2) return 0.34;
-  if(currentFrameStressLevel>=1) return 0.48;
-  if(gameMode==="double" && jetView) return 0.3;
-  if(gameMode==="double") return 0.42;
-  if(jetView) return 0.5;
-  return 0.72;
-}
-
 function updateJetFogAmount(){
   let target=0;
 
@@ -15134,7 +14980,6 @@ function loop(timestamp=performance.now()){
     birds.update();
     lowHaze.update();
     ambientMotes.update();
-    rain.update();
     renderGame();
     return;
   }
@@ -15199,7 +15044,6 @@ function loop(timestamp=performance.now()){
     birds.update();
     lowHaze.update();
     ambientMotes.update();
-    rain.update();
     updateSurfaceScanPulses((frameMs/1000)*visualInterval);
   }
   if(stressLevel<3 || renderFrameIndex%2===0) hud.updateSpeedHud();
