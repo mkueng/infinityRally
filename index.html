@@ -74,6 +74,8 @@
       font-family: "Astor", Arial, sans-serif;
       color: white;
       overflow: hidden;
+      box-sizing: border-box;
+      padding: max(14px, env(safe-area-inset-top)) 0 max(14px, env(safe-area-inset-bottom));
       background:
         linear-gradient(180deg, #07131d 0%, #102532 42%, #2f3230 43%, #172625 67%, #0a0d12 100%);
     }
@@ -88,11 +90,12 @@
 
     .start-panel {
       position: absolute;
-      top: 100px;
+      top: clamp(18px, 9vh, 100px);
       left: 50%;
       z-index: 3;
       width: min(620px, calc(100vw - 36px));
       padding: 0 28px;
+      box-sizing: border-box;
       transform: translateX(-50%);
     }
 
@@ -948,6 +951,184 @@
       }
     }
 
+    @media (max-height: 820px) {
+      .start-screen {
+        align-items: flex-start;
+      }
+
+      .start-panel {
+        position: relative;
+        top: auto;
+        left: auto;
+        transform: none;
+        margin: 0 auto;
+        padding-inline: 20px;
+      }
+
+      .start-title {
+        margin-bottom: clamp(8px, 2vh, 18px);
+        font-size: clamp(42px, 9.2vh, 76px);
+      }
+
+      .difficulty-actions {
+        gap: 6px;
+        margin-bottom: clamp(8px, 1.6vh, 12px);
+      }
+
+      .planet-preview {
+        height: clamp(72px, 17vh, 128px);
+        margin-bottom: clamp(7px, 1.4vh, 11px);
+      }
+
+      .planet-actions {
+        gap: 5px;
+        margin-bottom: clamp(8px, 1.6vh, 12px);
+      }
+
+      .difficulty-actions button {
+        height: clamp(34px, 5.2vh, 42px);
+        font-size: 12px;
+      }
+
+      .planet-actions button {
+        height: clamp(28px, 4.3vh, 34px);
+        font-size: 9px;
+      }
+
+      .start-actions {
+        gap: 7px;
+      }
+
+      .start-actions button {
+        height: clamp(36px, 5.5vh, 46px);
+        font-size: 15px;
+      }
+
+      .asset-loading,
+      .planet-loading {
+        margin-bottom: clamp(8px, 1.4vh, 14px);
+      }
+
+      .saved-game-date {
+        min-height: 10px;
+        font-size: 10px;
+      }
+    }
+
+    @media (max-height: 820px) and (min-width: 560px) {
+      .planet-actions {
+        grid-template-columns: repeat(5, 1fr);
+      }
+    }
+
+    @media (max-height: 720px) {
+      .start-credits {
+        display: none;
+      }
+    }
+
+    @media (max-height: 640px) {
+      .start-screen {
+        justify-content: flex-start;
+        padding-top: max(8px, env(safe-area-inset-top));
+        padding-bottom: max(8px, env(safe-area-inset-bottom));
+      }
+
+      .start-panel {
+        width: min(560px, calc(100vw - 20px));
+        padding-inline: 10px;
+      }
+
+      .start-title {
+        margin-bottom: 6px;
+        font-size: clamp(30px, 8.2vh, 50px);
+        -webkit-text-stroke-width: 1px;
+        text-stroke-width: 1px;
+      }
+
+      .planet-preview {
+        height: clamp(44px, 12vh, 72px);
+        margin-top: -2px;
+        margin-bottom: 6px;
+      }
+
+      .difficulty-actions,
+      .planet-actions,
+      .start-actions {
+        gap: 5px;
+      }
+
+      .difficulty-actions {
+        margin-bottom: 5px;
+      }
+
+      .planet-actions {
+        margin-bottom: 5px;
+      }
+
+      .difficulty-actions button {
+        height: 27px;
+        font-size: 10px;
+      }
+
+      .planet-actions button {
+        height: 23px;
+        font-size: 8px;
+        padding-inline: 4px;
+      }
+
+      .start-actions button {
+        height: 30px;
+        font-size: 12px;
+      }
+
+      .asset-loading,
+      .planet-loading,
+      .start-screen.is-planet-loading .planet-loading {
+        min-height: 22px;
+        max-height: 22px;
+        margin: -4px 0 5px;
+        font-size: 10px;
+      }
+
+      .start-screen.is-ready .asset-loading,
+      .planet-loading {
+        min-height: 0;
+        max-height: 0;
+        margin: 0;
+      }
+
+      .start-credits {
+        display: none;
+      }
+    }
+
+    @media (max-height: 520px) {
+      .start-title {
+        font-size: clamp(26px, 7.6vh, 38px);
+      }
+
+      .planet-preview {
+        display: none;
+      }
+
+      .difficulty-actions button,
+      .planet-actions button,
+      .start-actions button {
+        height: 26px;
+      }
+
+      .planet-actions {
+        grid-template-columns: repeat(5, 1fr);
+      }
+
+      .saved-game-date {
+        min-height: 8px;
+        margin: -5px 0 -1px;
+        font-size: 8px;
+      }
+    }
+
     .menu-robot-cursor {
       position: fixed;
       left: 0;
@@ -1117,7 +1298,7 @@
   </div>
   <div class="start-credits" aria-label="Credits">
     <div>design: Noa Kueng-Dinally |</div>
-    <div>music and sound-effects: Noa Kueng-Dinally |</div>
+    <div>music / sfx: Noa Kueng-Dinally |</div>
     <div>testing: Yun Kueng-Dinally / Kai Kueng-Dinally |</div>
     <div>programming: Marco Kueng</div>
   </div>
