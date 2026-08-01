@@ -25,10 +25,6 @@ export function createWorld(scene,options={}){
   let rockRaycaster=new THREE.Raycaster();
   let rockRayDirection=new THREE.Vector3();
   let rockRayHits=[];
-  let rockInstanceMatrix=new THREE.Matrix4();
-  let rockInstancePosition=new THREE.Vector3();
-  let rockInstanceQuaternion=new THREE.Quaternion();
-  let rockInstanceScale=new THREE.Vector3();
   let activeChunkBuild=null;
   let lastChunkBuildTime=0;
   let chunkWorker=null;
@@ -40,6 +36,7 @@ export function createWorld(scene,options={}){
   let renderStressSignature="";
   let getDifficulty=typeof options.getDifficulty==="function" ? options.getDifficulty : ()=>"medium";
   let getPerformanceMode=typeof options.getPerformanceMode==="function" ? options.getPerformanceMode : ()=>"full";
+  let getPerformanceStressLevel=typeof options.getPerformanceStressLevel==="function" ? options.getPerformanceStressLevel : ()=>0;
   let defaultEnvironment={
     colors:{
       underwater:0x8f5a6c,
@@ -1949,61 +1946,11 @@ function obstacleCollisionInfo(x,z,padding=carRadius,actorBounds=null){
     }
   }
 
-  function considerVisibleRockInstance(mesh,collidersByInstance,index){
-    if(!actorBounds || !mesh || index<0 || index>=mesh.count) return;
-    let collider=collidersByInstance ? collidersByInstance[index] : null;
-    if(collider && collider.destroyed) return;
-
-    mesh.getMatrixAt(index,rockInstanceMatrix);
-    rockInstanceMatrix.decompose(rockInstancePosition,rockInstanceQuaternion,rockInstanceScale);
-    if(Math.abs(rockInstanceScale.x)+Math.abs(rockInstanceScale.y)+Math.abs(rockInstanceScale.z)<0.001) return;
-
-    let radius=Math.max(
-      collider && Number.isFinite(collider.r) ? collider.r : 0,
-      Math.max(Math.abs(rockInstanceScale.x),Math.abs(rockInstanceScale.z))*1.38,
-      1.15
-    );
-    let halfHeight=Math.max(Math.abs(rockInstanceScale.y)*1.42,0.35);
-    let obstacle=collider || {
-      x:rockInstancePosition.x,
-      z:rockInstancePosition.z,
-      type:"rock",
-      instances:[{mesh,index}]
-    };
-    obstacle.x=Number.isFinite(obstacle.x) ? obstacle.x : rockInstancePosition.x;
-    obstacle.z=Number.isFinite(obstacle.z) ? obstacle.z : rockInstancePosition.z;
-    obstacle.baseY=Number.isFinite(obstacle.baseY) ? obstacle.baseY : groundHeight(rockInstancePosition.x,rockInstancePosition.z);
-    obstacle.bottomY=Number.isFinite(obstacle.bottomY) ? obstacle.bottomY : rockInstancePosition.y-halfHeight;
-    obstacle.topY=Number.isFinite(obstacle.topY) ? obstacle.topY : rockInstancePosition.y+halfHeight;
-    obstacle.y=Number.isFinite(obstacle.y) ? obstacle.y : (obstacle.bottomY+obstacle.topY)*0.5;
-    obstacle.r=Math.max(Number.isFinite(obstacle.r) ? obstacle.r : 0,radius);
-    obstacle.visualRadius=Math.max(Number.isFinite(obstacle.visualRadius) ? obstacle.visualRadius : 0,radius);
-    obstacle.visualHeight=Math.max(Number.isFinite(obstacle.visualHeight) ? obstacle.visualHeight : 0,obstacle.topY-obstacle.bottomY);
-    obstacle.height=Math.max(Number.isFinite(obstacle.height) ? obstacle.height : 0,obstacle.topY-obstacle.bottomY);
-    if(!verticalBoundsOverlap(actorBounds,obstacle)) return;
-
-    let hitRadius=obstacleMovementRadius(obstacle,padding);
-    let dx=x-obstacle.x;
-    let dz=z-obstacle.z;
-    let distSq=dx*dx+dz*dz;
-    if(distSq>=hitRadius*hitRadius) return;
-
-    let dist=Math.sqrt(Math.max(0.000001,distSq));
-    let overlap=hitRadius-dist;
-    if(overlap>bestOverlap){
-      bestOverlap=overlap;
-      best={obstacle,radius:hitRadius,dist,overlap,dx,dz};
-    }
-  }
-
   for(let dx=-1;dx<=1;dx++){
     for(let dz=-1;dz<=1;dz++){
       let chunk=chunks.get(chunkKey(pcx+dx,pcz+dz));
       if(!chunk || !chunk.colliders) continue;
       for(let obstacle of chunk.colliders) considerObstacle(obstacle);
-      if(actorBounds && chunk.rocks){
-        for(let i=0;i<chunk.rocks.count;i++) considerVisibleRockInstance(chunk.rocks,chunk.rockCollidersByInstance,i);
-      }
     }
   }
 
@@ -3115,10 +3062,30 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   let cheapTreePatchRadius=vegetation.cheapTreePatchRadius ?? 13;
   let cheapTreePatchMaxRange=vegetation.cheapTreePatchMaxRange ?? 6.5;
   let cheapTreeAttempts=Math.max(cheapTreeCount,Math.floor((vegetation.cheapTreeAttempts || cheapTreeCount*12)));
+  let cheapTreeGroupCount=Math.max(0,Math.floor(vegetation.cheapTreeGroupCount || 0));
+  let cheapTreeGroupRadius=Math.max(1,vegetation.cheapTreeGroupRadius || 1);
+  let cheapTreeGroups=[];
+
+  for(let groupIndex=0;groupIndex<cheapTreeGroupCount;groupIndex++){
+    cheapTreeGroups.push({
+      x:cx*chunkSize+(rand(cx*811+groupIndex*37,cz*571-groupIndex*19)-0.5)*chunkSize,
+      z:cz*chunkSize+(rand(cx*463-groupIndex*23,cz*947+groupIndex*29)-0.5)*chunkSize
+    });
+  }
 
   for(let attempt=0;attempt<cheapTreeAttempts && cheapTreeUsed<cheapTreeCount;attempt++){
-    let wx=cx*chunkSize+(rand(cx*617+attempt*23,cz*293-attempt*17)-0.5)*chunkSize;
-    let wz=cz*chunkSize+(rand(cx*149-attempt*19,cz*881+attempt*31)-0.5)*chunkSize;
+    let wx;
+    let wz;
+    if(cheapTreeGroups.length){
+      let group=cheapTreeGroups[attempt%cheapTreeGroups.length];
+      let angle=rand(cx*617+attempt*23,cz*293-attempt*17)*Math.PI*2;
+      let radius=Math.pow(rand(cx*149-attempt*19,cz*881+attempt*31),0.62)*cheapTreeGroupRadius;
+      wx=group.x+Math.cos(angle)*radius;
+      wz=group.z+Math.sin(angle)*radius;
+    }else{
+      wx=cx*chunkSize+(rand(cx*617+attempt*23,cz*293-attempt*17)-0.5)*chunkSize;
+      wz=cz*chunkSize+(rand(cx*149-attempt*19,cz*881+attempt*31)-0.5)*chunkSize;
+    }
     let wy=groundHeight(wx,wz);
 
     if(wy<cheapTreeMinHeight || wy>cheapTreeMaxHeight) continue;
@@ -3314,7 +3281,8 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   }
   yield;
 
-  let rockCount=Math.max(1,Math.floor((cityMode ? 6 : 30)*Math.max(0.18,featureDensity)));
+  let rockCountScale=Math.max(0,rockSettings.countScale ?? 1);
+  let rockCount=Math.max(1,Math.floor((cityMode ? 6 : 30)*Math.max(0.18,featureDensity)*rockCountScale));
   let rocks=new THREE.InstancedMesh(rockGeo,rockMat,rockCount);
   let rockShadows=new THREE.InstancedMesh(buildingShadowGeo,rockShadowMat,rockCount);
   rockShadows.renderOrder=1;
@@ -3325,13 +3293,32 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   let rockWarmColor=rockBaseColor.clone().lerp(new THREE.Color(0xd88945),0.32);
   let rockDustColor=rockBaseColor.clone().lerp(new THREE.Color(envColors.shore || 0x8a6a4a),0.24);
   let rockInstanceColor=new THREE.Color();
+  let rockGroupCount=Math.max(0,Math.floor(rockSettings.groupCount || 0));
+  let rockGroupRadius=Math.max(1,rockSettings.groupRadius || 1);
+  let rockGroups=[];
+
+  for(let groupIndex=0;groupIndex<rockGroupCount;groupIndex++){
+    rockGroups.push({
+      x:cx*chunkSize+(rand(cx*1201+groupIndex*43,cz*701-groupIndex*31)-0.5)*chunkSize,
+      z:cz*chunkSize+(rand(cx*769-groupIndex*29,cz*1439+groupIndex*37)-0.5)*chunkSize
+    });
+  }
 
   for(let i=0;i<rockCount;i++){
-    let rx=rand(cx*222+i,cz*888-i);
-    let rz=rand(cx*444-i,cz*666+i);
-
-    let wx=cx*chunkSize+(rx-.5)*chunkSize;
-    let wz=cz*chunkSize+(rz-.5)*chunkSize;
+    let wx;
+    let wz;
+    if(rockGroups.length){
+      let group=rockGroups[i%rockGroups.length];
+      let angle=rand(cx*222+i,cz*888-i)*Math.PI*2;
+      let radius=Math.pow(rand(cx*444-i,cz*666+i),0.58)*rockGroupRadius;
+      wx=group.x+Math.cos(angle)*radius;
+      wz=group.z+Math.sin(angle)*radius;
+    }else{
+      let rx=rand(cx*222+i,cz*888-i);
+      let rz=rand(cx*444-i,cz*666+i);
+      wx=cx*chunkSize+(rx-.5)*chunkSize;
+      wz=cz*chunkSize+(rz-.5)*chunkSize;
+    }
     let wy=groundHeight(wx,wz);
     let scale=.8+rand(i+9,cx-cz)*3;
     if(wy>=rockSettings.highAltitudeStart){
@@ -4163,7 +4150,20 @@ function updateChunksForCenters(centers){
 
   function detailForDistanceSq(distanceSq){
     let detail;
-    if(distanceSq<=8) detail={treeDensity:1,partDensity:1,grassDensity:1,featureDensity:1};
+    let stressLevel=Math.max(0,Math.min(3,Math.floor(getPerformanceStressLevel() || 0)));
+    if(stressLevel>=3){
+      if(distanceSq<=4) detail={treeDensity:0.86,partDensity:0.82,grassDensity:0.48,featureDensity:1};
+      else if(distanceSq<=9) detail={treeDensity:0.18,partDensity:0.28,grassDensity:0.08,featureDensity:0.45};
+      else detail={treeDensity:0.02,partDensity:0.08,grassDensity:0,featureDensity:0};
+    }else if(stressLevel>=2){
+      if(distanceSq<=6) detail={treeDensity:0.92,partDensity:0.9,grassDensity:0.62,featureDensity:1};
+      else if(distanceSq<=16) detail={treeDensity:0.32,partDensity:0.42,grassDensity:0.16,featureDensity:0.7};
+      else detail={treeDensity:0.06,partDensity:0.14,grassDensity:0.02,featureDensity:0};
+    }else if(stressLevel>=1){
+      if(distanceSq<=8) detail={treeDensity:1,partDensity:1,grassDensity:0.82,featureDensity:1};
+      else if(distanceSq<=20) detail={treeDensity:0.46,partDensity:0.54,grassDensity:0.34,featureDensity:1};
+      else detail={treeDensity:0.12,partDensity:0.24,grassDensity:0.08,featureDensity:0.35};
+    }else if(distanceSq<=8) detail={treeDensity:1,partDensity:1,grassDensity:1,featureDensity:1};
     else if(distanceSq<=24) detail={treeDensity:0.58,partDensity:0.62,grassDensity:0.62,featureDensity:1};
     else if(distanceSq>viewDistance*viewDistance) detail={treeDensity:0.08,partDensity:0.18,grassDensity:0.08,featureDensity:0};
     else detail={treeDensity:0.24,partDensity:0.42,grassDensity:0.34,featureDensity:1};
@@ -4500,8 +4500,10 @@ function chunkDistanceSqToCenters(chunk,centers){
 function applyChunkRenderStress(chunk,stressLevel,centers){
   if(!chunk) return;
   let distanceSq=chunkDistanceSqToCenters(chunk,centers);
-  let hideFarGrass=distanceSq>36;
-  let hideMidVegetation=stressLevel>=2 && distanceSq>8;
+  let grassRadiusSq=stressLevel>=3 ? 4 : stressLevel>=2 ? 9 : stressLevel>=1 ? 16 : 36;
+  let hideFarGrass=distanceSq>grassRadiusSq;
+  let hideMidVegetation=(stressLevel>=3 && distanceSq>4) || (stressLevel>=2 && distanceSq>9);
+  let hideFarRocks=(stressLevel>=3 && distanceSq>9) || (stressLevel>=2 && distanceSq>20);
   let hideDecor=(stressLevel>=1 && distanceSq>9) || (stressLevel>=2 && distanceSq>4);
   let hideMoreDecor=(stressLevel>=2 && distanceSq>4) || (stressLevel>=3 && distanceSq>1);
   let hideFarWater=stressLevel>=2 && distanceSq>16;
@@ -4512,7 +4514,7 @@ function applyChunkRenderStress(chunk,stressLevel,centers){
   setChunkObjectVisible(chunk.trunks,true);
   setChunkObjectVisible(chunk.crowns,true);
   setChunkObjectVisible(chunk.pods,true);
-  setChunkObjectVisible(chunk.rocks,true);
+  setChunkObjectVisible(chunk.rocks,!hideFarRocks);
   setChunkObjectVisible(chunk.rockShadows,!hideDecor);
   setChunkObjectVisible(chunk.gravel,!hideDecor);
   setChunkObjectVisible(chunk.buildingShadows,!hideDecor);

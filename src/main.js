@@ -3,10 +3,10 @@ import { carRadius, gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize, v
 import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=titan-wide-plateaus";
 import { createInput } from "./input.js?v=progressive-pointer-aim";
 import { createHud } from "./hud.js?v=larger-compass-unit-labels";
-import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createLowHangingHaze, createStars, createWheelTracks } from "./effects.js?v=uncropped-cloud-texture";
-import { createWorld } from "./world.js?v=titan-water-edge-fix";
+import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createLowHangingHaze, createStars, createWheelTracks } from "./effects.js?v=fullres-star-layer";
+import { createWorld } from "./world.js?v=sim-collision-budget";
 import { createMotorAudio } from "./audio.js?v=mission-accomplished-voice";
-import { worldEnvironments } from "./environments.js?v=titan-highland-ground-detail-plus";
+import { worldEnvironments } from "./environments.js?v=titan-rock-groups";
 import { difficultySettings } from "./gameConfig.js?v=ammo-caps";
 import { addPatchyCarDust, enemyBuggyDustPatchOptions, loadBackPackModel, loadBaseStationModel, loadCarModel, loadEnemyBattleShipModel, loadEnemyBuggyModel, loadJetModel, loadLandingSpaceModel, loadTradingOutpostModel, loadTreasureChestModels, makeMechModel, robotDustPatchOptions } from "./models.js?v=very-dark-car-colors";
 import { makeDistantPlanetHazeTexture, makeDistantPlanetLightTexture, makeDistantPlanetVeilTexture, makeSkyTexture } from "./textures.js?v=stronger-sky-gradient-2";
@@ -301,9 +301,19 @@ function updateWeather(){
 }
 
 let scene=new THREE.Scene();
+const worldRenderLayer=0;
+const skyRenderLayer=1;
+function assignRenderLayer(object,layer){
+  if(!object) return object;
+  object.traverse ? object.traverse(child=>child.layers.set(layer)) : object.layers.set(layer);
+  return object;
+}
 let playerCamera=new THREE.PerspectiveCamera(45,innerWidth/innerHeight,.1,1e6);
 let secondCamera=new THREE.PerspectiveCamera(45,innerWidth/innerHeight,.1,1e6);
-let renderer=new THREE.WebGLRenderer({antialias:false,powerPreference:"high-performance"});
+let skyRenderer=new THREE.WebGLRenderer({antialias:false,powerPreference:"high-performance"});
+let renderer=new THREE.WebGLRenderer({antialias:false,powerPreference:"high-performance",alpha:true});
+renderer.setClearColor(0x000000,0);
+skyRenderer.setClearColor(0x000000,1);
 let automaticFullscreenEnabled=false;
 let fullscreenRequestBlocked=false;
 let fullscreenTransitionOverlay=null;
@@ -361,6 +371,7 @@ distantMoon.scale.set(distantPlanetScale,distantPlanetScale,1);
 distantMoon.material.rotation=Math.PI*0.5;
 distantMoon.renderOrder=-10;
 distantMoon.frustumCulled=false;
+assignRenderLayer(distantMoon,skyRenderLayer);
 scene.add(distantMoon);
 let distantPlanetLight=new THREE.Sprite(new THREE.SpriteMaterial({
   map:makeDistantPlanetLightTexture(),
@@ -374,6 +385,7 @@ let distantPlanetLight=new THREE.Sprite(new THREE.SpriteMaterial({
 distantPlanetLight.scale.set(distantPlanetScale,distantPlanetScale,1);
 distantPlanetLight.renderOrder=-9.5;
 distantPlanetLight.frustumCulled=false;
+assignRenderLayer(distantPlanetLight,skyRenderLayer);
 scene.add(distantPlanetLight);
 let distantPlanetVeil=new THREE.Sprite(new THREE.SpriteMaterial({
   map:makeDistantPlanetVeilTexture(),
@@ -388,6 +400,7 @@ distantPlanetVeil.scale.set(distantPlanetScale,distantPlanetScale,1);
 distantPlanetVeil.material.rotation=Math.PI*0.5;
 distantPlanetVeil.renderOrder=-9.25;
 distantPlanetVeil.frustumCulled=false;
+assignRenderLayer(distantPlanetVeil,skyRenderLayer);
 scene.add(distantPlanetVeil);
 let distantPlanetHaze=new THREE.Sprite(new THREE.SpriteMaterial({
   map:makeDistantPlanetHazeTexture(),
@@ -403,6 +416,7 @@ distantPlanetHaze.center.set(0.5,0.5);
 distantPlanetHaze.material.rotation=Math.PI*0.5;
 distantPlanetHaze.renderOrder=-9;
 distantPlanetHaze.frustumCulled=false;
+assignRenderLayer(distantPlanetHaze,skyRenderLayer);
 scene.add(distantPlanetHaze);
 let currentPixelRatio=0;
 let lastPixelRatioUpdate=0;
@@ -416,8 +430,8 @@ function rendererQualityState(){
     return value*renderSoftnessPixelRatioScale;
   }
   if(gameMode==="double"){
-    if(currentFrameStressLevel>=3) return softened(0.38);
-    if(currentFrameStressLevel>=2) return softened(0.48);
+    if(currentFrameStressLevel>=3) return softened(0.3);
+    if(currentFrameStressLevel>=2) return softened(0.42);
     if(severeDrop) return softened(0.44);
     if(moderateDrop) return softened(0.54);
     if(jetView && rainy) return softened(0.58);
@@ -425,15 +439,15 @@ function rendererQualityState(){
     return softened(0.72);
   }
   if(firstPerson){
-    if(currentFrameStressLevel>=3 || severeDrop) return softened(0.42);
-    if(currentFrameStressLevel>=2 || moderateDrop) return softened(0.5);
+    if(currentFrameStressLevel>=3 || severeDrop) return softened(0.34);
+    if(currentFrameStressLevel>=2 || moderateDrop) return softened(0.44);
     if(jetView && rainy) return softened(0.54);
     if(jetView || rainy) return softened(0.58);
     return softened(0.64);
   }
-  if(currentFrameStressLevel>=3) return softened(0.42);
-  if(currentFrameStressLevel>=2) return softened(0.56);
-  if(severeDrop) return softened(0.52);
+  if(currentFrameStressLevel>=3) return softened(0.32);
+  if(currentFrameStressLevel>=2) return softened(0.48);
+  if(severeDrop) return softened(0.42);
   if(moderateDrop) return softened(0.72);
   if(jetView && rainy) return softened(0.8);
   if(jetView || rainy) return softened(0.88);
@@ -447,9 +461,13 @@ function updateRendererPixelRatio(){
 }
 currentPixelRatio=Math.min(window.devicePixelRatio || 1,0.95*renderSoftnessPixelRatioScale);
 renderer.setPixelRatio(currentPixelRatio);
+skyRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1,2));
+skyRenderer.setSize(rendererViewportWidth(),rendererViewportHeight(),false);
 renderer.setSize(rendererViewportWidth(),rendererViewportHeight(),false);
 renderer.setScissorTest(true);
+skyRenderer.setScissorTest(true);
 applyRendererViewportStyle();
+document.body.appendChild(skyRenderer.domElement);
 document.body.appendChild(renderer.domElement);
 
 function ensureFullscreenTransitionOverlay(){
@@ -509,6 +527,19 @@ function rendererViewportHeight(){
 }
 
 function applyRendererViewportStyle(){
+  skyRenderer.domElement.style.position="fixed";
+  skyRenderer.domElement.style.left="0";
+  skyRenderer.domElement.style.right="0";
+  skyRenderer.domElement.style.top="0";
+  skyRenderer.domElement.style.bottom="0";
+  skyRenderer.domElement.style.display="block";
+  skyRenderer.domElement.style.width="100dvw";
+  skyRenderer.domElement.style.height="100dvh";
+  skyRenderer.domElement.style.minHeight="100dvh";
+  skyRenderer.domElement.style.background="#000";
+  skyRenderer.domElement.style.zIndex="0";
+  skyRenderer.domElement.style.pointerEvents="none";
+  skyRenderer.domElement.style.filter="";
   renderer.domElement.style.position="fixed";
   renderer.domElement.style.left="0";
   renderer.domElement.style.right="0";
@@ -518,13 +549,16 @@ function applyRendererViewportStyle(){
   renderer.domElement.style.width="100dvw";
   renderer.domElement.style.height="100dvh";
   renderer.domElement.style.minHeight="100dvh";
-  renderer.domElement.style.background="#000";
+  renderer.domElement.style.background="transparent";
+  renderer.domElement.style.zIndex="1";
   renderer.domElement.style.filter="";
 }
 
 function resizeRendererToViewport(){
   updateRendererPixelRatio();
+  skyRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1,2));
   updateCameraProjection();
+  skyRenderer.setSize(rendererViewportWidth(),rendererViewportHeight(),false);
   renderer.setSize(rendererViewportWidth(),rendererViewportHeight(),false);
   applyRendererViewportStyle();
 }
@@ -1168,6 +1202,7 @@ skyDomeMat=new THREE.MeshBasicMaterial({
 skyDome=new THREE.Mesh(new THREE.SphereGeometry(420000,32,16),skyDomeMat);
 skyDome.frustumCulled=false;
 skyDome.renderOrder=-1000;
+assignRenderLayer(skyDome,skyRenderLayer);
 scene.add(skyDome);
 
 refreshSceneEnvironment();
@@ -1981,8 +2016,12 @@ function updateCameraProjection(){
 }
 updateCameraProjection();
 
+let singleActiveCarsCache=[];
 function activeCars(){
-  return gameMode==="single" ? [playerCar] : cars;
+  if(gameMode!=="single") return cars;
+  singleActiveCarsCache[0]=playerCar;
+  singleActiveCarsCache.length=1;
+  return singleActiveCarsCache;
 }
 
 function displayCars(){
@@ -2340,6 +2379,7 @@ let stars=createStars(scene,()=>{
   }
   return {x:x/active.length,y:y/active.length,z:z/active.length};
 },()=>dayNightState().nightAmount,()=>rainIntensity);
+assignRenderLayer(stars.object,skyRenderLayer);
 let birds=createBirds(scene,()=>({carX:playerCar.x,carZ:playerCar.z}));
 let lowHaze=createLowHangingHaze(scene,()=>({carX:px,carY:py,carZ:pz}),()=>currentEnvironment);
 let ambientMotes=createAmbientMotes(scene,()=>({carX:px,carY:py,carZ:pz}),()=>rainIntensity);
@@ -14032,25 +14072,41 @@ function positionSkyForCamera(camera){
   skyDome.position.copy(camera.position);
 }
 
+function renderSkyViewport(camera,x,y,width,height){
+  if(!camera) return;
+  positionSkyForCamera(camera);
+  camera.layers.set(skyRenderLayer);
+  skyRenderer.setViewport(x,y,width,height);
+  skyRenderer.setScissor(x,y,width,height);
+  skyRenderer.render(scene,camera);
+}
+
+function renderWorldViewport(camera,x,y,width,height){
+  if(!camera) return;
+  camera.layers.set(worldRenderLayer);
+  renderer.setViewport(x,y,width,height);
+  renderer.setScissor(x,y,width,height);
+  renderer.render(scene,camera);
+}
+
+function renderLayeredViewport(camera,x,y,width,height){
+  renderSkyViewport(camera,x,y,width,height);
+  renderWorldViewport(camera,x,y,width,height);
+}
+
 function renderGame(){
   let width=rendererViewportWidth();
   let height=rendererViewportHeight();
 
   if(terraformFinale && terraformFinale.active){
     setAimCrossForRender(null);
-    positionSkyForCamera(playerCamera);
-    renderer.setViewport(0,0,width,height);
-    renderer.setScissor(0,0,width,height);
-    renderer.render(scene,playerCamera);
+    renderLayeredViewport(playerCamera,0,0,width,height);
     return;
   }
 
   if(gameMode==="single"){
     setAimCrossForRender(playerCar);
-    positionSkyForCamera(playerCamera);
-    renderer.setViewport(0,0,width,height);
-    renderer.setScissor(0,0,width,height);
-    renderer.render(scene,playerCamera);
+    renderLayeredViewport(playerCamera,0,0,width,height);
     setAimCrossForRender(null);
     return;
   }
@@ -14061,16 +14117,10 @@ function renderGame(){
   let rightCar=displayCars()[1];
 
   setAimCrossForRender(leftCar);
-  positionSkyForCamera(leftCar.camera);
-  renderer.setViewport(0,0,halfWidth,height);
-  renderer.setScissor(0,0,halfWidth,height);
-  renderer.render(scene,leftCar.camera);
+  renderLayeredViewport(leftCar.camera,0,0,halfWidth,height);
 
   setAimCrossForRender(rightCar);
-  positionSkyForCamera(rightCar.camera);
-  renderer.setViewport(halfWidth,0,width-halfWidth,height);
-  renderer.setScissor(halfWidth,0,width-halfWidth,height);
-  renderer.render(scene,rightCar.camera);
+  renderLayeredViewport(rightCar.camera,halfWidth,0,width-halfWidth,height);
   setAimCrossForRender(null);
 }
 
@@ -14393,28 +14443,46 @@ function applyTerraformFinaleCameraForCar(car,side=1){
 let lastChunkSignature="";
 let fixedStepMs=1000/60;
 let maxFixedStepsPerFrame=5;
-let maxCatchUpFixedStepsPerFrame=12;
-let maxFixedAccumulatorMs=fixedStepMs*14;
+let maxCatchUpFixedStepsPerFrame=4;
+let maxFixedAccumulatorMs=fixedStepMs*6;
+let maxSimulationMsPerFrame=28;
 let fixedAccumulator=0;
 let simulationCatchupFrames=0;
 let lastLoopTime=null;
 let renderFrameIndex=0;
 let fixedFrameIndex=0;
 let currentFrameStressLevel=0;
+let performanceStressHoldFrames=0;
 
 function performanceStressLevel(frameMs=0){
   let instantaneousFps=frameMs>0 ? 1000/Math.max(1,frameMs) : lastMeasuredFps;
   let fps=Math.min(lastMeasuredFps,instantaneousFps);
-  if(fps<22 || frameMs>62) return 3;
-  if(fps<32 || frameMs>42) return 2;
-  if(fps<44 || frameMs>28 || gameMode==="double") return 1;
-  return 0;
+  let target=0;
+  if(fps<22 || frameMs>62) target=3;
+  else if(fps<32 || frameMs>42) target=2;
+  else if(fps<44 || frameMs>28 || gameMode==="double") target=1;
+  if(target>currentFrameStressLevel){
+    performanceStressHoldFrames=90;
+    return target;
+  }
+  if(performanceStressHoldFrames>0){
+    performanceStressHoldFrames--;
+    return Math.max(target,currentFrameStressLevel);
+  }
+  return target;
 }
 
-function fixedStepLimitForFrame(frameMs){
-  let expectedSteps=Math.ceil(Math.max(0,frameMs)/fixedStepMs);
+function fixedStepLimitForFrame(frameMs,accumulatorMs=fixedAccumulator){
+  let expectedSteps=Math.ceil(Math.max(0,accumulatorMs,frameMs)/fixedStepMs);
   let catchupLimit=Math.max(maxFixedStepsPerFrame,expectedSteps+1);
   return Math.max(1,Math.min(maxCatchUpFixedStepsPerFrame,catchupLimit));
+}
+
+function simulationBudgetForFrame(){
+  if(currentFrameStressLevel>=3) return 14;
+  if(currentFrameStressLevel>=2) return 18;
+  if(currentFrameStressLevel>=1) return 22;
+  return maxSimulationMsPerFrame;
 }
 
 function chunkViewDistanceForCar(car){
@@ -15013,18 +15081,22 @@ function loop(timestamp=performance.now()){
 
   let steps=0;
   currentFrameStressLevel=performanceStressLevel(frameMs);
-  let fixedStepLimit=fixedStepLimitForFrame(frameMs);
+  let fixedStepLimit=fixedStepLimitForFrame(frameMs,fixedAccumulator);
+  let fixedStepBudgetMs=simulationBudgetForFrame();
   let simStart=performance.now();
   while(fixedAccumulator>=fixedStepMs && steps<fixedStepLimit){
+    if(steps>0 && performance.now()-simStart>=fixedStepBudgetMs) break;
     let willRunAnotherStep=fixedAccumulator-fixedStepMs>=fixedStepMs && steps+1<fixedStepLimit;
-    fixedUpdateGame({updateFrameVisuals:!willRunAnotherStep});
+    fixedUpdateGame({updateFrameVisuals:steps===0 || !willRunAnotherStep});
     fixedAccumulator-=fixedStepMs;
     steps++;
   }
   recordPerfBucket("sim",performance.now()-simStart);
 
   let simulationStillBehind=steps>=fixedStepLimit && fixedAccumulator>=fixedStepMs;
-  if(simulationStillBehind) simulationCatchupFrames=8;
+  if(simulationStillBehind){
+    simulationCatchupFrames=8;
+  }
   else if(steps>1) simulationCatchupFrames=Math.max(simulationCatchupFrames,3);
   else simulationCatchupFrames=Math.max(0,simulationCatchupFrames-1);
 

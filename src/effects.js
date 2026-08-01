@@ -631,7 +631,7 @@ export function createStars(scene,getCarPosition,getNightAmount=()=>0,getRainInt
     material.uniforms.time.value+=0.016;
   }
 
-  return {update};
+  return {update,object:stars};
 }
 
 export function createBirds(scene,getCarPosition){
