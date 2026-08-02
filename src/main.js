@@ -10568,21 +10568,29 @@ function emitJetHoverExhaust(car){
   let forwardZ=Math.cos(car.angle);
   let rightX=Math.cos(car.angle);
   let rightZ=-Math.sin(car.angle);
+  let driftX=-Math.sin(car.velAngle || car.angle)*speedAbs*0.2;
+  let driftZ=-Math.cos(car.velAngle || car.angle)*speedAbs*0.2;
+  let emitters=[
+    {forward:1.45,side:-0.92},
+    {forward:1.45,side:0.92},
+    {forward:-1.25,side:-0.82},
+    {forward:-1.25,side:0.82}
+  ];
 
-  for(let i=0;i<3;i++){
-    let spread=(Math.random()-0.5)*1.05;
-    let rearJitter=(Math.random()-0.5)*0.34;
-    let px=car.x-forwardX*(2.35+rearJitter)+rightX*spread;
-    let pz=car.z-forwardZ*(2.35+rearJitter)+rightZ*spread;
+  for(let emitter of emitters){
+    let jitterForward=(Math.random()-0.5)*0.38;
+    let jitterSide=(Math.random()-0.5)*0.34;
+    let px=car.x+forwardX*(emitter.forward+jitterForward)+rightX*(emitter.side+jitterSide);
+    let pz=car.z+forwardZ*(emitter.forward+jitterForward)+rightZ*(emitter.side+jitterSide);
     spawnJetParticle(
       px,
-      car.y+0.7+Math.random()*0.12,
+      car.y-1.05+Math.random()*0.18,
       pz,
-      -forwardX*(1.8+speedAbs*0.75)+rightX*(Math.random()-0.5)*0.38,
-      -forwardZ*(1.8+speedAbs*0.75)+rightZ*(Math.random()-0.5)*0.38,
-      -0.18-Math.random()*0.28,
-      0.2+Math.random()*0.08,
-      0.22+Math.random()*0.1
+      driftX+rightX*(Math.random()-0.5)*0.26+forwardX*(Math.random()-0.5)*0.16,
+      driftZ+rightZ*(Math.random()-0.5)*0.26+forwardZ*(Math.random()-0.5)*0.16,
+      -2.35-Math.random()*0.75,
+      0.18+Math.random()*0.07,
+      0.28+Math.random()*0.1
     );
   }
 }
