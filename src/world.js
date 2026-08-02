@@ -2979,6 +2979,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   let grassClusterCount=Math.max(0,Math.ceil(vegetation.grassClusters*detail.grassDensity));
   let grassPerCluster=Math.max(1,Math.ceil(vegetation.grassPerCluster*detail.grassDensity));
   let grassClusterRadius=vegetation.grassClusterRadius*0.74;
+  let grassClusterRadiusPower=vegetation.grassClusterRadiusPower ?? 0.5;
   let grassMinHeight=vegetation.grassMinHeight ?? -15;
   let grassMaxHeight=vegetation.grassMaxHeight ?? 28;
   let grassMaxSlope=vegetation.grassMaxSlope ?? Infinity;
@@ -3004,7 +3005,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
 
     for(let i=0;i<grassPerCluster && grassUsed<maxGrasses;i++){
       let a=rand(cx*345+c*11+i,cz*678-i)*Math.PI*2;
-      let r=Math.pow(rand(cx*901+i,cz*234+c),.5)*grassClusterRadius;
+      let r=Math.pow(rand(cx*901+i,cz*234+c),grassClusterRadiusPower)*grassClusterRadius;
 
       let wx=centerX+Math.cos(a)*r;
       let wz=centerZ+Math.sin(a)*r;
