@@ -1136,6 +1136,7 @@ let fpsSampleStart=0;
 let fpsSampleFrames=0;
 let lastMeasuredFps=60;
 let perfSampleFrames=0;
+let perfSampleSimSteps=0;
 let perfSample={
   sim:0,
   effects:0,
@@ -1146,6 +1147,7 @@ let perfSample={
 
 function resetPerfSample(){
   perfSampleFrames=0;
+  perfSampleSimSteps=0;
   perfSample.sim=0;
   perfSample.effects=0;
   perfSample.chunks=0;
@@ -1158,12 +1160,19 @@ function recordPerfBucket(bucket,ms){
   perfSample[bucket]+=ms;
 }
 
+function recordPerfSim(ms,steps){
+  if(!Number.isFinite(ms) || ms<0) return;
+  perfSample.sim+=ms;
+  perfSampleSimSteps+=Math.max(1,steps || 0);
+}
+
 function recordPerfFrame(frameMs){
   perfSampleFrames++;
   if(Number.isFinite(frameMs)) perfSample.maxFrame=Math.max(perfSample.maxFrame,frameMs);
 }
 
 function avgPerfMs(bucket){
+  if(bucket==="sim") return perfSample[bucket]/Math.max(1,perfSampleSimSteps);
   return perfSample[bucket]/Math.max(1,perfSampleFrames);
 }
 
@@ -1219,6 +1228,10 @@ let px=0,py=20,pz=0;
 let gameOver=false;
 let gameWon=false;
 let healthDamageCooldown=0;
+const terrainHeightCacheScale=4;
+const terrainHeightCacheLimit=24000;
+const terrainHeightCacheTrim=4000;
+let terrainHeightCache=new Map();
 let cameraFollowDistance=18;
 let cameraFollowHeight=7.5;
 let cameraDownhillSampleDistance=30;
@@ -1794,8 +1807,32 @@ let boostSupplyBandMat=new THREE.MeshStandardMaterial({color:0xffe46f,emissive:0
 let jetSupplyBandMat=new THREE.MeshStandardMaterial({color:0x74e7ff,emissive:0x0e5e72,emissiveIntensity:0.62,roughness:0.24,metalness:0.12});
 let jetLogoMat=new THREE.MeshStandardMaterial({color:0xe8fbff,emissive:0x2fcfff,emissiveIntensity:0.58,roughness:0.22,metalness:0.18});
 
+function terrainHeightAt(x,z){
+  let qx=Math.round(x*terrainHeightCacheScale);
+  let qz=Math.round(z*terrainHeightCacheScale);
+  let key=qx+","+qz;
+  let cached=terrainHeightCache.get(key);
+  if(cached!==undefined) return cached;
+
+  let value=groundHeight(qx/terrainHeightCacheScale,qz/terrainHeightCacheScale);
+  terrainHeightCache.set(key,value);
+  if(terrainHeightCache.size>terrainHeightCacheLimit){
+    let trimmed=0;
+    for(let oldKey of terrainHeightCache.keys()){
+      terrainHeightCache.delete(oldKey);
+      trimmed++;
+      if(trimmed>=terrainHeightCacheTrim) break;
+    }
+  }
+  return value;
+}
+
+function clearTerrainHeightCache(){
+  terrainHeightCache.clear();
+}
+
 function waterDepthAt(x,z){
-  return waterLevel-groundHeight(x,z);
+  return waterLevel-terrainHeightAt(x,z);
 }
 
 function tradingOutpostSurfaceHeightAt(x,z,margin=0){
@@ -1816,8 +1853,7 @@ function tradingOutpostSurfaceHeightAt(x,z,margin=0){
   return best;
 }
 
-function physicalSurfaceHeight(x,z,outpostMargin=0){
-  let terrainY=carSurfaceHeight(x,z);
+function physicalSurfaceHeight(x,z,outpostMargin=0,terrainY=terrainHeightAt(x,z)){
   let surfaceY=terrainY;
   let holeSurfaceY=world && world.holeSurfaceHeightAt ? world.holeSurfaceHeightAt(x,z) : null;
   if(Number.isFinite(holeSurfaceY)) surfaceY=Math.min(surfaceY,holeSurfaceY);
@@ -1829,8 +1865,8 @@ function physicalSurfaceHeight(x,z,outpostMargin=0){
 }
 
 function drivingSurfaceHeight(x,z,outpostMargin=0){
-  let terrainY=carSurfaceHeight(x,z);
-  let surfaceY=physicalSurfaceHeight(x,z,outpostMargin);
+  let terrainY=terrainHeightAt(x,z);
+  let surfaceY=physicalSurfaceHeight(x,z,outpostMargin,terrainY);
   return waterLevel-terrainY>0.15 ? Math.max(surfaceY,waterLevel-0.34) : surfaceY;
 }
 
@@ -3694,7 +3730,7 @@ function returnToMainMenuAfterMission(){
   refreshStartPlanetButtons();
   updateStartupLoadingState();
   updateLoadGameButton();
-  fixedAccumulator=0;
+  resetSimulationClock();
   lastLoopTime=null;
 }
 
@@ -4069,6 +4105,7 @@ function applySavedWorldSettings(status){
   updatePlanetNameDisplay();
   terrainSeed=Number.isFinite(status.terrainSeed) ? status.terrainSeed : terrainSeed;
   setWorldSeed(terrainSeed,currentEnvironment.terrain || {});
+  clearTerrainHeightCache();
   if(world.setWorkerTerrain) world.setWorkerTerrain(terrainSeed,currentEnvironment.terrain || {});
   if(world.setEnvironment) world.setEnvironment(currentEnvironment);
   refreshSceneEnvironment();
@@ -4084,6 +4121,7 @@ function applyWorldEnvironment(environment,{resetChunks=true,refreshNature=true}
   weatherTargetIntensity=chooseWeatherTarget(currentEnvironment);
   scheduleNextWeatherChange(performance.now());
   setWorldSeed(terrainSeed,currentEnvironment.terrain || {});
+  clearTerrainHeightCache();
   if(world.setWorkerTerrain) world.setWorkerTerrain(terrainSeed,currentEnvironment.terrain || {});
   if(world.setEnvironment) world.setEnvironment(currentEnvironment);
   refreshSceneEnvironment();
@@ -4323,6 +4361,7 @@ function initStartPlanetPreview(){
     disposePreviewObject(worldGroup);
     worldGroup.clear();
     setWorldSeed(terrainSeed,environment && environment.terrain || {});
+    clearTerrainHeightCache();
 
     let water=envColor(environment,"water",0x3fc8ff);
     let rock=envColor(environment,"rock",envColor(environment,"high",0x687064));
@@ -4430,7 +4469,7 @@ function setGamePaused(paused){
   if(!gameStarted || gameOver) paused=false;
   if(gamePaused===paused) return;
   gamePaused=paused;
-  fixedAccumulator=0;
+  resetSimulationClock();
   lastLoopTime=null;
   motorAudio.setPaused(gamePaused || terminalOverlayOpen());
   pauseMenu.setVisible(gamePaused);
@@ -4458,7 +4497,7 @@ function setMissionScreenOpen(open){
   if(open && tradingScreenOpen) setTradingScreenOpen(false);
   if(missionScreenOpen===open) return;
   missionScreenOpen=open;
-  fixedAccumulator=0;
+  resetSimulationClock();
   lastLoopTime=null;
   missionScreen.setVisible(missionScreenOpen);
   motorAudio.setPaused(gamePaused || terminalOverlayOpen());
@@ -4471,7 +4510,7 @@ function setTradingScreenOpen(open){
   if(open && missionScreenOpen) setMissionScreenOpen(false);
   if(tradingScreenOpen===open) return;
   tradingScreenOpen=open;
-  fixedAccumulator=0;
+  resetSimulationClock();
   lastLoopTime=null;
   tradingScreen.setVisible(tradingScreenOpen);
   motorAudio.setPaused(gamePaused || terminalOverlayOpen());
@@ -5037,10 +5076,10 @@ function rattleActor(actor,amount=1){
 }
 
 function landingDamageAmount(car,x,z,impactSpeed){
-  let front=carSurfaceHeight(x+Math.sin(car.velAngle)*3,z+Math.cos(car.velAngle)*3);
-  let back=carSurfaceHeight(x-Math.sin(car.velAngle)*3,z-Math.cos(car.velAngle)*3);
-  let side=carSurfaceHeight(x+Math.cos(car.velAngle)*2.2,z-Math.sin(car.velAngle)*2.2);
-  let roughness=Math.max(Math.abs(front-back),Math.abs(side-carSurfaceHeight(x,z)));
+  let front=terrainHeightAt(x+Math.sin(car.velAngle)*3,z+Math.cos(car.velAngle)*3);
+  let back=terrainHeightAt(x-Math.sin(car.velAngle)*3,z-Math.cos(car.velAngle)*3);
+  let side=terrainHeightAt(x+Math.cos(car.velAngle)*2.2,z-Math.sin(car.velAngle)*2.2);
+  let roughness=Math.max(Math.abs(front-back),Math.abs(side-terrainHeightAt(x,z)));
   let impactDamage=Math.max(0,impactSpeed-1.05)*7;
   let roughDamage=Math.max(0,roughness-2.0)*1.4;
   return Math.min(12,Math.round(impactDamage+roughDamage));
@@ -13419,7 +13458,9 @@ function updateCar(car){
         }
       }
     }
-    let climbProfile=mountainClimbProfile(car,prevX,prevZ,car.x,car.z);
+    let climbProfile=carGroundMovement
+      ? mountainClimbProfile(car,prevX,prevZ,car.x,car.z)
+      : {blocked:false,slowdown:0};
     if(carGroundMovement && climbProfile.slowdown>0 && car.speed>0){
       let climbEase=climbProfile.slowdown*climbProfile.slowdown;
       let climbDrag=0.018+climbEase*0.052;
@@ -14442,13 +14483,13 @@ function applyTerraformFinaleCameraForCar(car,side=1){
 
 let lastChunkSignature="";
 let fixedStepMs=1000/60;
-let maxFixedStepsPerFrame=5;
-let maxCatchUpFixedStepsPerFrame=4;
+let maxFixedStepsPerSimulationTick=1;
 let maxFixedAccumulatorMs=fixedStepMs*6;
-let maxSimulationMsPerFrame=28;
 let fixedAccumulator=0;
 let simulationCatchupFrames=0;
 let lastLoopTime=null;
+let lastSimulationTime=null;
+let simulationTimerId=null;
 let renderFrameIndex=0;
 let fixedFrameIndex=0;
 let currentFrameStressLevel=0;
@@ -14472,17 +14513,70 @@ function performanceStressLevel(frameMs=0){
   return target;
 }
 
-function fixedStepLimitForFrame(frameMs,accumulatorMs=fixedAccumulator){
-  let expectedSteps=Math.ceil(Math.max(0,accumulatorMs,frameMs)/fixedStepMs);
-  let catchupLimit=Math.max(maxFixedStepsPerFrame,expectedSteps+1);
-  return Math.max(1,Math.min(maxCatchUpFixedStepsPerFrame,catchupLimit));
+function fixedStepLimitForAccumulator(accumulatorMs=fixedAccumulator){
+  let expectedSteps=Math.ceil(Math.max(0,accumulatorMs)/fixedStepMs);
+  return Math.max(1,Math.min(maxFixedStepsPerSimulationTick,expectedSteps));
 }
 
-function simulationBudgetForFrame(){
-  if(currentFrameStressLevel>=3) return 14;
-  if(currentFrameStressLevel>=2) return 18;
-  if(currentFrameStressLevel>=1) return 22;
-  return maxSimulationMsPerFrame;
+function resetSimulationClock(now=performance.now()){
+  fixedAccumulator=0;
+  lastSimulationTime=now;
+}
+
+function gameSimulationActive(){
+  return gameStarted && !gamePaused && !terminalOverlayOpen() && !gameOver && !missionCompleteShownAt;
+}
+
+function runFixedSimulationTo(timestamp=performance.now()){
+  if(lastSimulationTime==null) lastSimulationTime=timestamp;
+  timestamp=Math.max(timestamp,lastSimulationTime);
+  if(!gameSimulationActive()){
+    resetSimulationClock(timestamp);
+    simulationCatchupFrames=Math.max(0,simulationCatchupFrames-1);
+    return 0;
+  }
+
+  let elapsed=Math.min(maxFixedAccumulatorMs,Math.max(0,timestamp-lastSimulationTime));
+  lastSimulationTime=timestamp;
+  fixedAccumulator=Math.min(fixedAccumulator+elapsed,maxFixedAccumulatorMs);
+
+  let steps=0;
+  let fixedStepLimit=fixedStepLimitForAccumulator(fixedAccumulator);
+  let simStart=performance.now();
+  while(fixedAccumulator>=fixedStepMs && steps<fixedStepLimit){
+    let willRunAnotherStep=fixedAccumulator-fixedStepMs>=fixedStepMs && steps+1<fixedStepLimit;
+    fixedUpdateGame({updateFrameVisuals:steps===0 || !willRunAnotherStep});
+    fixedAccumulator-=fixedStepMs;
+    steps++;
+  }
+  if(steps>0) recordPerfSim(performance.now()-simStart,steps);
+
+  let simulationStillBehind=fixedAccumulator>=fixedStepMs;
+  if(simulationStillBehind){
+    simulationCatchupFrames=8;
+  }
+  else if(steps>1) simulationCatchupFrames=Math.max(simulationCatchupFrames,3);
+  else simulationCatchupFrames=Math.max(0,simulationCatchupFrames-1);
+
+  return steps;
+}
+
+function scheduleSimulationTick(delayMs=fixedStepMs){
+  simulationTimerId=window.setTimeout(simulationLoop,delayMs);
+}
+
+function simulationLoop(){
+  simulationTimerId=null;
+  let active=gameSimulationActive();
+  let steps=runFixedSimulationTo(performance.now());
+  let catchingUp=steps>=maxFixedStepsPerSimulationTick && fixedAccumulator>=fixedStepMs;
+  scheduleSimulationTick(active ? (catchingUp ? 0 : fixedStepMs*0.5) : 100);
+}
+
+function startSimulationLoop(){
+  if(simulationTimerId!=null) return;
+  resetSimulationClock(performance.now());
+  scheduleSimulationTick(0);
 }
 
 function chunkViewDistanceForCar(car){
@@ -15034,7 +15128,7 @@ function loop(timestamp=performance.now()){
   updateObjectiveHudLayout();
 
   if(!gameStarted){
-    fixedAccumulator=0;
+    resetSimulationClock(timestamp);
     updateCameras();
     world.processChunkQueue(2,true);
     portalSystem.updatePortals(timestamp);
@@ -15054,14 +15148,14 @@ function loop(timestamp=performance.now()){
 
   updateControllerMenuInput();
   if(updateMissionCompleteInput()){
-    fixedAccumulator=0;
+    resetSimulationClock(timestamp);
     updateCameras();
     renderGame();
     return;
   }
 
   if(gamePaused){
-    fixedAccumulator=0;
+    resetSimulationClock(timestamp);
     updateCameras();
     pauseMenu.update(timestamp);
     renderGame();
@@ -15069,7 +15163,7 @@ function loop(timestamp=performance.now()){
   }
 
   if(terminalOverlayOpen()){
-    fixedAccumulator=0;
+    resetSimulationClock(timestamp);
     updateCameras();
     tradingScreen.update();
     missionScreen.update();
@@ -15077,28 +15171,8 @@ function loop(timestamp=performance.now()){
     return;
   }
 
-  fixedAccumulator=Math.min(fixedAccumulator+frameMs,maxFixedAccumulatorMs);
-
-  let steps=0;
   currentFrameStressLevel=performanceStressLevel(frameMs);
-  let fixedStepLimit=fixedStepLimitForFrame(frameMs,fixedAccumulator);
-  let fixedStepBudgetMs=simulationBudgetForFrame();
-  let simStart=performance.now();
-  while(fixedAccumulator>=fixedStepMs && steps<fixedStepLimit){
-    if(steps>0 && performance.now()-simStart>=fixedStepBudgetMs) break;
-    let willRunAnotherStep=fixedAccumulator-fixedStepMs>=fixedStepMs && steps+1<fixedStepLimit;
-    fixedUpdateGame({updateFrameVisuals:steps===0 || !willRunAnotherStep});
-    fixedAccumulator-=fixedStepMs;
-    steps++;
-  }
-  recordPerfBucket("sim",performance.now()-simStart);
-
-  let simulationStillBehind=steps>=fixedStepLimit && fixedAccumulator>=fixedStepMs;
-  if(simulationStillBehind){
-    simulationCatchupFrames=8;
-  }
-  else if(steps>1) simulationCatchupFrames=Math.max(simulationCatchupFrames,3);
-  else simulationCatchupFrames=Math.max(0,simulationCatchupFrames-1);
+  runFixedSimulationTo(timestamp);
 
   let effectsStart=performance.now();
   if(timestamp-lastPixelRatioUpdate>500){
@@ -15589,7 +15663,7 @@ function startGame(mode,difficulty="medium",savedStatus=null){
   pauseMenu.setVisible(false);
   missionScreen.setVisible(false);
   tradingScreen.setVisible(false);
-  fixedAccumulator=0;
+  resetSimulationClock();
   lastLoopTime=null;
   units=initialUnits;
   purchasedTradingItems=new Set();
@@ -17191,4 +17265,5 @@ function placeTradingOutpostNearStart(startInfo){
 
 applyWorldEnvironment(currentEnvironment,{resetChunks:false,refreshNature:false});
 setupStartWorldPreview();
+startSimulationLoop();
 loop();

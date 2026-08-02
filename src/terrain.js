@@ -37,12 +37,16 @@ const broadMountainCellCacheLimit=4096;
 let broadMountainCellCache=new Map();
 const megaMountainCellCacheLimit=2048;
 let megaMountainCellCache=new Map();
+const heightCacheLimit=90000;
+const heightCacheTrim=12000;
+let heightCache=new Map();
 
 export function setWorldSeed(seed,profile={}){
   worldSeed=Number.isFinite(seed) ? seed : 0;
   terrainProfile={...defaultTerrainProfile,...profile};
   broadMountainCellCache.clear();
   megaMountainCellCache.clear();
+  heightCache.clear();
 }
 
 export function rand(x,z){
@@ -328,7 +332,21 @@ export function height(x,z){
 }
 
 export function groundHeight(x,z){
-  return height(x,z);
+  let key=x+","+z;
+  let cached=heightCache.get(key);
+  if(cached!==undefined) return cached;
+
+  let value=height(x,z);
+  heightCache.set(key,value);
+  if(heightCache.size>heightCacheLimit){
+    let trimmed=0;
+    for(let oldKey of heightCache.keys()){
+      heightCache.delete(oldKey);
+      trimmed++;
+      if(trimmed>=heightCacheTrim) break;
+    }
+  }
+  return value;
 }
 
 export function roadCenterX(z){
