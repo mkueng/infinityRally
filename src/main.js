@@ -1458,6 +1458,16 @@ let morphedCarSpeedMultiplier=4;
 let morphTransitionRate=0.075;
 let jetTransitionRate=0.075;
 let jetMaxSpeed=2.4;
+let jetHoverGroundClearance=28.8;
+let jetHoverMinimumGroundClearance=13.2;
+let jetHoverTerrainRiseFollow=0.12;
+let jetHoverTerrainFallFollow=0.035;
+let jetHoverSpring=0.075;
+let jetHoverDamping=0.26;
+let jetDriftAlignMin=0.012;
+let jetDriftAlignMax=0.082;
+let jetDriftTurnResponse=0.17;
+let jetDriftSlipScale=2.8;
 let jetExitGroundClearance=5.5;
 let jetLandingMorphClearance=7.2;
 let mechStrideLength=2.35;
@@ -2324,6 +2334,7 @@ function createCarState(id,lateralOffset,controls,camera,gamepadIndex){
     jetProgress:0,
     jetBank:0,
     jetAltitudeTarget:20,
+    jetHoverSurfaceY:null,
     jetLandingTransformLift:0,
     jetLandingTransformStartLift:0,
     landingReleaseFrames:0,
@@ -4040,7 +4051,8 @@ function restoreCarStatus(car,saved){
   car.jetMode=!!saved.jetMode;
   car.jetProgress=Math.max(0,Math.min(1,finiteOr(saved.jetProgress,car.jetMode ? 1 : 0)));
   car.jetBank=finiteOr(saved.jetBank,0);
-  car.jetAltitudeTarget=finiteOr(saved.jetAltitudeTarget,car.y+8);
+  car.jetAltitudeTarget=finiteOr(saved.jetAltitudeTarget,car.y+jetHoverGroundClearance);
+  car.jetHoverSurfaceY=surfaceHeightForActor(car,car.x,car.z);
   car.jetLandingTransformLift=0;
   car.jetLandingTransformStartLift=0;
   car.landedOnPad=!!saved.landedOnPad;
@@ -10456,7 +10468,9 @@ function updateMorphInput(car){
       car.morphed=false;
       car.jetAutoLandToRobot=false;
       car.landingSequenceVoicePlayed=false;
-      car.jetAltitudeTarget=Math.max(car.y,surfaceHeightForActor(car,car.x,car.z)+8);
+      let currentSurface=surfaceHeightForActor(car,car.x,car.z);
+      car.jetHoverSurfaceY=currentSurface;
+      car.jetAltitudeTarget=Math.max(car.y,currentSurface+jetHoverGroundClearance);
     }
   }
   car.lastMorphButton=morphButton;
@@ -10510,7 +10524,7 @@ function updateFuelForCar(car,jetHovering){
 
   if(jetHovering){
     let speedUse=clamp(Math.abs(car.speed || 0)/Math.max(0.001,jetMaxSpeed),0,1);
-    let climbUse=Math.max(0,car.liftInput || 0);
+    let climbUse=0;
     drain=jetFuelDrainRate*(0.75+speedUse*0.55+climbUse*0.35);
   }else if(car.morphProgress>0.65 && car.onGround && (Math.abs(car.throttleInput || 0)>0.05 || Math.abs(car.speed || 0)>0.05)){
     let speedUse=clamp(Math.abs(car.speed || 0)/Math.max(0.001,mechGroundMaxSpeed),0,2.5);
@@ -12173,7 +12187,8 @@ function createEnemyState(index,x,z,type="mech"){
     lastMorphProgress:0,
     jetMode:false,
     jetProgress:0,
-    jetAltitudeTarget:drivingSurfaceHeight(x,z)+8,
+    jetAltitudeTarget:drivingSurfaceHeight(x,z)+jetHoverGroundClearance,
+    jetHoverSurfaceY:drivingSurfaceHeight(x,z),
     jetModel:null,
     aimOffsetX:0,
     aimOffsetY:0,
@@ -13407,15 +13422,16 @@ function updateCar(car){
         car.slipAmount=clamp(Math.abs(normalizeAngle(car.angle-car.velAngle))*3.05+driftAmount*0.95,0,1.45);
       }else if(jetModeSteering){
         let jetSpeedDrift=smoothStep(clamp((speedAbs-0.32)/1.12,0,1));
-        yawRate*=1-jetSpeedDrift*0.48;
-        car.turnVelocity+=(yawRate-car.turnVelocity)*0.12;
-        car.turnVelocity*=turn===0 ? 0.86 : 0.988;
-        car.turnVelocity=clamp(car.turnVelocity,-0.022,0.022);
+        let jetCurveDrift=jetSpeedDrift*Math.min(1,Math.abs(turn));
+        yawRate*=1-jetSpeedDrift*0.22;
+        car.turnVelocity+=(yawRate-car.turnVelocity)*jetDriftTurnResponse;
+        car.turnVelocity*=turn===0 ? 0.82 : 0.992;
+        car.turnVelocity=clamp(car.turnVelocity,-0.028,0.028);
         car.angle=normalizeAngle(car.angle+car.turnVelocity);
-        let alignRate=0.1-jetSpeedDrift*0.065;
-        alignRate*=turn===0 ? 1.28 : 1;
-        car.velAngle+=normalizeAngle(car.angle-car.velAngle)*clamp(alignRate,0.026,0.15);
-        car.slipAmount=0;
+        let alignRate=jetDriftAlignMax-jetCurveDrift*(jetDriftAlignMax-jetDriftAlignMin);
+        alignRate*=turn===0 ? 1.45 : 1;
+        car.velAngle+=normalizeAngle(car.angle-car.velAngle)*clamp(alignRate,jetDriftAlignMin,jetDriftAlignMax*1.45);
+        car.slipAmount=clamp(Math.abs(normalizeAngle(car.angle-car.velAngle))*jetDriftSlipScale+jetCurveDrift*0.72,0,1.65);
       }else{
         car.turnVelocity=0;
         car.angle=normalizeAngle(car.angle+yawRate);
@@ -13424,7 +13440,7 @@ function updateCar(car){
       }
     }
 
-    if(!carGroundMovement) car.slipAmount=0;
+    if(!carGroundMovement && !jetMovement) car.slipAmount=0;
   }
 
   if(!gameOver && !carDisabled){
@@ -13499,7 +13515,7 @@ function updateCar(car){
   if(takeoffInput && (car.landedOnPad || car.landingReleaseFrames>0)){
     car.landingReleaseFrames=90;
     car.landedOnPad=false;
-    car.jetAltitudeTarget=Math.max(car.y+10,surfaceY+10);
+    car.jetAltitudeTarget=Math.max(car.y,surfaceY+jetHoverGroundClearance);
     car.vy=Math.max(car.vy,0.18);
   }else if((car.landingReleaseFrames || 0)>0){
     car.landingReleaseFrames--;
@@ -13523,10 +13539,9 @@ function updateCar(car){
   let autoLandingDeckY=null;
   let jetAltitudeMax=surfaceY+jetFlightMaxAltitude;
   if(jetHovering && !gameOver && !carDisabled){
-    let climbInput=(autoLanding || fuelAutoLanding || manualAutoLanding) ? 0 : Math.max(0,car.liftInput || 0);
-    car.speed=clamp(car.speed+climbInput*0.027,0,jetMaxSpeed);
+    car.speed=clamp(car.speed,0,jetMaxSpeed);
     if(!Number.isFinite(car.jetAltitudeTarget)){
-      car.jetAltitudeTarget=Math.max(car.y,surfaceY+8);
+      car.jetAltitudeTarget=Math.max(car.y,surfaceY+jetHoverGroundClearance);
     }
     if(autoLanding){
       let targetX=landingSurface.x;
@@ -13553,14 +13568,20 @@ function updateCar(car){
       car.speed=approach(car.speed,0,0.02);
       car.jetAltitudeTarget=approach(car.jetAltitudeTarget,surfaceY+1.1,0.62);
     }else{
-      let liftInput=car.liftInput || 0;
-      let altitudeAdjust=liftInput*(liftInput<0 ? 0.36 : 0.224);
-      car.jetAltitudeTarget=clamp(car.jetAltitudeTarget+altitudeAdjust,waterLevel+5,jetAltitudeMax);
+      if(!Number.isFinite(car.jetHoverSurfaceY)) car.jetHoverSurfaceY=surfaceY;
+      let terrainFollow=surfaceY>car.jetHoverSurfaceY
+        ? jetHoverTerrainRiseFollow
+        : jetHoverTerrainFallFollow;
+      car.jetHoverSurfaceY+=(surfaceY-car.jetHoverSurfaceY)*terrainFollow;
+      let smoothedHoverTarget=car.jetHoverSurfaceY+jetHoverGroundClearance;
+      let minimumHoverTarget=surfaceY+jetHoverMinimumGroundClearance;
+      car.jetAltitudeTarget=clamp(Math.max(smoothedHoverTarget,minimumHoverTarget),waterLevel+5,jetAltitudeMax);
     }
     let hoverTarget=car.jetAltitudeTarget+Math.sin(performance.now()*0.004)*0.22;
     if(autoLanding || fuelAutoLanding || manualAutoLanding) hoverTarget=car.jetAltitudeTarget;
-    let lift=(hoverTarget-car.y)*0.045-car.vy*0.2;
-    let maxDescentSpeed=0.62;
+    let lift=(hoverTarget-car.y)*jetHoverSpring-car.vy*jetHoverDamping;
+    let maxDescentSpeed=0.82;
+    let maxClimbSpeed=0.92;
     if(autoLanding || fuelAutoLanding || manualAutoLanding){
       let landingTargetY=autoLanding && Number.isFinite(autoLandingDeckY)
         ? autoLandingDeckY
@@ -13568,8 +13589,9 @@ function updateCar(car){
       let landingClearance=Math.max(0,car.y-landingTargetY);
       let nearGround=1-clamp((landingClearance-1.5)/18,0,1);
       maxDescentSpeed=0.62-nearGround*0.46;
+      maxClimbSpeed=0.78;
     }
-    car.vy=clamp(car.vy+lift,-maxDescentSpeed,0.78);
+    car.vy=clamp(car.vy+lift,-maxDescentSpeed,maxClimbSpeed);
     emitJetHoverExhaust(car);
   }
 
@@ -13629,7 +13651,8 @@ function updateCar(car){
       car.y=Math.max(terrainCollision.safeY,surfaceY+1.15);
       car.vy=Math.max(0.12,-car.vy*0.25);
       car.speed*=0.18;
-      car.jetAltitudeTarget=Math.max(car.jetAltitudeTarget || 0,car.y+7,surfaceY+9);
+      car.jetHoverSurfaceY=surfaceY;
+      car.jetAltitudeTarget=Math.max(car.jetAltitudeTarget || 0,car.y+jetHoverGroundClearance,surfaceY+jetHoverGroundClearance);
       damageCar(car,4);
       rattleActor(car,0.8);
     }
@@ -13643,7 +13666,8 @@ function updateCar(car){
     car.vy=-0.035;
     car.speed=0;
     car.jetMode=false;
-    car.jetAltitudeTarget=surfaceY+8;
+    car.jetHoverSurfaceY=surfaceY;
+    car.jetAltitudeTarget=surfaceY+jetHoverGroundClearance;
     car.landingReleaseFrames=0;
     car.landedOnPad=false;
     car.landingSequenceVoicePlayed=false;
@@ -13657,7 +13681,8 @@ function updateCar(car){
     car.vy=0;
     car.speed=0;
     car.jetMode=false;
-    car.jetAltitudeTarget=surfaceY+8;
+    car.jetHoverSurfaceY=surfaceY;
+    car.jetAltitudeTarget=surfaceY+jetHoverGroundClearance;
     car.landingReleaseFrames=0;
     car.landedOnPad=false;
     car.landingSequenceVoicePlayed=false;
@@ -13685,6 +13710,7 @@ function updateCar(car){
       car.jetLandingTransformStartLift=0;
       car.vy=car.jetAutoLandToRobot ? -0.035 : 0;
       car.speed*=0.82;
+      car.jetHoverSurfaceY=surfaceY;
       car.jetAltitudeTarget=deckTransitionY;
       car.landedOnPad=!car.jetAutoLandToRobot;
       car.landingSequenceVoicePlayed=false;
@@ -13781,9 +13807,7 @@ function updateCar(car){
   let sideSampleDist=car.morphProgress>0.65 ? 2.65 : 2.25;
   let leftY=surfaceHeightForActor(car,car.x-rightX*sideSampleDist,car.z-rightZ*sideSampleDist);
   let rightY=surfaceHeightForActor(car,car.x+rightX*sideSampleDist,car.z+rightZ*sideSampleDist);
-  let ceilingPitchRelease=jetHovering && (car.jetAltitudeTarget || 0)>=jetAltitudeMax-0.4;
-  let jetLiftPitch=ceilingPitchRelease ? 0 : (car.liftInput || 0);
-  let jetPitch=clamp(-jetLiftPitch*0.18-Math.max(0,car.speed)*0.025,-0.3,0.12);
+  let jetPitch=clamp(-Math.max(0,car.speed)*0.018,-0.18,0.08);
   let robotHoverPitch=clamp(-Math.max(0,car.speed)*0.035-car.vy*0.08,-0.16,0.12);
   let targetPitch=jetHovering ? jetPitch : flying ? robotHoverPitch : -Math.atan2(frontY-backY,pitchSampleDist*2);
   car.pitch+=(targetPitch-car.pitch)*(flying ? 0.095 : 0.18);
@@ -13794,8 +13818,9 @@ function updateCar(car){
     : 0;
   if(!Number.isFinite(car.surfaceRoll)) car.surfaceRoll=0;
   car.surfaceRoll+=(slopeRollTarget-car.surfaceRoll)*(carModeTilt ? 0.18 : 0.12);
-  let jetBankTarget=jetHovering ? clamp((car.turnInputEase || 0)*-0.46+(car.turnVelocity || 0)*-4.4,-0.58,0.58) : 0;
-  car.jetBank+=(jetBankTarget-(car.jetBank || 0))*(jetHovering ? 0.07 : 0.18);
+  let jetBankTarget=0;
+  car.jetBank+=(jetBankTarget-(car.jetBank || 0))*(jetHovering ? 0.28 : 0.18);
+  if(jetHovering && Math.abs(car.jetBank)<0.002) car.jetBank=0;
 
   let renderY=car.y+updateJetLandingTransformLift(car);
   car.renderY=renderY;
@@ -16040,7 +16065,8 @@ function placeCarOnOpenField(car,startInfo){
   car.jetMode=false;
   car.jetProgress=0;
   car.jetBank=0;
-  car.jetAltitudeTarget=drivingSurfaceHeight(car.x,car.z)+8;
+  car.jetHoverSurfaceY=drivingSurfaceHeight(car.x,car.z);
+  car.jetAltitudeTarget=car.jetHoverSurfaceY+jetHoverGroundClearance;
   car.jetLandingTransformLift=0;
   car.jetLandingTransformStartLift=0;
   car.landingReleaseFrames=0;
@@ -16213,7 +16239,8 @@ function setCarAtStartPoint(car,point,beamIntro=false){
   car.airborne=beamIntro;
   car.lastWalkX=car.x;
   car.lastWalkZ=car.z;
-  car.jetAltitudeTarget=finalY+8;
+  car.jetHoverSurfaceY=finalY;
+  car.jetAltitudeTarget=car.jetHoverSurfaceY+jetHoverGroundClearance;
   car.startSequenceLocked=beamIntro;
   car.group.scale.setScalar(beamIntro ? 0.08 : 1);
   car.group.position.set(car.x,car.y,car.z);
@@ -16329,7 +16356,8 @@ function moveCarToBaseStart(car,lateralSlot=0){
   car.airborne=false;
   car.lastWalkX=car.x;
   car.lastWalkZ=car.z;
-  car.jetAltitudeTarget=car.y+8;
+  car.jetHoverSurfaceY=car.y;
+  car.jetAltitudeTarget=car.jetHoverSurfaceY+jetHoverGroundClearance;
   car.group.position.set(car.x,car.y,car.z);
   car.group.rotation.y=car.angle;
   car.group.rotation.x=0;
