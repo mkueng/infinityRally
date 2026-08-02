@@ -1286,6 +1286,15 @@ function sameChunkDetail(a,b){
     && (a.featureDensity ?? 1)===(b.featureDensity ?? 1);
 }
 
+function chunkDetailHigherThan(a,b){
+  if(!a) return false;
+  if(!b) return true;
+  return a.treeDensity>b.treeDensity
+    || a.partDensity>b.partDensity
+    || a.grassDensity>b.grassDensity
+    || (a.featureDensity ?? 1)>(b.featureDensity ?? 1);
+}
+
 function roadYawAt(z){
   return Math.atan2(roadCenterX(z+18)-roadCenterX(z-18),36);
 }
@@ -3061,6 +3070,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
   let cheapTreeSlopeSampleDistance=vegetation.cheapTreeSlopeSampleDistance ?? 28;
   let cheapTreeRoadClearance=vegetation.cheapTreeRoadClearance ?? 62;
   let cheapTreePatchRadius=vegetation.cheapTreePatchRadius ?? 13;
+  let cheapTreePatchMaxHeight=vegetation.cheapTreePatchMaxHeight ?? 36;
   let cheapTreePatchMaxRange=vegetation.cheapTreePatchMaxRange ?? 6.5;
   let cheapTreeAttempts=Math.max(cheapTreeCount,Math.floor((vegetation.cheapTreeAttempts || cheapTreeCount*12)));
   let cheapTreeGroupCount=Math.max(0,Math.floor(vegetation.cheapTreeGroupCount || 0));
@@ -3093,7 +3103,7 @@ function* makeChunk(cx,cz,precomputedTerrain=null){
     if(terrainSlopeAt(wx,wz,cheapTreeSlopeSampleDistance)>cheapTreeMaxSlope) continue;
     if(roadDistance(wx,wz)<cheapTreeRoadClearance) continue;
     if(pointInHole(holes,wx,wz,cheapTreePatchRadius+6)) continue;
-    if(!terrainPatchOk(wx,wz,cheapTreePatchRadius,36,cheapTreePatchMaxRange)) continue;
+    if(!terrainPatchOk(wx,wz,cheapTreePatchRadius,cheapTreePatchMaxHeight,cheapTreePatchMaxRange)) continue;
 
     let scale=(vegetation.cheapTreeScaleBase ?? 1)*(0.72+rand(attempt*41+cx,cz-attempt*13)*0.62);
     let heightScale=(vegetation.cheapTreeHeightScale ?? 2.6)*scale;
@@ -4187,11 +4197,7 @@ function updateChunksForCenters(centers){
         let distanceSq=x*x+z*z;
         let currentDetail=chunkDetails.get(key);
         let nextDetail=detailForDistanceSq(distanceSq);
-        let detailIncreased=!currentDetail
-          || nextDetail.treeDensity>currentDetail.treeDensity
-          || nextDetail.partDensity>currentDetail.partDensity
-          || nextDetail.grassDensity>currentDetail.grassDensity
-          || (nextDetail.featureDensity ?? 1)>(currentDetail.featureDensity ?? 1);
+        let detailIncreased=chunkDetailHigherThan(nextDetail,currentDetail);
 
         if(detailIncreased){
           chunkDetails.set(key,nextDetail);
@@ -4199,9 +4205,11 @@ function updateChunksForCenters(centers){
 
         neededChunks.add(key);
 
-        if(!chunks.has(key) && !queuedChunks.has(key)){
+        let existingChunk=chunks.get(key);
+        let needsDetailUpgrade=existingChunk && chunkDetailHigherThan(chunkDetails.get(key),existingChunk.detail);
+        if((!existingChunk || needsDetailUpgrade) && !queuedChunks.has(key)){
           queuedChunks.add(key);
-          chunkQueue.push({cx,cz,key});
+          chunkQueue.push({cx,cz,key,upgrade:needsDetailUpgrade});
         }
       }
     }
@@ -4407,7 +4415,10 @@ function collidersInRadius(x,z,radius){
 function startNextChunkBuild(useWorker=true){
   while(chunkQueue.length>0){
     let item=chunkQueue.shift();
-    if(chunks.has(item.key) || !neededChunks.has(item.key)) continue;
+    if(!neededChunks.has(item.key)) continue;
+    let existingChunk=chunks.get(item.key);
+    if(existingChunk && !item.upgrade) continue;
+    if(existingChunk && item.upgrade && !chunkDetailHigherThan(chunkDetails.get(item.key),existingChunk.detail)) continue;
 
     let detail=cloneChunkDetail(chunkDetails.get(item.key));
     if(useWorker && chunkWorker){
@@ -4417,6 +4428,7 @@ function startNextChunkBuild(useWorker=true){
         cz:item.cz,
         key:item.key,
         detail,
+        upgrade:!!item.upgrade,
         waitingForWorker:true,
         workerJobId:id,
         generation:chunkWorkerGeneration
@@ -4443,6 +4455,7 @@ function startNextChunkBuild(useWorker=true){
       cz:item.cz,
       key:item.key,
       detail,
+      upgrade:!!item.upgrade,
       generator:makeChunk(item.cx,item.cz,null)
     };
     return true;
@@ -4455,18 +4468,25 @@ function finishChunkBuild(job,chunk){
   if(!chunk) return;
 
   let currentDetail=chunkDetails.get(job.key);
+  let existingChunk=chunks.get(job.key);
   let stale=!neededChunks.has(job.key)
-    || chunks.has(job.key)
+    || (!!existingChunk && !job.upgrade)
     || !sameChunkDetail(job.detail,currentDetail);
 
   if(stale){
     disposeChunk(chunk);
-    if(neededChunks.has(job.key) && !chunks.has(job.key)){
-      chunkQueue.push({cx:job.cx,cz:job.cz,key:job.key});
+    if(neededChunks.has(job.key)){
+      let existing=chunks.get(job.key);
+      let upgrade=existing && chunkDetailHigherThan(chunkDetails.get(job.key),existing.detail);
+      if(!existing || upgrade) chunkQueue.push({cx:job.cx,cz:job.cz,key:job.key,upgrade});
     }
     return;
   }
 
+  chunk.detail=cloneChunkDetail(job.detail);
+  if(existingChunk && job.upgrade){
+    disposeChunk(existingChunk);
+  }
   chunks.set(job.key,chunk);
   if(chunk.root){
     scene.add(chunk.root);
