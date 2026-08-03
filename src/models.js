@@ -1,4 +1,4 @@
-import { MTLLoader, OBJLoader, THREE } from "./three.js";
+import { MTLLoader, OBJLoader, RoundedBoxGeometry, THREE } from "./three.js";
 
 const carDustTexture=new THREE.TextureLoader().load(
   "assets/textures/cars/Rock009.png?v=car-dust-patches",
@@ -33,6 +33,8 @@ function shouldDustHovercraftMesh(mesh,material){
   if(material.transparent || material.opacity<0.92) return false;
   if(name.includes("cockpit") || name.includes("visor")) return false;
   if(name.includes("glow") || name.includes("light")) return false;
+  if(name.includes("button") || name.includes("display") || name.includes("screen")) return false;
+  if(name.includes("antenna")) return false;
   if(name.includes("fan") || name.includes("duct")) return false;
   if(name.includes("dirt") || name.includes("scuff")) return false;
   return true;
@@ -341,7 +343,7 @@ export function normalizeCarModel(car){
   box.getSize(size);
   box.getCenter(center);
 
-  let scale=5.016/Math.max(size.x,size.z,0.001);
+  let scale=(5.016*1.05)/Math.max(size.x,size.z,0.001);
   model.scale.setScalar(scale);
   model.updateMatrixWorld(true);
 
@@ -518,8 +520,350 @@ export function normalizeJetModel(jet,accentColor=0xb83a32){
   return model;
 }
 
+function makeHovercraftAuraMaterial(color,opacity){
+  return new THREE.MeshBasicMaterial({
+    color,
+    transparent:true,
+    opacity,
+    depthWrite:false,
+    depthTest:true,
+    blending:THREE.AdditiveBlending,
+    side:THREE.DoubleSide
+  });
+}
+
+function addHovercraftMothershipPropulsion(model,addOverlay,setTransform,accentColor=0xb83a32,options={}){
+  let hazeGeo=new THREE.SphereGeometry(1,36,14);
+  let coreGeo=new THREE.SphereGeometry(1,28,12);
+  let emitterGeo=new THREE.CylinderGeometry(1,1.24,0.14,36);
+  let podGeo=new THREE.SphereGeometry(1,18,10);
+  let rearEngineDiskGeo=new THREE.CircleGeometry(1,34);
+  let rearEngineRingGeo=new THREE.RingGeometry(0.58,1,36);
+  let rearEnginePlumeGeo=new THREE.SphereGeometry(1,24,10);
+  let parts=model.userData.hoverPropulsionParts || [];
+  model.userData.hoverPropulsionParts=parts;
+  let rearEngineX=options.rearEngineX ?? 0.82;
+  let rearEngineY=options.rearEngineY ?? 0.62;
+  let rearEngineZ=options.rearEngineZ ?? -2.34;
+  let rearPlumeZ=options.rearPlumeZ ?? -2.62;
+
+  function addPulsePart(name,geometry,material,x,y,z,sx,sy,sz,renderOrder,pulseScale=0.08,pulseY=0.16,pulseSpeed=2.1,pulsePhase=0){
+    let mesh=addOverlay(new THREE.Mesh(geometry,material));
+    mesh.name=name;
+    setTransform(mesh,x,y,z,sx,sy,sz);
+    mesh.renderOrder=renderOrder;
+    mesh.userData.baseScale=mesh.scale.clone();
+    mesh.userData.baseOpacity=material.opacity;
+    mesh.userData.hoverPropulsion=true;
+    mesh.userData.hoverPulseScale=pulseScale;
+    mesh.userData.hoverPulseY=pulseY;
+    mesh.userData.hoverPulseSpeed=pulseSpeed;
+    mesh.userData.hoverPulsePhase=pulsePhase;
+    mesh.userData.hoverColorA=material.color.getHex();
+    mesh.userData.hoverColorB=name.includes("core") ? 0xffffff : 0xb18cff;
+    parts.push(mesh);
+    return mesh;
+  }
+
+  addPulsePart(
+    "hovercraft-mothership-lower-haze",
+    hazeGeo,
+    makeHovercraftAuraMaterial(0x78f0e6,0.16),
+    0,0.055,0.02,
+    2.72,0.2,2.38,
+    18,
+    0.12,0.22,1.85,0.3
+  );
+  addPulsePart(
+    "hovercraft-mothership-upper-haze",
+    hazeGeo,
+    makeHovercraftAuraMaterial(0xb9ffff,0.2),
+    0,0.2,0.06,
+    1.72,0.18,1.42,
+    19,
+    0.16,0.18,2.35,1.1
+  );
+  addPulsePart(
+    "hovercraft-mothership-core-haze",
+    coreGeo,
+    makeHovercraftAuraMaterial(0xe8ffff,0.27),
+    0,0.12,0.14,
+    0.76,0.3,0.78,
+    20,
+    0.22,0.22,3.2,2.0
+  );
+  addPulsePart(
+    "hovercraft-mothership-emitter-bay",
+    emitterGeo,
+    makeHovercraftAuraMaterial(accentColor,0.34),
+    0,0.15,0.05,
+    0.92,1,0.66,
+    21,
+    0.08,0.1,2.7,2.8
+  );
+
+  for(let side of [-1,1]){
+    for(let i=0;i<2;i++){
+      addPulsePart(
+        `hovercraft-${side<0 ? "left" : "right"}-mothership-glow-pod-${i}`,
+        podGeo,
+        makeHovercraftAuraMaterial(i===0 ? 0x9fd8ff : 0x78f0e6,0.3),
+        side*(1.0+i*0.62),
+        0.24,
+        -0.82+i*1.52,
+        0.26,
+        0.14,
+        0.26,
+        22,
+        0.2,
+        0.16,
+        2.9+i*0.55,
+        side*0.8+i*1.4
+      );
+    }
+
+    let engineDisk=addPulsePart(
+      `hovercraft-${side<0 ? "left" : "right"}-rear-engine-pulse-disc`,
+      rearEngineDiskGeo,
+      makeHovercraftAuraMaterial(0x9fd8ff,0.58),
+      side*rearEngineX,
+      rearEngineY,
+      rearEngineZ,
+      0.34,
+      0.34,
+      1,
+      24,
+      0.28,
+      0.28,
+      4.15,
+      side>0 ? 0.55 : 1.35
+    );
+    engineDisk.userData.hoverColorB=0xffffff;
+
+    let engineRing=addPulsePart(
+      `hovercraft-${side<0 ? "left" : "right"}-rear-engine-pulse-ring`,
+      rearEngineRingGeo,
+      makeHovercraftAuraMaterial(accentColor,0.42),
+      side*rearEngineX,
+      rearEngineY,
+      rearEngineZ-0.005,
+      0.44,
+      0.44,
+      1,
+      25,
+      0.34,
+      0.34,
+      3.55,
+      side>0 ? 1.2 : 2.0
+    );
+    engineRing.userData.hoverColorB=0x78f0e6;
+
+    let plume=addPulsePart(
+      `hovercraft-${side<0 ? "left" : "right"}-rear-engine-pulse-plume`,
+      rearEnginePlumeGeo,
+      makeHovercraftAuraMaterial(0x78f0e6,0.28),
+      side*rearEngineX,
+      rearEngineY-0.02,
+      rearPlumeZ,
+      0.28,
+      0.24,
+      0.62,
+      23,
+      0.12,
+      0.18,
+      3.9,
+      side>0 ? 2.25 : 2.85
+    );
+    plume.userData.hoverPulseZ=0.48;
+    plume.userData.hoverColorB=0xb18cff;
+  }
+}
+
+function addHovercraftOverlayMeshes(model,accentColor=0xb83a32,scaleCompensation=1){
+  let dirtMat=new THREE.MeshStandardMaterial({
+    color:0x8b7750,
+    roughness:0.98,
+    metalness:0.02,
+    side:THREE.DoubleSide
+  });
+  let darkDirtMat=new THREE.MeshStandardMaterial({
+    color:0x4c412e,
+    roughness:1,
+    metalness:0,
+    side:THREE.DoubleSide
+  });
+  let dirtPatchGeo=new THREE.DodecahedronGeometry(1,0);
+  let dirtScratchGeo=new THREE.BoxGeometry(1,1,1);
+  let s=scaleCompensation;
+
+  function addOverlay(mesh){
+    mesh.castShadow=false;
+    mesh.receiveShadow=false;
+    model.add(mesh);
+    return mesh;
+  }
+
+  function setOverlayTransform(mesh,x,y,z,sx,sy,sz,rotationY=0){
+    mesh.position.set(x*s,y*s,z*s);
+    mesh.rotation.y=rotationY;
+    mesh.scale.set(sx*s,sy*s,sz*s);
+  }
+
+  addHovercraftMothershipPropulsion(model,addOverlay,setOverlayTransform,accentColor,{
+    rearEngineX:0.58,
+    rearEngineY:0.92,
+    rearEngineZ:-3.34,
+    rearPlumeZ:-3.78
+  });
+
+  function addDirtPatch(name,x,y,z,sx,sy,sz,rotationY=0,material=dirtMat){
+    let patch=addOverlay(new THREE.Mesh(dirtPatchGeo,material));
+    patch.name=name;
+    setOverlayTransform(patch,x,y,z,sx,sy,sz,rotationY);
+    return patch;
+  }
+
+  function addDirtScratch(name,x,y,z,sx,sy,sz,rotationY=0,material=darkDirtMat){
+    let scratch=addOverlay(new THREE.Mesh(dirtScratchGeo,material));
+    scratch.name=name;
+    setOverlayTransform(scratch,x,y,z,sx,sy,sz,rotationY);
+    return scratch;
+  }
+
+  addDirtPatch("hovercraft-front-left-dirt",-.72,1.205,1.62,.28,.012,.15,-0.18);
+  addDirtPatch("hovercraft-front-right-dirt",.58,1.205,1.48,.22,.012,.12,0.42,darkDirtMat);
+  addDirtPatch("hovercraft-center-dirt",-.18,1.205,.36,.36,.012,.18,0.12);
+  addDirtPatch("hovercraft-rear-deck-dirt",.52,1.285,-1.34,.42,.012,.16,-0.34);
+  addDirtPatch("hovercraft-rear-corner-dirt",-.84,1.285,-1.7,.26,.012,.12,0.38,darkDirtMat);
+  addDirtPatch("hovercraft-bow-dirt",.24,.96,2.08,.24,.01,.12,-0.08);
+  addDirtPatch("hovercraft-left-skirt-dirt",-1.92,.68,.96,.09,.012,.36,0.06,darkDirtMat);
+  addDirtPatch("hovercraft-right-skirt-dirt",1.92,.68,.42,.08,.012,.3,-0.12);
+  addDirtPatch("hovercraft-left-rear-skirt-dirt",-1.92,.68,-1.32,.08,.012,.32,0.18);
+  addDirtPatch("hovercraft-right-rear-skirt-dirt",1.92,.68,-1.68,.1,.012,.24,-0.28,darkDirtMat);
+  addDirtScratch("hovercraft-front-scuff",-.36,1.218,1.04,.34,.014,.028,0.22,darkDirtMat);
+  addDirtScratch("hovercraft-side-scuff-left",-2.02,.79,-.54,.022,.035,.48,0,darkDirtMat);
+  addDirtScratch("hovercraft-side-scuff-right",2.02,.79,-.18,.022,.035,.38,0,darkDirtMat);
+  addDirtScratch("hovercraft-rear-scuff",.2,1.292,-1.86,.46,.014,.026,-0.14,darkDirtMat);
+}
+
+function tuneHovercraftAssetMaterial(mesh,material,accentColor){
+  let name=`${mesh.name || ""} ${material.name || ""}`.toLowerCase();
+  let next=material.clone();
+  next.side=THREE.FrontSide;
+  next.roughness=next.roughness ?? 0.58;
+  next.metalness=next.metalness ?? 0.28;
+
+  if(name.includes("glow") || name.includes("screen")){
+    if(next.emissive){
+      next.emissive.set(name.includes("lower") || name.includes("pod") ? 0x55dcff : accentColor);
+      next.emissiveIntensity=Math.max(next.emissiveIntensity || 0,0.85);
+    }
+    next.transparent=true;
+    next.opacity=name.includes("lower") || name.includes("pod") ? 0.82 : 0.94;
+    next.depthWrite=false;
+  }else if(name.includes("accent") || name.includes("bumper") || name.includes("button_red")){
+    if(next.color) next.color.set(accentColor);
+    if(next.emissive) next.emissive.set(accentColor).multiplyScalar(0.18);
+  }else if(name.includes("button_green") || name.includes("green_tip")){
+    if(next.emissive){
+      next.emissive.set(0x35ff7d);
+      next.emissiveIntensity=Math.max(next.emissiveIntensity || 0,0.35);
+    }
+  }else if(name.includes("button_cyan")){
+    if(next.emissive){
+      next.emissive.set(0x55dcff);
+      next.emissiveIntensity=Math.max(next.emissiveIntensity || 0,0.45);
+    }
+  }
+
+  if(shouldDustHovercraftMesh(mesh,next)){
+    next=addPatchyCarDust(next,mesh.id*0.41+4.6,hovercraftDirtPatchOptions);
+  }
+
+  return next;
+}
+
+export function normalizeHovercraftModel(hovercraft,accentColor=0xb83a32){
+  let model=new THREE.Group();
+  let asset=hovercraft && hovercraft.scene ? hovercraft.scene : hovercraft;
+  asset.rotation.x=-Math.PI/2;
+  model.add(asset);
+  model.updateMatrixWorld(true);
+
+  let box=new THREE.Box3().setFromObject(model);
+  let size=new THREE.Vector3();
+  let center=new THREE.Vector3();
+  box.getSize(size);
+  box.getCenter(center);
+
+  let targetFootprint=6.8*0.8*1.05;
+  let overlayScale=targetFootprint/6.8;
+  let scale=targetFootprint/Math.max(size.x,size.z,0.001);
+  model.scale.setScalar(scale);
+  model.updateMatrixWorld(true);
+
+  box.setFromObject(model);
+  box.getCenter(center);
+  asset.position.x-=center.x/scale;
+  asset.position.z-=center.z/scale;
+  model.updateMatrixWorld(true);
+
+  box.setFromObject(model);
+  asset.position.y-=box.min.y/scale;
+
+  asset.traverse(child=>{
+    if(!child.isMesh) return;
+    child.castShadow=true;
+    child.receiveShadow=true;
+    if(child.geometry) child.geometry.computeVertexNormals();
+    if(child.material){
+      let materials=Array.isArray(child.material) ? child.material : [child.material];
+      materials=materials.map(material=>tuneHovercraftAssetMaterial(child,material,accentColor));
+      child.material=Array.isArray(child.material) ? materials : materials[0];
+    }
+  });
+
+  addHovercraftOverlayMeshes(model,accentColor,overlayScale/scale);
+  model.name="player-hovercraft";
+  model.position.y=0.38;
+  model.visible=false;
+  model.userData.baseY=model.position.y;
+  model.userData.baseScale=model.scale.clone();
+
+  return model;
+}
+
 export function loadJetModel(accentColor=0xb83a32){
-  return Promise.resolve(makeHovercraftModel(accentColor));
+  let path="assets/hovercraft/";
+  let mtlLoader=new MTLLoader();
+  mtlLoader.setPath(path);
+
+  return new Promise(resolve=>{
+    mtlLoader.load(
+      "obj.mtl",
+      materials=>{
+        materials.preload();
+
+        let objLoader=new OBJLoader();
+        objLoader.setPath(path);
+        objLoader.setMaterials(materials);
+        objLoader.load(
+          "tinker.obj",
+          object=>resolve(normalizeHovercraftModel(object,accentColor)),
+          undefined,
+          error=>{
+            console.warn("Failed to load hovercraft OBJ asset; using procedural fallback:",error);
+            resolve(makeHovercraftModel(accentColor));
+          }
+        );
+      },
+      undefined,
+      error=>{
+        console.warn("Failed to load hovercraft materials; using procedural fallback:",error);
+        resolve(makeHovercraftModel(accentColor));
+      }
+    );
+  });
 }
 
 export function normalizeEnemyBattleShipModel(ship){
@@ -1414,8 +1758,15 @@ export function makeMechModel(accentColor=0xb83a32,options={}){
     metalness:0.08
   });
 
+  function roundedRobotBoxGeometry(w,h,d){
+    let minSide=Math.min(w,h,d);
+    let radius=Math.max(0.018,Math.min(0.16,minSide*0.22));
+    radius=Math.min(radius,minSide*0.45);
+    return new RoundedBoxGeometry(w,h,d,3,radius);
+  }
+
   function box(name,w,h,d,material,x,y,z,rx=0,ry=0,rz=0){
-    let mesh=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),material);
+    let mesh=new THREE.Mesh(roundedRobotBoxGeometry(w,h,d),material);
     mesh.name=name;
     mesh.position.set(x,y,z);
     mesh.rotation.set(rx,ry,rz);
@@ -1447,16 +1798,16 @@ export function makeMechModel(accentColor=0xb83a32,options={}){
   for(let side of [-1,1]){
     let sideName=side<0 ? "left" : "right";
     let parts=walkParts[sideName];
-    parts.shoulder=box(`${sideName}-shoulder`,0.72,0.62,0.92,armorMat,side*1.55,3.55,0.03,0,0,side*0.08);
-    parts.upperArm=box(`${sideName}-upper-arm`,0.42,0.92,0.5,darkMat,side*1.92,2.92,0.02,0,0,side*0.14);
-    parts.elbow=cylinder(`${sideName}-elbow`,0.23,0.5,jointMat,side*1.96,2.42,0.03,Math.PI/2,0,0,14);
-    parts.forearm=box(`${sideName}-forearm`,0.5,0.88,0.58,armorMat,side*2.0,1.95,0.08,0,0,side*-0.08);
-    parts.hand=box(`${sideName}-hand`,0.45,0.28,0.52,darkMat,side*2.02,1.38,0.18);
+    parts.shoulder=box(`${sideName}-shoulder`,0.72,0.62,0.92,armorMat,side*1.36,3.55,0.03,0,0,side*0.08);
+    parts.upperArm=box(`${sideName}-upper-arm`,0.42,0.92,0.5,darkMat,side*1.72,2.92,0.02,0,0,side*0.14);
+    parts.elbow=cylinder(`${sideName}-elbow`,0.23,0.5,jointMat,side*1.76,2.42,0.03,Math.PI/2,0,0,14);
+    parts.forearm=box(`${sideName}-forearm`,0.5,0.88,0.58,armorMat,side*1.8,1.95,0.08,0,0,side*-0.08);
+    parts.hand=box(`${sideName}-hand`,0.45,0.28,0.52,darkMat,side*1.82,1.38,0.18);
 
-    let cannon=cylinder(`${sideName}-arm-cannon`,0.16,1.45,darkMat,side*2.04,1.94,0.82,Math.PI/2,0,0,18);
+    let cannon=cylinder(`${sideName}-arm-cannon`,0.16,1.45,darkMat,side*1.84,1.94,0.82,Math.PI/2,0,0,18);
     cannon.scale.x=0.75;
     parts.cannon=cannon;
-    parts.cannonShroud=box(`${sideName}-cannon-shroud`,0.48,0.28,0.46,accentMat,side*2.04,2.08,0.48);
+    parts.cannonShroud=box(`${sideName}-cannon-shroud`,0.48,0.28,0.46,accentMat,side*1.84,2.08,0.48);
 
     parts.hip=cylinder(`${sideName}-hip-joint`,0.3,0.65,jointMat,side*0.72,1.72,0,0,0,Math.PI/2,16);
     parts.upperLeg=box(`${sideName}-upper-leg`,0.55,1.12,0.62,armorMat,side*0.72,1.12,0.05,0,0,side*0.05);
@@ -1543,15 +1894,6 @@ export function makeHovercraftModel(accentColor=0xb83a32){
     depthWrite:false,
     blending:THREE.AdditiveBlending
   });
-  let hoverGlowMat=new THREE.MeshBasicMaterial({
-    color:0x7defff,
-    transparent:true,
-    opacity:0.34,
-    depthWrite:false,
-    depthTest:true,
-    blending:THREE.AdditiveBlending,
-    side:THREE.DoubleSide
-  });
   let dirtMat=new THREE.MeshStandardMaterial({
     color:0x8b7750,
     roughness:0.98,
@@ -1605,42 +1947,16 @@ export function makeHovercraftModel(accentColor=0xb83a32){
   skirt.scale.set(1.08,1,1.55);
   skirt.position.set(0,0.28,0);
 
-  let hoverGlow=addGlow(new THREE.Mesh(new THREE.CircleGeometry(1,44),hoverGlowMat));
-  hoverGlow.name="hovercraft-bottom-hover-glow";
-  hoverGlow.rotation.x=-Math.PI/2;
-  hoverGlow.position.set(0,0.045,0.04);
-  hoverGlow.scale.set(1.92,1,2.84);
-  hoverGlow.renderOrder=18;
-
-  let hoverEdgeGlow=addGlow(new THREE.Mesh(new THREE.RingGeometry(0.74,1,48),hoverGlowMat.clone()));
-  hoverEdgeGlow.name="hovercraft-visible-skirt-glow";
-  hoverEdgeGlow.material.opacity=0.46;
-  hoverEdgeGlow.rotation.x=-Math.PI/2;
-  hoverEdgeGlow.position.set(0,0.16,0.02);
-  hoverEdgeGlow.scale.set(2.06,2.96,1);
-  hoverEdgeGlow.renderOrder=20;
-
-  let hoverGlowCore=addGlow(new THREE.Mesh(new THREE.CircleGeometry(1,36),glowMat.clone()));
-  hoverGlowCore.name="hovercraft-bottom-hover-glow-core";
-  hoverGlowCore.material.opacity=0.24;
-  hoverGlowCore.rotation.x=-Math.PI/2;
-  hoverGlowCore.position.set(0,0.055,0.12);
-  hoverGlowCore.scale.set(0.9,1,1.72);
-  hoverGlowCore.renderOrder=19;
-
-  let rearWash=addGlow(new THREE.Mesh(new THREE.BoxGeometry(2.82,0.18,0.12),hoverGlowMat.clone()));
-  rearWash.name="hovercraft-rear-hover-wash";
-  rearWash.material.opacity=0.62;
-  rearWash.position.set(0,0.18,-2.44);
-  rearWash.renderOrder=21;
-
-  for(let side of [-1,1]){
-    let sideWash=addGlow(new THREE.Mesh(new THREE.BoxGeometry(0.12,0.16,3.82),hoverGlowMat.clone()));
-    sideWash.name=side<0 ? "hovercraft-left-hover-wash" : "hovercraft-right-hover-wash";
-    sideWash.material.opacity=0.48;
-    sideWash.position.set(side*1.84,0.16,-0.04);
-    sideWash.renderOrder=21;
-  }
+  addHovercraftMothershipPropulsion(
+    hovercraft,
+    addGlow,
+    (mesh,x,y,z,sx,sy,sz,rotationY=0)=>{
+      mesh.position.set(x,y,z);
+      mesh.rotation.y=rotationY;
+      mesh.scale.set(sx,sy,sz);
+    },
+    accentColor
+  );
 
   let lowerHull=add(new THREE.Mesh(new THREE.BoxGeometry(2.96,0.42,4.4),armorMat));
   lowerHull.name="hovercraft-lower-hull";
@@ -1682,10 +1998,6 @@ export function makeHovercraftModel(accentColor=0xb83a32){
     let liftFan=add(new THREE.Mesh(new THREE.CylinderGeometry(0.42,0.48,0.22,24),darkMat));
     liftFan.name=side<0 ? "hovercraft-left-lift-fan" : "hovercraft-right-lift-fan";
     liftFan.position.set(side*0.72,0.32,0.22);
-
-    let liftGlow=add(new THREE.Mesh(new THREE.CylinderGeometry(0.34,0.38,0.035,24),glowMat));
-    liftGlow.name=side<0 ? "hovercraft-left-lift-glow" : "hovercraft-right-lift-glow";
-    liftGlow.position.set(side*0.72,0.1,0.22);
 
     let duct=add(new THREE.Mesh(new THREE.TorusGeometry(0.52,0.08,12,28),darkMat));
     duct.name=side<0 ? "hovercraft-left-rear-duct" : "hovercraft-right-rear-duct";

@@ -11373,6 +11373,52 @@ function animatePlayerCarWheels(car){
   }
 }
 
+let hovercraftPropulsionColorA=new THREE.Color();
+let hovercraftPropulsionColorB=new THREE.Color();
+
+function animateHovercraftPropulsion(model,visibleAmount=1){
+  if(!model || !model.userData) return;
+  let parts=model.userData.hoverPropulsionParts || [];
+  if(!parts.length) return;
+  let amount=clamp(visibleAmount,0,1);
+  let time=performance.now()*0.001;
+
+  for(let part of parts){
+    if(!part || !part.userData) continue;
+    let data=part.userData;
+    let constantGlow=Boolean(data.hoverConstantGlow);
+    let pulse=0.5+0.5*Math.sin(time*(data.hoverPulseSpeed || 2.1)+(data.hoverPulsePhase || 0));
+    let flicker=0.5+0.5*Math.sin(time*((data.hoverPulseSpeed || 2.1)*1.9)+(data.hoverPulsePhase || 0)*1.7);
+
+    if(data.baseScale){
+      let pulseScale=data.hoverPulseScale || 0.08;
+      let pulseY=data.hoverPulseY || 0.12;
+      let pulseZ=Number.isFinite(data.hoverPulseZ) ? data.hoverPulseZ : pulseScale;
+      if(constantGlow){
+        part.scale.copy(data.baseScale);
+      }else{
+        part.scale.set(
+          data.baseScale.x*(1+pulseScale*pulse),
+          data.baseScale.y*(1+pulseY*flicker),
+          data.baseScale.z*(1+pulseZ*pulse)
+        );
+      }
+    }
+
+    if(part.material){
+      let baseOpacity=Number.isFinite(data.baseOpacity) ? data.baseOpacity : part.material.opacity;
+      part.material.opacity=baseOpacity*amount*(constantGlow ? 1 : 0.66+pulse*0.48);
+      if(Number.isFinite(data.hoverColorA) && Number.isFinite(data.hoverColorB) && !constantGlow){
+        hovercraftPropulsionColorA.setHex(data.hoverColorA);
+        hovercraftPropulsionColorB.setHex(data.hoverColorB);
+        part.material.color.copy(hovercraftPropulsionColorA.lerp(hovercraftPropulsionColorB,0.28+flicker*0.38));
+      }else if(Number.isFinite(data.hoverColorA)){
+        part.material.color.setHex(data.hoverColorA);
+      }
+    }
+  }
+}
+
 function setupMorphModels(car,accentColor){
   let mech=makeMechModel(accentColor,{dust:true});
   let aimCross=makeAimCross(accentColor);
@@ -13043,6 +13089,7 @@ function updateMorphVisual(car){
     car.jetModel.position.y=baseY+(1-jetReveal)*0.62+(1-jetVisualFade)*0.18+Math.sin(performance.now()*0.006)*0.12*jetReveal;
     car.jetModel.rotation.x=(1-jetReveal)*0.28-0.08*snap;
     car.jetModel.rotation.z=Math.sin(performance.now()*0.052)*0.035*transformShake*(1-snap);
+    animateHovercraftPropulsion(car.jetModel,jetVisualFade);
   }
 
   if(car.aimCross){
