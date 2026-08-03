@@ -1238,6 +1238,9 @@ let cameraDownhillSampleDistance=30;
 let cameraDownhillExtraHeight=9.5;
 let cameraDownhillPullIn=4.5;
 let cameraTerrainClearance=5.8;
+let cameraYawTurnFollowRate=0.075;
+let cameraYawRecenterFollowRate=0.034;
+let jetCameraYawRecenterFollowRate=0.024;
 let firstPersonPerspective=false;
 let screenShakeAmount=0;
 let screenShakeSeed=0;
@@ -10562,37 +10565,7 @@ function emitFlightExhaust(car){
 }
 
 function emitJetHoverExhaust(car){
-  let spawnJetParticle=dust.spawnJetExhaustParticle || dust.spawnThrusterParticle;
-  let speedAbs=Math.abs(car.speed || 0);
-  let forwardX=Math.sin(car.angle);
-  let forwardZ=Math.cos(car.angle);
-  let rightX=Math.cos(car.angle);
-  let rightZ=-Math.sin(car.angle);
-  let driftX=-Math.sin(car.velAngle || car.angle)*speedAbs*0.2;
-  let driftZ=-Math.cos(car.velAngle || car.angle)*speedAbs*0.2;
-  let emitters=[
-    {forward:1.45,side:-0.92},
-    {forward:1.45,side:0.92},
-    {forward:-1.25,side:-0.82},
-    {forward:-1.25,side:0.82}
-  ];
-
-  for(let emitter of emitters){
-    let jitterForward=(Math.random()-0.5)*0.38;
-    let jitterSide=(Math.random()-0.5)*0.34;
-    let px=car.x+forwardX*(emitter.forward+jitterForward)+rightX*(emitter.side+jitterSide);
-    let pz=car.z+forwardZ*(emitter.forward+jitterForward)+rightZ*(emitter.side+jitterSide);
-    spawnJetParticle(
-      px,
-      car.y-1.05+Math.random()*0.18,
-      pz,
-      driftX+rightX*(Math.random()-0.5)*0.26+forwardX*(Math.random()-0.5)*0.16,
-      driftZ+rightZ*(Math.random()-0.5)*0.26+forwardZ*(Math.random()-0.5)*0.16,
-      -2.35-Math.random()*0.75,
-      0.18+Math.random()*0.07,
-      0.28+Math.random()*0.1
-    );
-  }
+  return;
 }
 
 function emitBuggyGroundDust(car,surfaceY){
@@ -13922,7 +13895,15 @@ function updateRobotHeadLookYaw(car,robotAmount=1){
 }
 
 function updateCameraForCar(car){
-  car.cameraYaw+=normalizeAngle(car.velAngle-car.cameraYaw)*0.075;
+  let cameraYawDelta=normalizeAngle(car.velAngle-car.cameraYaw);
+  let activeTurn=Math.abs(car.turnInputEase || 0)>0.08 || Math.abs(car.turnVelocity || 0)>0.004;
+  let jetCameraMode=car.jetMode || car.jetProgress>0.45;
+  let cameraYawFollow=activeTurn
+    ? cameraYawTurnFollowRate
+    : jetCameraMode
+    ? jetCameraYawRecenterFollowRate
+    : cameraYawRecenterFollowRate;
+  car.cameraYaw+=cameraYawDelta*cameraYawFollow;
   let cameraBaseY=Number.isFinite(car.renderY) ? car.renderY : car.y;
 
   if(firstPersonViewActive()){
