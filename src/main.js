@@ -609,10 +609,11 @@ fpsDisplay.style.cssText=[
   "font-weight:900",
   "line-height:1.18",
   "letter-spacing:0.06em",
-  "color:rgba(232,255,247,0.92)",
+  "color:rgba(82,255,154,0.92)",
   "text-align:right",
   "white-space:pre",
-  "text-shadow:0 0 6px rgba(103,244,255,0.46),0 2px 0 rgba(0,0,0,0.72)",
+  "text-shadow:0 0 5px rgba(82,255,154,0.72),0 0 14px rgba(82,255,154,0.32),0 2px 0 rgba(0,0,0,0.72)",
+  "filter:drop-shadow(0 0 5px rgba(82,255,154,0.18))",
   "pointer-events:none",
   "user-select:none"
 ].join(";");
@@ -632,10 +633,11 @@ planetNameDisplay.style.cssText=[
   "font-weight:900",
   "line-height:1",
   "letter-spacing:0.08em",
-  "color:rgba(232,255,247,0.9)",
+  "color:rgba(82,255,154,0.9)",
   "text-align:left",
   "text-transform:uppercase",
-  "text-shadow:0 0 10px rgba(103,244,255,0.32),0 2px 0 rgba(0,0,0,0.72)",
+  "text-shadow:0 0 7px rgba(82,255,154,0.72),0 0 18px rgba(82,255,154,0.34),0 2px 0 rgba(0,0,0,0.72)",
+  "filter:drop-shadow(0 0 8px rgba(82,255,154,0.16))",
   "pointer-events:none",
   "user-select:none"
 ].join(";");
@@ -655,10 +657,11 @@ missionGoalDisplay.style.cssText=[
   "font-weight:900",
   "line-height:1.28",
   "letter-spacing:0.04em",
-  "color:rgba(232,255,247,0.82)",
+  "color:rgba(82,255,154,0.82)",
   "text-align:left",
   "text-transform:uppercase",
-  "text-shadow:0 0 8px rgba(103,244,255,0.24),0 2px 0 rgba(0,0,0,0.72)",
+  "text-shadow:0 0 6px rgba(82,255,154,0.62),0 0 15px rgba(82,255,154,0.28),0 2px 0 rgba(0,0,0,0.72)",
+  "filter:drop-shadow(0 0 6px rgba(82,255,154,0.14))",
   "pointer-events:none",
   "user-select:none",
   "display:none"
@@ -722,74 +725,122 @@ function createFirstPersonVisorPane(left,width){
   addVisorPart(robotLayer,[
     "position:absolute",
     "inset:0",
-    "background:radial-gradient(ellipse at center, rgba(0,0,0,0) 44%, rgba(7,22,28,0.14) 70%, rgba(0,0,0,0.62) 100%)"
+    "background:radial-gradient(ellipse at 50% 48%, rgba(0,0,0,0) 50%, rgba(3,16,13,0.1) 72%, rgba(0,0,0,0.72) 100%)"
   ]);
   addVisorPart(robotLayer,[
     "position:absolute",
-    "left:8%",
-    "right:8%",
-    "top:5%",
-    "height:14%",
-    "background:linear-gradient(180deg, rgba(0,0,0,0.68), rgba(0,0,0,0.08))",
-    "clip-path:polygon(5% 0, 95% 0, 100% 100%, 0 100%)"
-  ]);
-  addVisorPart(robotLayer,[
-    "position:absolute",
-    "left:7%",
-    "right:7%",
-    "bottom:5%",
-    "height:17%",
-    "background:linear-gradient(0deg, rgba(0,0,0,0.72), rgba(0,0,0,0.08))",
-    "clip-path:polygon(0 0, 100% 0, 92% 100%, 8% 100%)"
-  ]);
-  addVisorPart(robotLayer,[
-    "position:absolute",
-    "left:0",
+    "left:-2%",
+    "right:-2%",
     "top:0",
-    "bottom:0",
-    "width:11%",
-    "background:linear-gradient(90deg, rgba(0,0,0,0.76), rgba(0,0,0,0.08), rgba(0,0,0,0))"
+    "height:13%",
+    "background:linear-gradient(180deg, rgba(1,4,5,0.96), rgba(5,10,10,0.9) 58%, rgba(0,0,0,0.12) 100%)",
+    "clip-path:polygon(0 0, 100% 0, 100% 64%, 86% 64%, 82% 100%, 18% 100%, 14% 64%, 0 64%)",
+    "box-shadow:0 6px 24px rgba(0,0,0,0.58)"
   ]);
   addVisorPart(robotLayer,[
     "position:absolute",
-    "right:0",
-    "top:0",
+    "left:-2%",
+    "right:-2%",
     "bottom:0",
-    "width:11%",
-    "background:linear-gradient(270deg, rgba(0,0,0,0.76), rgba(0,0,0,0.08), rgba(0,0,0,0))"
+    "height:18%",
+    "background:linear-gradient(0deg, rgba(1,4,5,0.96), rgba(5,10,10,0.9) 62%, rgba(0,0,0,0.08) 100%)",
+    "clip-path:polygon(0 34%, 13% 34%, 18% 0, 82% 0, 87% 34%, 100% 34%, 100% 100%, 0 100%)",
+    "box-shadow:0 -8px 28px rgba(0,0,0,0.62)"
   ]);
   addVisorPart(robotLayer,[
     "position:absolute",
-    "left:9%",
-    "right:9%",
+    "left:-2%",
     "top:7%",
-    "bottom:8%",
-    "border:1px solid rgba(141,255,242,0.24)",
-    "box-shadow:inset 0 0 22px rgba(103,244,255,0.08), 0 0 18px rgba(103,244,255,0.08)",
-    "clip-path:polygon(7% 0, 93% 0, 100% 8%, 100% 92%, 93% 100%, 7% 100%, 0 92%, 0 8%)"
+    "bottom:12%",
+    "width:17%",
+    "background:linear-gradient(101deg, rgba(0,0,0,0.98), rgba(5,13,12,0.9) 54%, rgba(3,18,13,0.42) 80%, rgba(0,0,0,0))",
+    "clip-path:polygon(0 0, 74% 0, 100% 8%, 76% 50%, 100% 92%, 72% 100%, 0 100%)",
+    "box-shadow:10px 0 26px rgba(0,0,0,0.38)"
   ]);
-
-  let cornerStyle=[
+  addVisorPart(robotLayer,[
     "position:absolute",
-    "width:8.5%",
-    "height:7%",
-    "color:rgba(141,255,242,0.52)",
-    "border-color:rgba(141,255,242,0.52)",
-    "filter:drop-shadow(0 0 7px rgba(103,244,255,0.32))"
-  ];
-  addVisorPart(robotLayer,[...cornerStyle,"left:7.5%","top:6.5%","border-left:2px solid","border-top:2px solid"]);
-  addVisorPart(robotLayer,[...cornerStyle,"right:7.5%","top:6.5%","border-right:2px solid","border-top:2px solid"]);
-  addVisorPart(robotLayer,[...cornerStyle,"left:7.5%","bottom:7%","border-left:2px solid","border-bottom:2px solid"]);
-  addVisorPart(robotLayer,[...cornerStyle,"right:7.5%","bottom:7%","border-right:2px solid","border-bottom:2px solid"]);
+    "right:-2%",
+    "top:7%",
+    "bottom:12%",
+    "width:17%",
+    "background:linear-gradient(259deg, rgba(0,0,0,0.98), rgba(5,13,12,0.9) 54%, rgba(3,18,13,0.42) 80%, rgba(0,0,0,0))",
+    "clip-path:polygon(26% 0, 100% 0, 100% 100%, 28% 100%, 0 92%, 24% 50%, 0 8%)",
+    "box-shadow:-10px 0 26px rgba(0,0,0,0.38)"
+  ]);
   addVisorPart(robotLayer,[
     "position:absolute",
     "left:14%",
     "right:14%",
-    "top:50%",
-    "height:1px",
-    "background:linear-gradient(90deg, rgba(141,255,242,0), rgba(141,255,242,0.22), rgba(141,255,242,0))",
-    "opacity:0.44"
+    "top:8.5%",
+    "bottom:11.5%",
+    "border:2px solid rgba(82,255,154,0.42)",
+    "box-shadow:inset 0 0 18px rgba(82,255,154,0.08), 0 0 18px rgba(82,255,154,0.28)",
+    "clip-path:polygon(5% 0, 95% 0, 100% 8%, 100% 91%, 94% 100%, 6% 100%, 0 91%, 0 8%)"
   ]);
+  addVisorPart(robotLayer,[
+    "position:absolute",
+    "left:14.6%",
+    "top:11%",
+    "width:2px",
+    "height:36%",
+    "background:rgba(82,255,154,0.94)",
+    "box-shadow:0 0 10px rgba(82,255,154,0.9)",
+    "transform:rotate(8deg)",
+    "transform-origin:top"
+  ]);
+  addVisorPart(robotLayer,[
+    "position:absolute",
+    "right:14.6%",
+    "top:11%",
+    "width:2px",
+    "height:36%",
+    "background:rgba(82,255,154,0.94)",
+    "box-shadow:0 0 10px rgba(82,255,154,0.9)",
+    "transform:rotate(-8deg)",
+    "transform-origin:top"
+  ]);
+  addVisorPart(robotLayer,[
+    "position:absolute",
+    "left:30%",
+    "right:30%",
+    "top:8.7%",
+    "height:2px",
+    "background:linear-gradient(90deg, rgba(82,255,154,0), rgba(82,255,154,0.78), rgba(82,255,154,0))",
+    "box-shadow:0 0 10px rgba(82,255,154,0.7)"
+  ]);
+  addVisorPart(robotLayer,[
+    "position:absolute",
+    "left:23%",
+    "right:23%",
+    "bottom:12.8%",
+    "height:2px",
+    "background:linear-gradient(90deg, rgba(82,255,154,0), rgba(82,255,154,0.86) 18%, rgba(82,255,154,0.22) 50%, rgba(82,255,154,0.86) 82%, rgba(82,255,154,0))",
+    "box-shadow:0 0 11px rgba(82,255,154,0.76)"
+  ]);
+
+  let reticle=addVisorPart(robotLayer,[
+    "position:absolute",
+    "left:50%",
+    "top:52%",
+    "width:78px",
+    "height:58px",
+    "transform:translate(-50%,-50%)",
+    "filter:drop-shadow(0 0 7px rgba(82,255,154,0.7))"
+  ]);
+  addVisorPart(reticle,[
+    "position:absolute",
+    "left:28px",
+    "top:18px",
+    "width:22px",
+    "height:22px",
+    "border:2px solid rgba(82,255,154,0.82)",
+    "border-radius:50%",
+    "box-sizing:border-box"
+  ]);
+  addVisorPart(reticle,["position:absolute","left:0","top:28px","width:22px","height:2px","background:rgba(82,255,154,0.82)"]);
+  addVisorPart(reticle,["position:absolute","right:0","top:28px","width:22px","height:2px","background:rgba(82,255,154,0.82)"]);
+  addVisorPart(reticle,["position:absolute","left:38px","top:0","width:2px","height:16px","background:rgba(82,255,154,0.82)"]);
+  addVisorPart(reticle,["position:absolute","left:38px","bottom:0","width:2px","height:16px","background:rgba(82,255,154,0.82)"]);
 
   addVisorPart(carLayer,[
     "position:absolute",
@@ -1019,7 +1070,7 @@ function updateFirstPersonVisorOverlay(){
   for(let i=0;i<firstPersonVisorPanes.length;i++){
     let pane=firstPersonVisorPanes[i];
     let carAmount=firstPersonPaneCarAmount(i);
-    if(pane._robotLayer) pane._robotLayer.style.opacity=String(1-carAmount*0.82);
+    if(pane._robotLayer) pane._robotLayer.style.opacity=String(1-carAmount);
     if(pane._carLayer) pane._carLayer.style.opacity=String(carAmount);
   }
 }
@@ -1121,9 +1172,9 @@ missionStartText.style.cssText=[
   "font-size:clamp(36px,6.4vw,86px)",
   "font-weight:900",
   "letter-spacing:0.06em",
-  "color:rgba(232,255,247,0.96)",
+  "color:rgba(82,255,154,0.96)",
   "text-align:center",
-  "text-shadow:0 0 20px rgba(103,244,255,0.5),0 4px 0 rgba(0,0,0,0.86)",
+  "text-shadow:0 0 12px rgba(82,255,154,0.72),0 0 28px rgba(82,255,154,0.34),0 4px 0 rgba(0,0,0,0.86)",
   "opacity:0",
   "display:none",
   "pointer-events:none",

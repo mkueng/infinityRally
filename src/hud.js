@@ -12,11 +12,11 @@ const speedHudSplitScale=1;
 const speedHudWidth=340;
 const speedHudSplitWidth="min(200px,calc(50vw - 72px))";
 const laserHudFrames=300;
-const displayBarFill="linear-gradient(90deg,rgba(128,137,140,0.72),rgba(178,187,188,0.86),rgba(229,234,232,0.72))";
-const displayBarShadow="0 0 12px rgba(210,220,220,0.24),inset 0 0 12px rgba(255,255,255,0.18)";
-const compassArcStroke="rgba(178,187,188,0.62)";
-const compassArcMajorStroke="rgba(216,222,222,0.78)";
-const compassArcMinorStroke="rgba(178,187,188,0.42)";
+const displayBarFill="linear-gradient(90deg,rgba(36,94,61,0.62),rgba(82,255,154,0.82),rgba(220,255,229,0.62))";
+const displayBarShadow="0 0 16px rgba(82,255,154,0.48),0 0 28px rgba(82,255,154,0.16),inset 0 0 14px rgba(220,255,229,0.22)";
+const compassArcStroke="rgba(82,255,154,0.62)";
+const compassArcMajorStroke="rgba(134,255,177,0.82)";
+const compassArcMinorStroke="rgba(82,255,154,0.38)";
 
 export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStationState=()=>null,getNearestTradingOutpost=()=>null,getNearestBossBase=()=>null,getCompassRadarOutposts=()=>[],getScannedBossBases=()=>[],getScannedTradingOutposts=()=>[],getScannedRadarOutposts=()=>[],getScannedLandingSpaces=()=>[],getScannedPortals=()=>[],getPerformanceMode=()=>"full",getPerformanceStressLevel=()=>0,getFirstPersonMode=()=>false,getEnvironment=()=>({}),getTerrainHeight=()=>0}){
   let panels=[];
@@ -107,9 +107,9 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       `width:${panel.side==="full" ? healthHudFullWidth : healthHudSplitWidth}`,
       "height:34px",
       "padding:6px 8px",
-      "border:1px solid rgba(141,255,242,0.34)",
+      "border:1px solid rgba(82,255,154,0.34)",
       "background:linear-gradient(135deg,rgba(12,22,28,0.58),rgba(39,18,54,0.26) 56%,rgba(214,178,90,0.16))",
-      "box-shadow:0 16px 28px rgba(0,0,0,0.28),inset 0 0 22px rgba(103,244,255,0.12),0 0 18px rgba(103,244,255,0.14)",
+      "box-shadow:0 16px 28px rgba(0,0,0,0.28),inset 0 0 22px rgba(82,255,154,0.18),0 0 18px rgba(82,255,154,0.24),0 0 36px rgba(82,255,154,0.1)",
       "z-index:10",
       "overflow:hidden",
       "clip-path:polygon(18px 0,100% 0,calc(100% - 18px) 100%,0 100%)",
@@ -132,9 +132,9 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     healthGrid.style.cssText=[
       "position:absolute",
       "inset:6px 8px",
-      "background:repeating-linear-gradient(90deg,rgba(255,255,255,0.16) 0 1px,transparent 1px 18px)",
+      "background:repeating-linear-gradient(90deg,rgba(82,255,154,0.16) 0 1px,transparent 1px 18px)",
       "mix-blend-mode:screen",
-      "opacity:0.34",
+      "opacity:0.42",
       "pointer-events:none"
     ].join(";");
 
@@ -149,8 +149,8 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "font-weight:900",
       "letter-spacing:0.08em",
       "text-transform:uppercase",
-      "color:rgba(245,255,249,0.96)",
-      "text-shadow:0 0 8px rgba(103,244,255,0.5),0 2px 0 rgba(0,0,0,0.72)",
+      "color:rgba(82,255,154,0.96)",
+      "text-shadow:0 0 6px rgba(82,255,154,0.72),0 0 16px rgba(82,255,154,0.38),0 2px 0 rgba(0,0,0,0.72)",
       "pointer-events:none"
     ].join(";");
 
@@ -184,6 +184,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "border:0",
       "background:transparent",
       "box-shadow:none",
+      "filter:drop-shadow(0 0 9px rgba(82,255,154,0.18)) drop-shadow(0 0 22px rgba(82,255,154,0.08))",
       `clip-path:${sidePanelClip(panel)}`,
       "backdrop-filter:none"
     ].join(";");
@@ -193,7 +194,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "position:absolute",
       "inset:0",
       `background:${palette.panelSheen}`,
-      "opacity:0.44",
+      "opacity:0.52",
       "pointer-events:none"
     ].join(";");
 
@@ -240,7 +241,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "font-weight:900",
       "letter-spacing:0.08em",
       "text-transform:uppercase",
-      "color:rgba(245,255,249,0.96)",
+      "color:rgba(82,255,154,0.96)",
       `text-shadow:${palette.textGlow}`,
       "pointer-events:none"
     ].join(";");
@@ -260,7 +261,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "font-size:15px",
       "font-weight:900",
       "line-height:1",
-      "color:rgba(245,255,249,0.92)",
+      "color:rgba(82,255,154,0.92)",
       `text-shadow:${palette.textGlow}`
     ].join(";");
 
@@ -298,7 +299,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "font-weight:900",
       "letter-spacing:0.08em",
       "text-transform:uppercase",
-      "color:rgba(245,255,249,0.92)",
+      "color:rgba(82,255,154,0.92)",
       `text-shadow:${palette.smallTextGlow}`,
       "pointer-events:none"
     ].join(";");
@@ -340,7 +341,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "font-weight:900",
       "letter-spacing:0.08em",
       "text-transform:uppercase",
-      "color:rgba(245,255,249,0.92)",
+      "color:rgba(82,255,154,0.92)",
       `text-shadow:${palette.smallTextGlow}`,
       "pointer-events:none"
     ].join(";");
@@ -363,7 +364,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "font-weight:900",
       "letter-spacing:0.08em",
       "text-transform:uppercase",
-      "color:rgba(245,255,249,0.96)",
+      "color:rgba(82,255,154,0.96)",
       `border:${palette.softBorder}`,
       `background:${palette.unitBackground}`,
       `clip-path:${barClip(panel)}`,
@@ -404,7 +405,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "font-weight:900",
       "letter-spacing:0.08em",
       "text-transform:uppercase",
-      "color:rgba(245,255,249,0.92)",
+      "color:rgba(82,255,154,0.92)",
       `text-shadow:${palette.smallTextGlow}`,
       "pointer-events:none"
     ].join(";");
@@ -510,7 +511,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
           ...ammoRows.map(row=>[
             `<span style="display:flex;align-items:center;justify-content:space-between;height:24px;gap:8px;padding:0 7px;border:${palette.softBorder};background:${palette.unitBackground};clip-path:${rowClip}">`,
             ammoIcon(row.icon,palette),
-            `<span style="min-width:38px;text-align:right;color:rgba(245,255,249,0.96);text-shadow:${palette.textGlow}">${row.value}</span>`,
+            `<span style="min-width:38px;text-align:right;color:rgba(82,255,154,0.96);text-shadow:${palette.textGlow}">${row.value}</span>`,
             `</span>`
           ].join(""))
         ].join("");
@@ -555,8 +556,8 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
   }
 
   function ammoIcon(kind,palette=displayPalette()){
-    let color=rgba(palette.text,0.96,0xb9f4ff);
-    let glow=rgba(palette.accentGlow,0.62,0x67f4ff);
+    let color=rgba(palette.text,0.96,0x52ff9a);
+    let glow=rgba(palette.accentGlow,0.62,0x52ff9a);
     if(kind==="rocket"){
       return [
         `<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" style="flex:0 0 24px;color:${color};filter:drop-shadow(0 0 5px ${glow}) drop-shadow(0 2px 1px rgba(0,0,0,0.7))">`,
@@ -616,8 +617,8 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "height:var(--map-size)",
       "border-radius:50%",
       "background:transparent",
-      "border:1px solid rgba(141,255,242,0.09)",
-      "box-shadow:none",
+      "border:1px solid rgba(82,255,154,0.12)",
+      "box-shadow:0 0 14px rgba(82,255,154,0.16),inset 0 0 18px rgba(82,255,154,0.08)",
       "z-index:10",
       "overflow:hidden",
       "pointer-events:none",
@@ -630,9 +631,9 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "position:absolute",
       "inset:9px",
       "border-radius:50%",
-      "border:1px solid rgba(232,248,255,0.045)",
-      "box-shadow:none",
-      "background:repeating-conic-gradient(from 0deg,rgba(141,255,242,0.035) 0deg 1deg,transparent 1deg 12deg)",
+      "border:1px solid rgba(82,255,154,0.08)",
+      "box-shadow:0 0 18px rgba(82,255,154,0.14)",
+      "background:repeating-conic-gradient(from 0deg,rgba(82,255,154,0.045) 0deg 1deg,transparent 1deg 12deg)",
       "mask:radial-gradient(circle,transparent 0 69%,#000 70% 100%)",
       "-webkit-mask:radial-gradient(circle,transparent 0 69%,#000 70% 100%)",
       "pointer-events:none"
@@ -643,7 +644,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "position:absolute",
       "inset:0",
       "border-radius:50%",
-      "background:linear-gradient(140deg,rgba(255,255,255,0.07),transparent 24%,transparent 62%,rgba(103,244,255,0.04)),radial-gradient(circle at 35% 25%,rgba(255,255,255,0.06),transparent 28%)",
+      "background:linear-gradient(140deg,rgba(82,255,154,0.1),transparent 24%,transparent 62%,rgba(82,255,154,0.08)),radial-gradient(circle at 35% 25%,rgba(220,255,229,0.08),transparent 28%)",
       "pointer-events:none",
       "mix-blend-mode:screen"
     ].join(";");
@@ -651,7 +652,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     let mapCanvas=document.createElement("canvas");
     mapCanvas.width=mapHudSize;
     mapCanvas.height=mapHudSize;
-    mapCanvas.style.cssText="position:absolute;inset:14px;display:block;width:calc(var(--map-size) - 28px);height:calc(var(--map-size) - 28px);border-radius:50%;opacity:0.78;filter:saturate(1.2) contrast(1.08)";
+    mapCanvas.style.cssText="position:absolute;inset:14px;display:block;width:calc(var(--map-size) - 28px);height:calc(var(--map-size) - 28px);border-radius:50%;opacity:0.82;filter:saturate(1.2) contrast(1.08) drop-shadow(0 0 10px rgba(82,255,154,0.18))";
     let mapCtx=mapCanvas.getContext("2d");
     mapHud.appendChild(mapRing);
     mapHud.appendChild(mapCanvas);
@@ -674,13 +675,13 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "height:74px",
       "z-index:11",
       "pointer-events:none",
-      "filter:drop-shadow(0 12px 16px rgba(0,0,0,0.32))"
+      "filter:drop-shadow(0 12px 16px rgba(0,0,0,0.32)) drop-shadow(0 0 14px rgba(82,255,154,0.18))"
     ].join(";");
 
     let compassCanvas=document.createElement("canvas");
     compassCanvas.width=panel.side==="full" ? compassFullCanvasWidth : compassSplitCanvasWidth;
     compassCanvas.height=74;
-    compassCanvas.style.cssText="display:block;width:100%;height:74px;filter:drop-shadow(0 0 8px rgba(103,244,255,0.18))";
+    compassCanvas.style.cssText="display:block;width:100%;height:74px;filter:drop-shadow(0 0 8px rgba(82,255,154,0.42)) drop-shadow(0 0 20px rgba(82,255,154,0.16))";
     let compassCtx=compassCanvas.getContext("2d");
     compassHud.appendChild(compassCanvas);
     document.body.appendChild(compassHud);
@@ -691,13 +692,17 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
   }
 
   function firstPersonMapRight(panel){
-    if(panel.side==="full") return "calc(9vw + 24px)";
-    return panel.side==="left" ? "calc(50vw + 4.5vw + 18px)" : "calc(4.5vw + 18px)";
+    if(panel.side==="full") return "calc(14vw + 14px)";
+    return panel.side==="left" ? "calc(50vw + 7vw + 12px)" : "calc(7vw + 12px)";
   }
 
   function firstPersonSpeedLeft(panel){
-    if(panel.side==="full") return "calc(9vw + 24px)";
-    return panel.side==="left" ? "calc(4.5vw + 18px)" : "calc(50vw + 4.5vw + 18px)";
+    if(panel.side==="full") return "calc(14vw + 14px)";
+    return panel.side==="left" ? "calc(7vw + 12px)" : "calc(50vw + 7vw + 12px)";
+  }
+
+  function firstPersonDisplayBottom(){
+    return "calc(13vh + 14px)";
   }
 
   function thirdPersonSpeedLeft(panel){
@@ -733,11 +738,11 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     for(let panel of panels){
       if(panel.speedHud){
         panel.speedHud.style.top=firstPerson ? "auto" : (panel.side==="full" ? "18px" : "66px");
-        panel.speedHud.style.bottom=firstPerson ? "calc(8vh + 18px)" : "auto";
+        panel.speedHud.style.bottom=firstPerson ? firstPersonDisplayBottom() : "auto";
         panel.speedHud.style.left=firstPerson ? firstPersonSpeedLeft(panel) : thirdPersonSpeedLeft(panel);
         panel.speedHud.style.right="auto";
         panel.speedHud.style.transform=firstPerson
-          ? "scale(1.104)"
+          ? (panel.side==="full" ? "scale(1)" : "scale(0.94)")
           : thirdPersonSpeedTransform(panel);
         panel.speedHud.style.transformOrigin=sideTransformOrigin(panel);
         panel.speedHud.style.zIndex=firstPerson ? "76" : "10";
@@ -745,11 +750,11 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       }
       if(panel.mapHud){
         panel.mapHud.style.setProperty("--map-size",firstPerson
-          ? (panel.side==="full" ? "333px" : "min(288px,calc(50vw - 52px))")
+          ? (panel.side==="full" ? "min(320px,32vw)" : "min(250px,calc(36vw - 52px))")
           : thirdPersonMapSizeFor(panel)
         );
         panel.mapHud.style.top=firstPerson ? "auto" : thirdPersonMapTop(panel);
-        panel.mapHud.style.bottom=firstPerson ? "calc(8vh + 18px)" : "auto";
+        panel.mapHud.style.bottom=firstPerson ? firstPersonDisplayBottom() : "auto";
         panel.mapHud.style.left=firstPerson ? "auto" : thirdPersonMapLeft(panel);
         panel.mapHud.style.right=firstPerson ? firstPersonMapRight(panel) : "auto";
         panel.mapHud.style.transform="none";
@@ -793,17 +798,15 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
   }
 
   function displayPalette(){
-    let environment=getEnvironment() || {};
-    let colors=environment.colors || {};
-    let accent=colors.trim || colors.water || colors.shore || 0x8dfff2;
-    let accentGlow=colors.water || colors.trim || 0x8dfff2;
-    let low=colors.low || colors.wall || 0x687064;
-    let mid=colors.mid || colors.rock || low;
-    let high=colors.high || colors.trim || mid;
-    let shadow=colors.underwater || colors.rock || 0x041018;
-    let danger=colors.pod || colors.shore || 0xff6a42;
-    let fuel=colors.grass || colors.leaf || accent;
-    let text=colors.trim || colors.water || 0xf5fff9;
+    let accent=0x52ff9a;
+    let accentGlow=0x52ff9a;
+    let low=0x245e3d;
+    let mid=0x52ff9a;
+    let high=0xdcffe5;
+    let shadow=0x04150d;
+    let danger=0x52ff9a;
+    let fuel=0x52ff9a;
+    let text=0x52ff9a;
     let signature=[accent,accentGlow,low,mid,high,shadow,danger,fuel,text].join("|");
     if(displayPaletteCache && displayPaletteCacheSignature===signature) return displayPaletteCache;
 
@@ -814,21 +817,21 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       accentGlow,
       text,
       trackBackground:rgba(shadow,0.28,0x041018),
-      panelSheen:`linear-gradient(115deg,${rgba(accent,0.16,0x8dfff2)},transparent 24%,transparent 68%,${rgba(accentGlow,0.1,0x67f4ff)}),repeating-linear-gradient(0deg,${rgba(accent,0.07,0x8dfff2)} 0 1px,transparent 1px 18px)`,
+      panelSheen:`linear-gradient(115deg,${rgba(accent,0.22,0x52ff9a)},transparent 24%,transparent 68%,${rgba(accentGlow,0.16,0x52ff9a)}),repeating-linear-gradient(0deg,${rgba(accent,0.1,0x52ff9a)} 0 1px,transparent 1px 18px)`,
       barFill:`linear-gradient(90deg,${rgba(low,0.58,0x687064)},${rgba(mid,0.78,0x8c9696)},${rgba(high,0.64,0xdde8e6)})`,
-      barShadow:`inset 0 0 12px ${rgba(accentGlow,0.22,0x67f4ff)},0 0 9px ${rgba(accentGlow,0.2,0x67f4ff)}`,
-      grid:`repeating-linear-gradient(90deg,${rgba(accent,0.16,0x8dfff2)} 0 1px,transparent 1px 16px)`,
+      barShadow:`inset 0 0 12px ${rgba(accentGlow,0.3,0x52ff9a)},0 0 13px ${rgba(accentGlow,0.36,0x52ff9a)},0 0 26px ${rgba(accentGlow,0.12,0x52ff9a)}`,
+      grid:`repeating-linear-gradient(90deg,${rgba(accent,0.18,0x52ff9a)} 0 1px,transparent 1px 16px)`,
       border:"0",
       softBorder:"0",
-      trackShadow:`inset 0 0 10px rgba(0,0,0,0.24),0 0 10px ${rgba(accentGlow,0.1,0x67f4ff)}`,
-      textGlow:`0 0 7px ${rgba(accentGlow,0.46,0x67f4ff)},0 2px 0 rgba(0,0,0,0.72)`,
-      smallTextGlow:`0 0 6px ${rgba(accentGlow,0.58,0x67f4ff)},0 1px 0 rgba(0,0,0,0.8)`,
-      unitBackground:`linear-gradient(90deg,${rgba(accent,0.08,0x8dfff2)},${rgba(high,0.05,0xffffff)})`,
+      trackShadow:`inset 0 0 10px rgba(0,0,0,0.24),0 0 12px ${rgba(accentGlow,0.22,0x52ff9a)},0 0 28px ${rgba(accentGlow,0.08,0x52ff9a)}`,
+      textGlow:`0 0 6px ${rgba(accentGlow,0.72,0x52ff9a)},0 0 16px ${rgba(accentGlow,0.38,0x52ff9a)},0 2px 0 rgba(0,0,0,0.72)`,
+      smallTextGlow:`0 0 5px ${rgba(accentGlow,0.72,0x52ff9a)},0 0 13px ${rgba(accentGlow,0.34,0x52ff9a)},0 1px 0 rgba(0,0,0,0.8)`,
+      unitBackground:`linear-gradient(90deg,${rgba(accent,0.1,0x52ff9a)},${rgba(high,0.05,0xdcffe5)})`,
       dangerTrack:rgba(danger,0.08,0xff6a42),
       dangerBorder:"0",
       dangerShadow:`inset 0 0 10px rgba(0,0,0,0.22),0 0 10px ${rgba(danger,0.14,0xff6a42)}`,
       fuelBorder:"0",
-      fuelShadow:`inset 0 0 10px rgba(0,0,0,0.24),0 0 10px ${rgba(fuel,0.12,0x2fd36b)}`
+      fuelShadow:`inset 0 0 10px rgba(0,0,0,0.24),0 0 12px ${rgba(fuel,0.22,0x52ff9a)},0 0 28px ${rgba(fuel,0.08,0x52ff9a)}`
     };
     return displayPaletteCache;
   }
@@ -841,8 +844,8 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       low:rgba(colors.low,0.95,0x8b3852),
       mid:rgba(colors.mid,0.96,0x5a3b70),
       high:rgba(colors.high,0.96,0x3f3456),
-      border:rgba(colors.water || colors.trim,0.26,0x8dfff2),
-      outline:rgba(colors.trim || colors.water,0.95,0x8dfff2),
+      border:"rgba(82,255,154,0.26)",
+      outline:"rgba(82,255,154,0.95)",
       villageFill:rgba(colors.shore || colors.wall,0.24,0xd6b25a),
       villageStroke:rgba(colors.trim || colors.shore,0.82,0xffe26f),
       bossFill:rgba(colors.pod || colors.trim,0.28,0xff5c36),
@@ -851,14 +854,14 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       scannedBossStroke:rgba(colors.podEmissive || colors.pod,0.98,0xff6a42),
       scannedOutpostFill:rgba(colors.shore || colors.wall,0.38,0xffb84d),
       scannedOutpostStroke:rgba(colors.shore || colors.trim,0.98,0xfff17a),
-      scannedRadarFill:rgba(colors.water || colors.trim,0.36,0x7ff8ff),
-      scannedRadarStroke:rgba(colors.waterEmissive || colors.water || colors.trim,0.98,0x8dfff2),
+      scannedRadarFill:"rgba(82,255,154,0.34)",
+      scannedRadarStroke:"rgba(82,255,154,0.98)",
       scannedLandingFill:rgba(colors.grass || colors.low,0.34,0x7cff78),
       scannedLandingStroke:rgba(colors.trim || colors.grass,0.96,0xd9ff7a),
       scannedPortalFill:rgba(colors.trim || colors.water,0.26,0xd6a8ff),
       scannedPortalStroke:rgba(colors.waterEmissive || colors.trim,0.98,0xe8ddff),
-      stationFill:rgba(colors.trim || colors.water,0.36,0x8dfff2),
-      stationStroke:rgba(colors.water || colors.trim,0.96,0xb9f4ff),
+      stationFill:"rgba(82,255,154,0.36)",
+      stationStroke:"rgba(82,255,154,0.96)",
       clearedFill:rgba(colors.grass || colors.leaf,0.18,0x7cff78),
       clearedStroke:rgba(colors.grass || colors.leaf,0.72,0x7cff78)
     };
@@ -967,7 +970,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     mapCtx.fill();
     mapCtx.stroke();
 
-    mapCtx.strokeStyle=`rgba(245,255,249,${0.58+pulse*0.3})`;
+    mapCtx.strokeStyle=`rgba(82,255,154,${0.58+pulse*0.3})`;
     mapCtx.lineWidth=1.4;
     mapCtx.beginPath();
     mapCtx.moveTo(-outer-3,0);
@@ -1070,7 +1073,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       mapCtx.stroke();
       mapCtx.shadowBlur=0;
 
-      mapCtx.strokeStyle=`rgba(245,255,249,${0.38+pulse*0.32})`;
+      mapCtx.strokeStyle=`rgba(82,255,154,${0.38+pulse*0.32})`;
       mapCtx.lineWidth=1.15;
       mapCtx.beginPath();
       mapCtx.moveTo(-halfTop-2,topY-2);
@@ -1082,7 +1085,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       mapCtx.fillStyle=palette.scannedOutpostStroke;
       mapCtx.fillRect(-1.8,barBottom+1,3.6,3.6);
 
-      mapCtx.strokeStyle=`rgba(255,255,255,${0.48+pulse*0.28})`;
+      mapCtx.strokeStyle=`rgba(220,255,229,${0.48+pulse*0.28})`;
       mapCtx.lineWidth=1.2;
       mapCtx.beginPath();
       mapCtx.moveTo(-halfTop-3,barBottom+1);
@@ -1134,7 +1137,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       mapCtx.lineTo(5*markerScale,8*markerScale);
       mapCtx.stroke();
 
-      mapCtx.strokeStyle=`rgba(245,255,249,${0.34+pulse*0.3})`;
+      mapCtx.strokeStyle=`rgba(82,255,154,${0.34+pulse*0.3})`;
       mapCtx.lineWidth=1.05*markerScale;
       for(let i=0;i<3;i++){
         let wave=dishRadius+(3+i*3+pulse*2)*markerScale;
@@ -1176,7 +1179,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       mapCtx.fill();
       mapCtx.stroke();
 
-      mapCtx.strokeStyle=`rgba(245,255,249,${0.36+pulse*0.28})`;
+      mapCtx.strokeStyle=`rgba(82,255,154,${0.36+pulse*0.28})`;
       mapCtx.lineWidth=1.1;
       mapCtx.beginPath();
       mapCtx.moveTo(-markerSize*0.72,markerSize*0.66);
@@ -1234,7 +1237,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       mapCtx.stroke();
 
       mapCtx.shadowBlur=5+pulse*5;
-      mapCtx.strokeStyle=`rgba(245,255,249,${0.34+pulse*0.36})`;
+      mapCtx.strokeStyle=`rgba(82,255,154,${0.34+pulse*0.36})`;
       mapCtx.lineWidth=1.05;
       mapCtx.beginPath();
       mapCtx.arc(0,0,glow,0,Math.PI*2);
@@ -1320,7 +1323,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     return `${Math.max(1,Math.round(distance))}u`;
   }
 
-  function drawCompassMarkerDistance(ctx,x,y,distance,alpha=1,color="rgba(232,255,247,0.86)"){
+  function drawCompassMarkerDistance(ctx,x,y,distance,alpha=1,color="rgba(82,255,154,0.86)"){
     let label=formatCompassDistance(distance);
     if(!label) return;
 
@@ -1364,7 +1367,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     ctx.save();
     ctx.translate(x,y);
     ctx.strokeStyle=palette.stationStroke;
-    ctx.fillStyle=inView ? palette.stationFill : `rgba(245,255,249,${alpha*0.22})`;
+    ctx.fillStyle=inView ? palette.stationFill : `rgba(82,255,154,${alpha*0.22})`;
     ctx.lineWidth=1.8;
 
     ctx.beginPath();
@@ -1372,7 +1375,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     ctx.fill();
     ctx.stroke();
 
-    ctx.strokeStyle=`rgba(245,255,249,${alpha})`;
+    ctx.strokeStyle=`rgba(82,255,154,${alpha})`;
     ctx.lineWidth=1.35;
     ctx.beginPath();
     ctx.moveTo(-outer-3,0);
@@ -1532,7 +1535,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       ctx.lineTo(5.2*scale,8*scale);
       ctx.stroke();
 
-      ctx.strokeStyle=`rgba(245,255,249,${0.34+pulse*0.34})`;
+      ctx.strokeStyle=`rgba(82,255,154,${0.34+pulse*0.34})`;
       ctx.lineWidth=1.05*scale;
       for(let i=0;i<2;i++){
         let wave=dishRadius+(3+i*3+pulse*2)*scale;
@@ -1599,7 +1602,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       ctx.globalAlpha=alpha;
       ctx.fillText(other.label || "P",0,0);
       ctx.restore();
-      drawCompassMarkerDistance(ctx,x,y+27,distance,alpha,`rgba(245,255,249,${Math.min(0.9,alpha)})`);
+      drawCompassMarkerDistance(ctx,x,y+27,distance,alpha,`rgba(82,255,154,${Math.min(0.9,alpha)})`);
     }
   }
 
@@ -1662,7 +1665,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       let scale=1.12-Math.abs(t)*0.22;
 
       ctx.font=`800 ${Math.round(18*scale)}px "Astor", Arial`;
-      ctx.fillStyle=`rgba(245,255,249,${alpha})`;
+      ctx.fillStyle=`rgba(82,255,154,${alpha})`;
       ctx.strokeStyle=`rgba(18,7,43,${0.78*alpha})`;
       ctx.lineWidth=3;
       ctx.strokeText(dir.label,x,y);
@@ -1675,8 +1678,8 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     drawCompassTradingOutpostMarker(ctx,state,cx,cy,radius,arcHalf,viewHalf,palette);
     drawCompassPlayerMarker(ctx,state,allStates,cx,cy,radius,arcHalf,viewHalf);
 
-    ctx.strokeStyle="rgba(255,255,255,0.92)";
-    ctx.fillStyle="rgba(255,255,255,0.92)";
+    ctx.strokeStyle="rgba(82,255,154,0.92)";
+    ctx.fillStyle="rgba(82,255,154,0.92)";
     ctx.lineWidth=1.4;
     ctx.beginPath();
     ctx.moveTo(cx,13);
