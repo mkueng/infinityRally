@@ -15954,7 +15954,7 @@ startupAssetPromises.push(trackStartupAsset(loadJetModel(0xb83a32)
     setMorphJetModel(playerCar,model);
   })
   .catch(error=>{
-    console.error("Failed to load player jet model:",error);
+    console.error("Failed to load player hovercraft model:",error);
   })));
 
 startupAssetPromises.push(trackStartupAsset(loadJetModel(0x2f66d8)
@@ -15962,7 +15962,7 @@ startupAssetPromises.push(trackStartupAsset(loadJetModel(0x2f66d8)
     setMorphJetModel(secondCar,model);
   })
   .catch(error=>{
-    console.error("Failed to load second jet model:",error);
+    console.error("Failed to load second hovercraft model:",error);
   })));
 
 startupAssetPromises.push(trackStartupAsset(loadEnemyBattleShipModel()
