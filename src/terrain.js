@@ -18,6 +18,10 @@ const defaultTerrainProfile={
   broadMountainPlateau:0,
   broadMountainPlateauRadius:0.46,
   broadMountainRidgeStrength:0.28,
+  mesaMountainScale:0,
+  mesaMountainChance:0.24,
+  mesaMountainSpacing:1800,
+  mesaMountainRadiusScale:1,
   megaMountainScale:0,
   megaMountainSpacing:3000,
   megaPlateauHeight:70,
@@ -35,6 +39,8 @@ const noRoadDistance=1000000000;
 const broadMountainSpacing=1650;
 const broadMountainCellCacheLimit=4096;
 let broadMountainCellCache=new Map();
+const mesaMountainCellCacheLimit=2048;
+let mesaMountainCellCache=new Map();
 const megaMountainCellCacheLimit=2048;
 let megaMountainCellCache=new Map();
 const heightCacheLimit=90000;
@@ -45,6 +51,7 @@ export function setWorldSeed(seed,profile={}){
   worldSeed=Number.isFinite(seed) ? seed : 0;
   terrainProfile={...defaultTerrainProfile,...profile};
   broadMountainCellCache.clear();
+  mesaMountainCellCache.clear();
   megaMountainCellCache.clear();
   heightCache.clear();
 }
@@ -194,6 +201,77 @@ function broadMountainHeight(x,z){
   return total*roadFade;
 }
 
+function mesaMountainCell(cellX,cellZ,spacing,radiusScale){
+  let key=cellX+","+cellZ+","+spacing+","+radiusScale;
+  let cached=mesaMountainCellCache.get(key);
+  if(cached) return cached;
+
+  let angle=rand01(cellX*109.3-27.4,cellZ*191.7+8.9)*Math.PI*2;
+  let cell={
+    chanceRoll:rand01(cellX*167.8+9.2,cellZ*53.6-18.1),
+    centerX:(cellX+0.16+rand01(cellX*41.5-6.2,cellZ*133.4+11.6)*0.68)*spacing,
+    centerZ:(cellZ+0.16+rand01(cellX*97.7+15.8,cellZ*61.2-4.9)*0.68)*spacing,
+    ca:Math.cos(angle),
+    sa:Math.sin(angle),
+    radiusX:(310+rand01(cellX*73.4+2.8,cellZ*151.1-9.7)*250)*radiusScale,
+    radiusZ:(230+rand01(cellX*181.3-15.4,cellZ*87.6+5.1)*210)*radiusScale,
+    height:58+rand01(cellX*211.9+13.7,cellZ*37.8-12.4)*52,
+    capRadius:0.34+rand01(cellX*139.6-5.4,cellZ*223.1+18.2)*0.16,
+    wallWidth:0.18+rand01(cellX*59.7+7.8,cellZ*173.9-21.4)*0.08,
+    terraces:5+Math.floor(rand01(cellX*101.8+31.4,cellZ*79.3-14.8)*4)
+  };
+
+  mesaMountainCellCache.set(key,cell);
+  if(mesaMountainCellCache.size>mesaMountainCellCacheLimit){
+    mesaMountainCellCache.delete(mesaMountainCellCache.keys().next().value);
+  }
+  return cell;
+}
+
+function mesaMountainHeight(x,z){
+  let scale=terrainProfile.mesaMountainScale || 0;
+  if(scale<=0) return 0;
+
+  let spacing=Math.max(900,terrainProfile.mesaMountainSpacing || 1800);
+  let radiusScale=Math.max(0.25,terrainProfile.mesaMountainRadiusScale || 1);
+  let chance=Math.max(0,Math.min(1,terrainProfile.mesaMountainChance ?? 0.24));
+  let gx=Math.floor(x/spacing);
+  let gz=Math.floor(z/spacing);
+  let total=0;
+
+  for(let ix=-1;ix<=1;ix++){
+    for(let iz=-1;iz<=1;iz++){
+      let cell=mesaMountainCell(gx+ix,gz+iz,spacing,radiusScale);
+      if(cell.chanceRoll>chance) continue;
+
+      let dx=x-cell.centerX;
+      let dz=z-cell.centerZ;
+      let lx=(dx*cell.ca-dz*cell.sa)/cell.radiusX;
+      let lz=(dx*cell.sa+dz*cell.ca)/cell.radiusZ;
+      let d=Math.hypot(lx,lz);
+      if(d>=1.16) continue;
+
+      let edgeNoise=(noise01(x*0.006+cell.centerX*0.0017,z*0.006-cell.centerZ*0.0013)-0.5)*0.085;
+      let nd=Math.max(0,d+edgeNoise);
+      let wallEnd=Math.min(0.98,cell.capRadius+cell.wallWidth);
+      let wallT=Math.max(0,Math.min(1,(nd-cell.capRadius)/Math.max(0.001,0.98-cell.capRadius)));
+      let steppedWallT=Math.floor(wallT*cell.terraces)/cell.terraces;
+      let terracedWallT=wallT*0.38+steppedWallT*0.62;
+      let terracedSide=1-smoothstep01(terracedWallT);
+      let steepCap=1-smoothstep01((nd-cell.capRadius)/Math.max(0.001,wallEnd-cell.capRadius));
+      let skirt=1-smoothstep01((nd-0.74)/0.36);
+      let topMask=1-smoothstep01((nd-cell.capRadius*0.9)/0.14);
+      let capNoise=(fbm01Fast(x*0.011+cell.centerX*0.002,z*0.011-cell.centerZ*0.002)-0.5)*4.4*topMask;
+      let verticalFace=Math.max(steepCap,terracedSide*0.92);
+      let mesa=(verticalFace*0.84+skirt*0.16)*cell.height+capNoise;
+      total+=Math.max(0,mesa)*scale;
+    }
+  }
+
+  let roadFade=smoothstep01((roadDistance(x,z)-145)/190);
+  return total*roadFade;
+}
+
 function megaMountainCell(cellX,cellZ,spacing){
   let key=cellX+","+cellZ+","+spacing;
   let cached=megaMountainCellCache.get(key);
@@ -318,15 +396,17 @@ export function height(x,z){
   mountainMask=Math.min(1,mountainMask);
   let broadHeight=broadMountainHeight(x,z);
   let megaHeight=megaMountainHeight(x,z);
+  let mesaHeight=mesaMountainHeight(x,z);
   let ridgeMountainScale=terrainProfile.ridgeMountainScale ?? terrainProfile.mountainScale;
 
   return continent*14*terrainProfile.heightScale
     + hills*5*terrainProfile.hillScale
     + mountains*40*mountainMask*ridgeMountainScale
     + broadHeight
+    + mesaHeight
     + megaHeight
-    + mountainCragHeight(x,z,mountainMask,broadHeight+Math.max(0,megaHeight))
-    + terrainStructureHeight(x,z,continent,hills,mountainMask,broadHeight+Math.max(0,megaHeight))
+    + mountainCragHeight(x,z,mountainMask,broadHeight+mesaHeight+Math.max(0,megaHeight))
+    + terrainStructureHeight(x,z,continent,hills,mountainMask,broadHeight+mesaHeight+Math.max(0,megaHeight))
     - 14
     + terrainProfile.baseHeight;
 }

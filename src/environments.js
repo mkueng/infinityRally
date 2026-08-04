@@ -33,7 +33,8 @@ export const worldEnvironments=[
   },
   {
     name:"ember badlands",
-    terrain:{heightScale:1.08,hillScale:0.95,mountainScale:1.5,broadMountainScale:1.3,broadMountainChance:0.32,baseHeight:1.5,roadWave1:260,roadWave2:70,roadWave3:42,roadFrequencyScale:1.12},
+    terrain:{heightScale:1.08,hillScale:0.95,mountainScale:1.42,broadMountainScale:1.16,broadMountainChance:0.27,broadMountainPlateau:0.38,broadMountainPlateauRadius:0.48,broadMountainRidgeStrength:0.18,mesaMountainScale:0.92,mesaMountainChance:0.26,mesaMountainSpacing:1780,mesaMountainRadiusScale:1.08,baseHeight:1.5,roadWave1:260,roadWave2:70,roadWave3:42,roadFrequencyScale:1.12},
+    terrainDetail:{strength:0.72,textureMix:0.72,scale:0.029,mountainStrength:1.2,mesaStrataStrength:0.92,normalScale:0.44},
     sky:["#1d0612","#55151b","#9c3824","#f08b3e","#ffe0a8"],
     fog:0x9b5140,
     colors:{

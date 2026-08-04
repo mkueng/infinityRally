@@ -1,5 +1,5 @@
 import { chunkSize, segments } from "./constants.js";
-import { groundHeight, rand, roadDistance, setWorldSeed } from "./terrain.js?v=titan-wide-plateaus";
+import { groundHeight, rand, roadDistance, setWorldSeed } from "./terrain.js?v=ember-mesa-mountains";
 
 const waterLevel=-20;
 const underwaterVisualDropBase=1.55;

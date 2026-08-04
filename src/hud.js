@@ -7,13 +7,18 @@ const healthHudFullWidth="min(430px,58vw)";
 const healthHudSplitWidth="min(300px,40vw)";
 const compassFullCanvasWidth=430;
 const compassSplitCanvasWidth=300;
+const compassFirstPersonFullCanvasWidth=840;
+const compassFirstPersonSplitCanvasWidth=600;
 const speedHudScale=1.2;
 const speedHudSplitScale=1;
 const speedHudWidth=340;
 const speedHudSplitWidth="min(200px,calc(50vw - 72px))";
 const laserHudFrames=300;
-const displayBarFill="linear-gradient(90deg,rgba(36,94,61,0.62),rgba(82,255,154,0.82),rgba(220,255,229,0.62))";
+const displayBarFill="rgba(82,255,154,0.9)";
 const displayBarShadow="0 0 16px rgba(82,255,154,0.48),0 0 28px rgba(82,255,154,0.16),inset 0 0 14px rgba(220,255,229,0.22)";
+const displayBarTextColor="rgba(0,0,0,0.9)";
+const displayBarTextSoftColor="rgba(0,0,0,0.82)";
+const displayTextColor="rgba(82,255,154,0.96)";
 const compassArcStroke="rgba(82,255,154,0.62)";
 const compassArcMajorStroke="rgba(134,255,177,0.82)";
 const compassArcMinorStroke="rgba(82,255,154,0.38)";
@@ -149,8 +154,8 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "font-weight:900",
       "letter-spacing:0.08em",
       "text-transform:uppercase",
-      "color:rgba(82,255,154,0.96)",
-      "text-shadow:0 0 6px rgba(82,255,154,0.72),0 0 16px rgba(82,255,154,0.38),0 2px 0 rgba(0,0,0,0.72)",
+      `color:${displayBarTextColor}`,
+      "text-shadow:none",
       "pointer-events:none"
     ].join(";");
 
@@ -241,8 +246,8 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "font-weight:900",
       "letter-spacing:0.08em",
       "text-transform:uppercase",
-      "color:rgba(82,255,154,0.96)",
-      `text-shadow:${palette.textGlow}`,
+      `color:${displayBarTextColor}`,
+      "text-shadow:none",
       "pointer-events:none"
     ].join(";");
     healthTrack.appendChild(healthFill);
@@ -261,7 +266,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "font-size:15px",
       "font-weight:900",
       "line-height:1",
-      "color:rgba(82,255,154,0.92)",
+      `color:${displayTextColor}`,
       `text-shadow:${palette.textGlow}`
     ].join(";");
 
@@ -299,8 +304,8 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "font-weight:900",
       "letter-spacing:0.08em",
       "text-transform:uppercase",
-      "color:rgba(82,255,154,0.92)",
-      `text-shadow:${palette.smallTextGlow}`,
+      `color:${displayBarTextSoftColor}`,
+      "text-shadow:none",
       "pointer-events:none"
     ].join(";");
     boostTrack.appendChild(boostFill);
@@ -341,8 +346,8 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "font-weight:900",
       "letter-spacing:0.08em",
       "text-transform:uppercase",
-      "color:rgba(82,255,154,0.92)",
-      `text-shadow:${palette.smallTextGlow}`,
+      `color:${displayBarTextSoftColor}`,
+      "text-shadow:none",
       "pointer-events:none"
     ].join(";");
     laserTrack.appendChild(laserFill);
@@ -364,7 +369,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "font-weight:900",
       "letter-spacing:0.08em",
       "text-transform:uppercase",
-      "color:rgba(82,255,154,0.96)",
+      `color:${displayTextColor}`,
       `border:${palette.softBorder}`,
       `background:${palette.unitBackground}`,
       `clip-path:${barClip(panel)}`,
@@ -405,8 +410,8 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "font-weight:900",
       "letter-spacing:0.08em",
       "text-transform:uppercase",
-      "color:rgba(82,255,154,0.92)",
-      `text-shadow:${palette.smallTextGlow}`,
+      `color:${displayBarTextSoftColor}`,
+      "text-shadow:none",
       "pointer-events:none"
     ].join(";");
     fuelTrack.appendChild(fuelFill);
@@ -453,7 +458,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       panel.healthFill.style.background=palette.barFill;
       panel.healthFill.style.boxShadow=palette.barShadow;
     }
-    if(panel.healthLabel) panel.healthLabel.style.textShadow=palette.textGlow;
+    if(panel.healthLabel) panel.healthLabel.style.textShadow="none";
     if(panel.ammoLabel) panel.ammoLabel.style.textShadow=palette.textGlow;
     if(panel.boostTrack){
       panel.boostTrack.style.background=palette.trackBackground;
@@ -464,7 +469,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       panel.boostFill.style.background=palette.barFill;
       panel.boostFill.style.boxShadow=palette.barShadow;
     }
-    if(panel.boostLabel) panel.boostLabel.style.textShadow=palette.smallTextGlow;
+    if(panel.boostLabel) panel.boostLabel.style.textShadow="none";
     if(panel.laserTrack){
       panel.laserTrack.style.background=palette.trackBackground;
       panel.laserTrack.style.border=palette.dangerBorder;
@@ -474,7 +479,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       panel.laserFill.style.background=palette.barFill;
       panel.laserFill.style.boxShadow=palette.barShadow;
     }
-    if(panel.laserLabel) panel.laserLabel.style.textShadow=palette.smallTextGlow;
+    if(panel.laserLabel) panel.laserLabel.style.textShadow="none";
     if(panel.unitsLabel){
       panel.unitsLabel.style.border=palette.softBorder;
       panel.unitsLabel.style.background=palette.unitBackground;
@@ -489,7 +494,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       panel.fuelFill.style.background=palette.barFill;
       panel.fuelFill.style.boxShadow=palette.barShadow;
     }
-    if(panel.fuelLabel) panel.fuelLabel.style.textShadow=palette.smallTextGlow;
+    if(panel.fuelLabel) panel.fuelLabel.style.textShadow="none";
     return palette;
   }
 
@@ -511,7 +516,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
           ...ammoRows.map(row=>[
             `<span style="display:flex;align-items:center;justify-content:space-between;height:24px;gap:8px;padding:0 7px;border:${palette.softBorder};background:${palette.unitBackground};clip-path:${rowClip}">`,
             ammoIcon(row.icon,palette),
-            `<span style="min-width:38px;text-align:right;color:rgba(82,255,154,0.96);text-shadow:${palette.textGlow}">${row.value}</span>`,
+            `<span style="min-width:38px;text-align:right;color:${displayTextColor};text-shadow:${palette.textGlow}">${row.value}</span>`,
             `</span>`
           ].join(""))
         ].join("");
@@ -556,11 +561,10 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
   }
 
   function ammoIcon(kind,palette=displayPalette()){
-    let color=rgba(palette.text,0.96,0x52ff9a);
-    let glow=rgba(palette.accentGlow,0.62,0x52ff9a);
+    let color=rgba(palette.text,0.9,0x52ff9a);
     if(kind==="rocket"){
       return [
-        `<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" style="flex:0 0 24px;color:${color};filter:drop-shadow(0 0 5px ${glow}) drop-shadow(0 2px 1px rgba(0,0,0,0.7))">`,
+        `<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" style="flex:0 0 24px;color:${color}">`,
         `<path d="M13.4 1.8l5.9 3.5 1.7 5.1-6.9 7.2-7.4-7.2 6.7-8.6z" fill="currentColor" fill-opacity="0.16" stroke="currentColor" stroke-opacity="0.44" stroke-width="0.7"/>`,
         `<path d="M13.8 4.2l3.5 2.1 0.9 2.9-4.5 4.8-4.3-4.1 4.4-5.7z" fill="currentColor" fill-opacity="0.82"/>`,
         `<path d="M6 10.9l7.1 6.8-4.3 2.2-5.1-5 2.3-4z" fill="currentColor" fill-opacity="0.38"/>`,
@@ -571,7 +575,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     }
     if(kind==="cannon"){
       return [
-        `<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" style="flex:0 0 24px;color:${color};filter:drop-shadow(0 0 5px ${glow}) drop-shadow(0 2px 1px rgba(0,0,0,0.7))">`,
+        `<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" style="flex:0 0 24px;color:${color}">`,
         `<path d="M2.5 12h12l1.8-2.2h5.1v4.2h-5.1l-1.8 2.1h-12V12z" fill="currentColor" fill-opacity="0.16" stroke="currentColor" stroke-opacity="0.38" stroke-width="0.7"/>`,
         `<path d="M5.1 13h8.8v2H5.1v-2z" fill="currentColor" fill-opacity="0.86"/>`,
         `<path d="M3.5 16.2h4.2l1.8 3H5.2l-1.7-3z" fill="currentColor" fill-opacity="0.38"/>`,
@@ -583,7 +587,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     }
     if(kind==="carRocket"){
       return [
-        `<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" style="flex:0 0 24px;color:${color};filter:drop-shadow(0 0 5px ${glow}) drop-shadow(0 2px 1px rgba(0,0,0,0.7))">`,
+        `<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" style="flex:0 0 24px;color:${color}">`,
         `<path d="M2.8 16.5h18.4v2.7H2.8v-2.7z" fill="currentColor" fill-opacity="0.18"/>`,
         `<path d="M5.1 13.3h13.8l1.7 3.2H3.4l1.7-3.2z" fill="currentColor" fill-opacity="0.34" stroke="currentColor" stroke-opacity="0.28" stroke-width="0.6"/>`,
         `<path d="M6.9 9h3.2v5H6.9V9zM13.9 9h3.2v5h-3.2V9z" fill="currentColor" fill-opacity="0.14"/>`,
@@ -595,7 +599,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       ].join("");
     }
     return [
-      `<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" style="flex:0 0 24px;color:${color};filter:drop-shadow(0 0 5px ${glow}) drop-shadow(0 2px 1px rgba(0,0,0,0.7))">`,
+      `<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" style="flex:0 0 24px;color:${color}">`,
       `<path d="M6.4 8.2h8.4l3.2 4.9-2.4 6.7H5.4L3 13.1l3.4-4.9z" fill="currentColor" fill-opacity="0.16" stroke="currentColor" stroke-opacity="0.38" stroke-width="0.7"/>`,
       `<path d="M7.7 9.7h5.7l2.2 3.5-1.5 4.2H7l-1.5-4.2 2.2-3.5z" fill="currentColor" fill-opacity="0.82"/>`,
       `<path d="M10.6 4h5.1v2.3h-5.1V4z" fill="currentColor" fill-opacity="0.34"/>`,
@@ -701,6 +705,15 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     return panel.side==="left" ? "calc(7vw + 12px)" : "calc(50vw + 7vw + 12px)";
   }
 
+  function firstPersonSpeedTransform(panel){
+    let scale=panel.side==="full" ? 0.94 : 0.86;
+    return `perspective(760px) rotateY(25deg) rotateX(-4deg) rotateZ(-4.5deg) skewY(-1.4deg) scale(${scale})`;
+  }
+
+  function firstPersonSpeedBottom(){
+    return firstPersonDisplayBottom();
+  }
+
   function firstPersonDisplayBottom(){
     return "calc(13vh + 14px)";
   }
@@ -729,6 +742,11 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     return "clamp(132px,calc(50vw - 336px),184px)";
   }
 
+  function compassCanvasWidthFor(panel,firstPerson){
+    if(!firstPerson) return panel.side==="full" ? compassFullCanvasWidth : compassSplitCanvasWidth;
+    return panel.side==="full" ? compassFirstPersonFullCanvasWidth : compassFirstPersonSplitCanvasWidth;
+  }
+
   function applyNavigationHudLayout(){
     let firstPerson=!!getFirstPersonMode();
     let signature=(firstPerson ? "fp" : "tp")+"|"+panels.map(panel=>panel.side).join(",");
@@ -738,13 +756,13 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     for(let panel of panels){
       if(panel.speedHud){
         panel.speedHud.style.top=firstPerson ? "auto" : (panel.side==="full" ? "18px" : "66px");
-        panel.speedHud.style.bottom=firstPerson ? firstPersonDisplayBottom() : "auto";
+        panel.speedHud.style.bottom=firstPerson ? firstPersonSpeedBottom() : "auto";
         panel.speedHud.style.left=firstPerson ? firstPersonSpeedLeft(panel) : thirdPersonSpeedLeft(panel);
         panel.speedHud.style.right="auto";
         panel.speedHud.style.transform=firstPerson
-          ? (panel.side==="full" ? "scale(1)" : "scale(0.94)")
+          ? firstPersonSpeedTransform(panel)
           : thirdPersonSpeedTransform(panel);
-        panel.speedHud.style.transformOrigin=sideTransformOrigin(panel);
+        panel.speedHud.style.transformOrigin=firstPerson ? "left center" : sideTransformOrigin(panel);
         panel.speedHud.style.zIndex=firstPerson ? "76" : "10";
         panel.speedHud.style.opacity=firstPerson ? "0.94" : "1";
       }
@@ -759,13 +777,15 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
         panel.mapHud.style.right=firstPerson ? firstPersonMapRight(panel) : "auto";
         panel.mapHud.style.transform="none";
         panel.mapHud.style.zIndex=firstPerson ? "76" : "10";
-        panel.mapHud.style.opacity=firstPerson ? "0.92" : "1";
+        panel.mapHud.style.opacity=firstPerson ? "0.58" : "1";
       }
       if(panel.compassHud){
+        let compassCanvasWidth=compassCanvasWidthFor(panel,firstPerson);
+        if(panel.compassCanvas && panel.compassCanvas.width!==compassCanvasWidth) panel.compassCanvas.width=compassCanvasWidth;
         panel.compassHud.style.top=firstPerson ? "calc(7vh + 6px)" : "42px";
         panel.compassHud.style.left=panelCenterLeft(panel);
         panel.compassHud.style.width=firstPerson
-          ? (panel.side==="full" ? "min(360px,46vw)" : "min(260px,38vw)")
+          ? (panel.side==="full" ? "min(780px,88vw)" : "min(540px,48vw)")
           : (panel.side==="full" ? healthHudFullWidth : healthHudSplitWidth);
         panel.compassHud.style.transform=firstPerson
           ? "translateX(-50%)"
@@ -818,7 +838,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       text,
       trackBackground:rgba(shadow,0.28,0x041018),
       panelSheen:`linear-gradient(115deg,${rgba(accent,0.22,0x52ff9a)},transparent 24%,transparent 68%,${rgba(accentGlow,0.16,0x52ff9a)}),repeating-linear-gradient(0deg,${rgba(accent,0.1,0x52ff9a)} 0 1px,transparent 1px 18px)`,
-      barFill:`linear-gradient(90deg,${rgba(low,0.58,0x687064)},${rgba(mid,0.78,0x8c9696)},${rgba(high,0.64,0xdde8e6)})`,
+      barFill:rgba(mid,0.9,0x52ff9a),
       barShadow:`inset 0 0 12px ${rgba(accentGlow,0.3,0x52ff9a)},0 0 13px ${rgba(accentGlow,0.36,0x52ff9a)},0 0 26px ${rgba(accentGlow,0.12,0x52ff9a)}`,
       grid:`repeating-linear-gradient(90deg,${rgba(accent,0.18,0x52ff9a)} 0 1px,transparent 1px 16px)`,
       border:"0",
@@ -826,7 +846,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       trackShadow:`inset 0 0 10px rgba(0,0,0,0.24),0 0 12px ${rgba(accentGlow,0.22,0x52ff9a)},0 0 28px ${rgba(accentGlow,0.08,0x52ff9a)}`,
       textGlow:`0 0 6px ${rgba(accentGlow,0.72,0x52ff9a)},0 0 16px ${rgba(accentGlow,0.38,0x52ff9a)},0 2px 0 rgba(0,0,0,0.72)`,
       smallTextGlow:`0 0 5px ${rgba(accentGlow,0.72,0x52ff9a)},0 0 13px ${rgba(accentGlow,0.34,0x52ff9a)},0 1px 0 rgba(0,0,0,0.8)`,
-      unitBackground:`linear-gradient(90deg,${rgba(accent,0.1,0x52ff9a)},${rgba(high,0.05,0xdcffe5)})`,
+      unitBackground:"transparent",
       dangerTrack:rgba(danger,0.08,0xff6a42),
       dangerBorder:"0",
       dangerShadow:`inset 0 0 10px rgba(0,0,0,0.22),0 0 10px ${rgba(danger,0.14,0xff6a42)}`,
@@ -1614,10 +1634,11 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     let width=canvas.width;
     let height=canvas.height;
     let cx=width*0.5;
-    let arcHalf=0.768;
+    let firstPerson=!!getFirstPersonMode();
+    let arcHalf=firstPerson ? 1.02 : 0.768;
     let radius=(width-26)/(2*Math.sin(arcHalf));
     let cy=radius+12;
-    let viewHalf=Math.PI*0.82;
+    let viewHalf=firstPerson ? Math.PI*0.96 : Math.PI*0.82;
     let heading=state.carVelAngle || 0;
     let palette=mapPalette();
 

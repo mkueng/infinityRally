@@ -1,12 +1,12 @@
 import { THREE } from "./three.js";
 import { carRadius, gravityStrength, jumpBaseBoost, jumpSlopeBoost, chunkSize, viewDistance, mothershipDropCount, mothershipDropInterval, mothershipDropLineSpacing, mothershipHoverDistance, mothershipHoverFrames, mothershipMinDelay, mothershipRandomDelay, mothershipRocketHits } from "./constants.js";
-import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=titan-wide-plateaus";
+import { carSurfaceHeight, groundHeight, roadCenterX, roadDistance, setWorldSeed } from "./terrain.js?v=ember-mesa-mountains";
 import { createInput } from "./input.js?v=progressive-pointer-aim";
 import { createHud } from "./hud.js?v=larger-compass-unit-labels";
 import { createAmbientMotes, createBirds, createCarShadow, createClouds, createDust, createLowHangingHaze, createStars, createWheelTracks } from "./effects.js?v=fullres-star-layer";
-import { createWorld } from "./world.js?v=chunk-detail-upgrades";
+import { createWorld } from "./world.js?v=ember-mesa-strata";
 import { createMotorAudio } from "./audio.js?v=mission-accomplished-voice";
-import { worldEnvironments } from "./environments.js?v=titan-highland-trees";
+import { worldEnvironments } from "./environments.js?v=ember-mesa-mountains";
 import { difficultySettings } from "./gameConfig.js?v=ammo-caps";
 import { addPatchyCarDust, enemyBuggyDustPatchOptions, loadBackPackModel, loadBaseStationModel, loadCarModel, loadEnemyBattleShipModel, loadEnemyBuggyModel, loadJetModel, loadLandingSpaceModel, loadTradingOutpostModel, loadTreasureChestModels, makeMechModel, robotDustPatchOptions } from "./models.js?v=very-dark-car-colors";
 import { makeDistantPlanetHazeTexture, makeDistantPlanetLightTexture, makeDistantPlanetVeilTexture, makeSkyTexture } from "./textures.js?v=stronger-sky-gradient-2";
@@ -732,9 +732,9 @@ function createFirstPersonVisorPane(left,width){
     "left:-2%",
     "right:-2%",
     "top:0",
-    "height:13%",
-    "background:linear-gradient(180deg, rgba(1,4,5,0.96), rgba(5,10,10,0.9) 58%, rgba(0,0,0,0.12) 100%)",
-    "clip-path:polygon(0 0, 100% 0, 100% 64%, 86% 64%, 82% 100%, 18% 100%, 14% 64%, 0 64%)",
+    "height:8%",
+    "background:linear-gradient(180deg, rgba(1,4,5,0.94), rgba(5,10,10,0.86) 50%, rgba(0,0,0,0.08) 100%)",
+    "clip-path:polygon(0 0, 100% 0, 100% 52%, 86% 52%, 82% 100%, 18% 100%, 14% 52%, 0 52%)",
     "box-shadow:0 6px 24px rgba(0,0,0,0.58)"
   ]);
   addVisorPart(robotLayer,[
@@ -742,16 +742,16 @@ function createFirstPersonVisorPane(left,width){
     "left:-2%",
     "right:-2%",
     "bottom:0",
-    "height:18%",
-    "background:linear-gradient(0deg, rgba(1,4,5,0.96), rgba(5,10,10,0.9) 62%, rgba(0,0,0,0.08) 100%)",
-    "clip-path:polygon(0 34%, 13% 34%, 18% 0, 82% 0, 87% 34%, 100% 34%, 100% 100%, 0 100%)",
+    "height:11%",
+    "background:linear-gradient(0deg, rgba(1,4,5,0.94), rgba(5,10,10,0.86) 54%, rgba(0,0,0,0.06) 100%)",
+    "clip-path:polygon(0 22%, 13% 22%, 18% 0, 82% 0, 87% 22%, 100% 22%, 100% 100%, 0 100%)",
     "box-shadow:0 -8px 28px rgba(0,0,0,0.62)"
   ]);
   addVisorPart(robotLayer,[
     "position:absolute",
     "left:-2%",
-    "top:7%",
-    "bottom:12%",
+    "top:4.8%",
+    "bottom:6.8%",
     "width:17%",
     "background:linear-gradient(101deg, rgba(0,0,0,0.98), rgba(5,13,12,0.9) 54%, rgba(3,18,13,0.42) 80%, rgba(0,0,0,0))",
     "clip-path:polygon(0 0, 74% 0, 100% 8%, 76% 50%, 100% 92%, 72% 100%, 0 100%)",
@@ -760,8 +760,8 @@ function createFirstPersonVisorPane(left,width){
   addVisorPart(robotLayer,[
     "position:absolute",
     "right:-2%",
-    "top:7%",
-    "bottom:12%",
+    "top:4.8%",
+    "bottom:6.8%",
     "width:17%",
     "background:linear-gradient(259deg, rgba(0,0,0,0.98), rgba(5,13,12,0.9) 54%, rgba(3,18,13,0.42) 80%, rgba(0,0,0,0))",
     "clip-path:polygon(26% 0, 100% 0, 100% 100%, 28% 100%, 0 92%, 24% 50%, 0 8%)",
@@ -771,8 +771,8 @@ function createFirstPersonVisorPane(left,width){
     "position:absolute",
     "left:14%",
     "right:14%",
-    "top:8.5%",
-    "bottom:11.5%",
+    "top:5.4%",
+    "bottom:6.6%",
     "border:2px solid rgba(82,255,154,0.42)",
     "box-shadow:inset 0 0 18px rgba(82,255,154,0.08), 0 0 18px rgba(82,255,154,0.28)",
     "clip-path:polygon(5% 0, 95% 0, 100% 8%, 100% 91%, 94% 100%, 6% 100%, 0 91%, 0 8%)"
@@ -780,7 +780,7 @@ function createFirstPersonVisorPane(left,width){
   addVisorPart(robotLayer,[
     "position:absolute",
     "left:14.6%",
-    "top:11%",
+    "top:7.1%",
     "width:2px",
     "height:36%",
     "background:rgba(82,255,154,0.94)",
@@ -791,7 +791,7 @@ function createFirstPersonVisorPane(left,width){
   addVisorPart(robotLayer,[
     "position:absolute",
     "right:14.6%",
-    "top:11%",
+    "top:7.1%",
     "width:2px",
     "height:36%",
     "background:rgba(82,255,154,0.94)",
@@ -803,7 +803,7 @@ function createFirstPersonVisorPane(left,width){
     "position:absolute",
     "left:30%",
     "right:30%",
-    "top:8.7%",
+    "top:5.6%",
     "height:2px",
     "background:linear-gradient(90deg, rgba(82,255,154,0), rgba(82,255,154,0.78), rgba(82,255,154,0))",
     "box-shadow:0 0 10px rgba(82,255,154,0.7)"
@@ -812,7 +812,7 @@ function createFirstPersonVisorPane(left,width){
     "position:absolute",
     "left:23%",
     "right:23%",
-    "bottom:12.8%",
+    "bottom:7.8%",
     "height:2px",
     "background:linear-gradient(90deg, rgba(82,255,154,0), rgba(82,255,154,0.86) 18%, rgba(82,255,154,0.22) 50%, rgba(82,255,154,0.86) 82%, rgba(82,255,154,0))",
     "box-shadow:0 0 11px rgba(82,255,154,0.76)"

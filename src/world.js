@@ -1,6 +1,6 @@
 import { THREE } from "./three.js";
 import { carRadius, chunkSize, segments, viewDistance } from "./constants.js";
-import { groundHeight, rand, roadCenterX, roadDistance } from "./terrain.js?v=titan-wide-plateaus";
+import { groundHeight, rand, roadCenterX, roadDistance } from "./terrain.js?v=ember-mesa-mountains";
 import { makeCarShadowTexture, makeGroundTexture } from "./textures.js?v=building-shadows";
 import { makeMissionOutpostTerminal } from "./models.js?v=radar-performance-fix";
 
@@ -227,6 +227,7 @@ landMat.onBeforeCompile=shader=>{
   shader.uniforms.terrainDetailStrength={value:currentEnvironment.terrainDetail?.strength ?? 0.54};
   shader.uniforms.terrainDetailTextureMix={value:currentEnvironment.terrainDetail?.textureMix ?? 1};
   shader.uniforms.mountainDetailStrength={value:currentEnvironment.terrainDetail?.mountainStrength ?? 1};
+  shader.uniforms.mesaStrataStrength={value:currentEnvironment.terrainDetail?.mesaStrataStrength ?? 0};
   shader.uniforms.landWetWaterLevel={value:waterLevel+waterSurfaceVisualLift};
   shader.uniforms.landWetShoreColor={value:new THREE.Color()};
   shader.uniforms.landWetWaterColor={value:new THREE.Color()};
@@ -258,6 +259,7 @@ landMat.onBeforeCompile=shader=>{
       "uniform float terrainDetailStrength;",
       "uniform float terrainDetailTextureMix;",
       "uniform float mountainDetailStrength;",
+      "uniform float mesaStrataStrength;",
       "uniform float landWetWaterLevel;",
       "uniform vec3 landWetShoreColor;",
       "uniform vec3 landWetWaterColor;",
@@ -344,6 +346,19 @@ landMat.onBeforeCompile=shader=>{
       "  vec3 rockHighlight=vec3(1.18,1.12,1.04);",
       "  gl_FragColor.rgb=mix(gl_FragColor.rgb,gl_FragColor.rgb*rockShadow,mountainTintMask*darkCuts);",
       "  gl_FragColor.rgb=mix(gl_FragColor.rgb,gl_FragColor.rgb*rockHighlight,mountainTintMask*paleEdges);",
+      "}",
+      "float mesaStrataMask=smoothstep(16.0,72.0,vLandWorldPosition.y)*mesaStrataStrength;",
+      "if(mesaStrataMask>0.001){",
+      "  float strataWarp=landNoise(vLandWorldPosition.xz*0.018+vec2(12.6,-34.1))*2.6;",
+      "  float strataBreakup=landNoise(vLandWorldPosition.xz*0.046+vec2(-7.3,19.8));",
+      "  float broadBand=sin(vLandWorldPosition.y*0.62+strataWarp);",
+      "  float fineBand=sin(vLandWorldPosition.y*1.85+strataWarp*1.7+strataBreakup*1.4);",
+      "  float darkBand=smoothstep(0.52,0.92,broadBand*0.5+0.5)*(0.16+strataBreakup*0.08);",
+      "  float brightBand=smoothstep(0.78,1.0,fineBand*0.5+0.5)*0.085;",
+      "  vec3 deepRust=vec3(0.52,0.34,0.27);",
+      "  vec3 sunlitEdge=vec3(1.18,0.82,0.54);",
+      "  gl_FragColor.rgb=mix(gl_FragColor.rgb,gl_FragColor.rgb*deepRust,mesaStrataMask*darkBand);",
+      "  gl_FragColor.rgb=mix(gl_FragColor.rgb,gl_FragColor.rgb*sunlitEdge,mesaStrataMask*brightBand);",
       "}",
       "#include <dithering_fragment>"
     ].join("\n")
@@ -1133,6 +1148,7 @@ function applyEnvironment(environment={}){
     if(shader.uniforms.terrainDetailStrength) shader.uniforms.terrainDetailStrength.value=currentEnvironment.terrainDetail?.strength ?? 0.54;
     if(shader.uniforms.terrainDetailTextureMix) shader.uniforms.terrainDetailTextureMix.value=currentEnvironment.terrainDetail?.textureMix ?? 1;
     if(shader.uniforms.mountainDetailStrength) shader.uniforms.mountainDetailStrength.value=currentEnvironment.terrainDetail?.mountainStrength ?? 1;
+    if(shader.uniforms.mesaStrataStrength) shader.uniforms.mesaStrataStrength.value=currentEnvironment.terrainDetail?.mesaStrataStrength ?? 0;
     applyLandWetShaderEnvironment(shader);
   }
   if(shoreBandMat.color) shoreBandMat.color.set(mixHexColor(colors.shore || colors.low,displayWaterColor(colors.water),shoreline.shoreBandWaterMix ?? 0.28));
@@ -1192,7 +1208,7 @@ function createChunkWorker(){
   if(options.disableChunkWorker || typeof Worker==="undefined") return null;
 
   try{
-    let worker=new Worker(new URL("./chunkWorker.js?v=wet-shader-env-colors",import.meta.url),{type:"module"});
+    let worker=new Worker(new URL("./chunkWorker.js?v=ember-mesa-mountains",import.meta.url),{type:"module"});
     let template=makeTerrainVertexTemplate();
     worker.postMessage({
       type:"setTerrainTemplate",
