@@ -1,6 +1,16 @@
 import { chunkSize } from "./constants.js";
 
-const gameFontFamily="\"Astor\", Arial, sans-serif";
+const gameFontFamily="\"TurretRoad-Bold\", Courier, \"Courier New\", monospace";
+const gameFontScale=1.2;
+function gameFontPx(px){
+  return `${px*gameFontScale}px`;
+}
+function gameFontSize(px){
+  return `font-size:${gameFontPx(px)}`;
+}
+function gameCanvasFont(weight,px){
+  return `${weight} ${gameFontPx(px)} ${gameFontFamily}`;
+}
 const mapHudSize=259;
 const mapHudSplitCssSize="min(224px,calc(50vw - 42px))";
 const healthHudFullWidth="min(430px,58vw)";
@@ -16,9 +26,9 @@ const speedHudSplitWidth="min(200px,calc(50vw - 72px))";
 const laserHudFrames=300;
 const displayBarFill="rgba(82,255,154,0.9)";
 const displayBarShadow="0 0 16px rgba(82,255,154,0.48),0 0 28px rgba(82,255,154,0.16),inset 0 0 14px rgba(220,255,229,0.22)";
-const displayBarTextColor="rgba(0,0,0,0.9)";
-const displayBarTextSoftColor="rgba(0,0,0,0.82)";
-const displayTextColor="rgba(82,255,154,0.96)";
+const displayBarTextColor="#000";
+const displayBarTextSoftColor="#000";
+const displayTextColor="#000";
 const compassArcStroke="rgba(82,255,154,0.62)";
 const compassArcMajorStroke="rgba(134,255,177,0.82)";
 const compassArcMinorStroke="rgba(82,255,154,0.38)";
@@ -150,7 +160,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "display:flex",
       "align-items:center",
       "justify-content:center",
-      "font-size:13px",
+      gameFontSize(13),
       "font-weight:900",
       "letter-spacing:0.08em",
       "text-transform:uppercase",
@@ -214,7 +224,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       `border:${palette.border}`,
       `box-shadow:${palette.trackShadow}`,
       "overflow:hidden",
-      `clip-path:${barClip(panel,9)}`
+      `clip-path:${barClip(panel)}`
     ].join(";");
 
     let healthFill=document.createElement("div");
@@ -242,7 +252,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "display:flex",
       "align-items:center",
       "justify-content:center",
-      "font-size:12px",
+      gameFontSize(12),
       "font-weight:900",
       "letter-spacing:0.08em",
       "text-transform:uppercase",
@@ -263,11 +273,11 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "display:flex",
       "flex-direction:column",
       "gap:4px",
-      "font-size:15px",
+      gameFontSize(15),
       "font-weight:900",
       "line-height:1",
       `color:${displayTextColor}`,
-      `text-shadow:${palette.textGlow}`
+      "text-shadow:none"
     ].join(";");
 
     let boostTrack=document.createElement("div");
@@ -300,7 +310,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "display:flex",
       "align-items:center",
       "justify-content:flex-start",
-      "font-size:9px",
+      gameFontSize(9),
       "font-weight:900",
       "letter-spacing:0.08em",
       "text-transform:uppercase",
@@ -342,7 +352,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "display:flex",
       "align-items:center",
       "justify-content:flex-start",
-      "font-size:9px",
+      gameFontSize(9),
       "font-weight:900",
       "letter-spacing:0.08em",
       "text-transform:uppercase",
@@ -365,7 +375,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "justify-content:space-between",
       "padding:0 9px",
       "box-sizing:border-box",
-      "font-size:13px",
+      gameFontSize(13),
       "font-weight:900",
       "letter-spacing:0.08em",
       "text-transform:uppercase",
@@ -373,7 +383,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       `border:${palette.softBorder}`,
       `background:${palette.unitBackground}`,
       `clip-path:${barClip(panel)}`,
-      `text-shadow:${palette.textGlow}`
+      "text-shadow:none"
     ].join(";");
 
     let fuelTrack=document.createElement("div");
@@ -406,7 +416,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "display:flex",
       "align-items:center",
       "justify-content:flex-start",
-      "font-size:9px",
+      gameFontSize(9),
       "font-weight:900",
       "letter-spacing:0.08em",
       "text-transform:uppercase",
@@ -459,7 +469,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       panel.healthFill.style.boxShadow=palette.barShadow;
     }
     if(panel.healthLabel) panel.healthLabel.style.textShadow="none";
-    if(panel.ammoLabel) panel.ammoLabel.style.textShadow=palette.textGlow;
+    if(panel.ammoLabel) panel.ammoLabel.style.textShadow="none";
     if(panel.boostTrack){
       panel.boostTrack.style.background=palette.trackBackground;
       panel.boostTrack.style.border=palette.border;
@@ -483,7 +493,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
     if(panel.unitsLabel){
       panel.unitsLabel.style.border=palette.softBorder;
       panel.unitsLabel.style.background=palette.unitBackground;
-      panel.unitsLabel.style.textShadow=palette.textGlow;
+      panel.unitsLabel.style.textShadow="none";
     }
     if(panel.fuelTrack){
       panel.fuelTrack.style.background=palette.trackBackground;
@@ -516,7 +526,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
           ...ammoRows.map(row=>[
             `<span style="display:flex;align-items:center;justify-content:space-between;height:24px;gap:8px;padding:0 7px;border:${palette.softBorder};background:${palette.unitBackground};clip-path:${rowClip}">`,
             ammoIcon(row.icon,palette),
-            `<span style="min-width:38px;text-align:right;color:${displayTextColor};text-shadow:${palette.textGlow}">${row.value}</span>`,
+            `<span style="min-width:38px;text-align:right;color:${displayTextColor};text-shadow:none">${row.value}</span>`,
             `</span>`
           ].join(""))
         ].join("");
@@ -1349,7 +1359,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
 
     ctx.save();
     ctx.translate(x,y);
-    ctx.font=`900 15px "Astor", Arial`;
+    ctx.font=gameCanvasFont(900,15);
     ctx.textAlign="center";
     ctx.textBaseline="middle";
     ctx.globalAlpha=Math.max(0.34,Math.min(1,alpha));
@@ -1439,7 +1449,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
 
     ctx.save();
     ctx.translate(x,y);
-    ctx.font=`900 ${inView ? 18 : 16}px "Astor", Arial`;
+    ctx.font=gameCanvasFont(900,inView ? 18 : 16);
     ctx.textAlign="center";
     ctx.textBaseline="middle";
     ctx.strokeStyle="rgba(18,7,43,0.84)";
@@ -1480,7 +1490,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
 
     ctx.save();
     ctx.translate(x,y);
-    ctx.font=`900 ${inView ? 17 : 15}px "Astor", Arial`;
+    ctx.font=gameCanvasFont(900,inView ? 17 : 15);
     ctx.textAlign="center";
     ctx.textBaseline="middle";
     ctx.strokeStyle="rgba(18,7,43,0.88)";
@@ -1612,7 +1622,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
 
       ctx.save();
       ctx.translate(x,y+14);
-      ctx.font=`900 ${inView ? 11 : 10}px "Astor", Arial`;
+      ctx.font=gameCanvasFont(900,inView ? 11 : 10);
       ctx.textAlign="center";
       ctx.textBaseline="middle";
       ctx.strokeStyle="rgba(18,7,43,0.92)";
@@ -1685,7 +1695,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       let alpha=1-Math.pow(Math.abs(t),1.8)*0.58;
       let scale=1.12-Math.abs(t)*0.22;
 
-      ctx.font=`800 ${Math.round(18*scale)}px "Astor", Arial`;
+      ctx.font=gameCanvasFont(800,18*scale);
       ctx.fillStyle=`rgba(82,255,154,${alpha})`;
       ctx.strokeStyle=`rgba(18,7,43,${0.78*alpha})`;
       ctx.lineWidth=3;
@@ -1722,7 +1732,7 @@ export function createHud({getCarStates,getChunks,getEnemyStates=()=>[],getStati
       "justify-content:center",
       "z-index:20",
       `font-family:${gameFontFamily}`,
-      "font-size:clamp(52px,10vw,140px)",
+      "font-size:clamp(62.4px,12vw,168px)",
       "font-weight:900",
       "letter-spacing:0",
       "color:white",

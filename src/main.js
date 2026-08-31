@@ -15,7 +15,14 @@ import { approach, clamp, clamp01, hash01, randomRange, smoothStep } from "./uti
 
 const initialBaseFogNear=900;
 const initialBaseFogFar=3600;
-const gameFontFamily="\"Astor\", Arial, sans-serif";
+const gameFontFamily="\"TurretRoad-Bold\", Courier, \"Courier New\", monospace";
+const gameFontScale=1.2;
+function gameFontSize(px){
+  return `font-size:${px*gameFontScale}px`;
+}
+function gameFontClamp(minPx,preferredVw,maxPx){
+  return `font-size:clamp(${minPx*gameFontScale}px,${preferredVw*gameFontScale}vw,${maxPx*gameFontScale}px)`;
+}
 const dayNightCycleMs=360000;
 const dayNightPhaseOffset=0.18;
 const dayNightSunHorizonOffset=0.32;
@@ -605,7 +612,7 @@ fpsDisplay.style.cssText=[
   "bottom:10px",
   "z-index:80",
   `font-family:${gameFontFamily}`,
-  "font-size:13px",
+  gameFontSize(13),
   "font-weight:900",
   "line-height:1.18",
   "letter-spacing:0.06em",
@@ -629,7 +636,7 @@ planetNameDisplay.style.cssText=[
   "bottom:74px",
   "z-index:12",
   `font-family:${gameFontFamily}`,
-  "font-size:clamp(18px,2.1vw,28px)",
+  gameFontClamp(18,2.1,28),
   "font-weight:900",
   "line-height:1",
   "letter-spacing:0.08em",
@@ -653,7 +660,7 @@ missionGoalDisplay.style.cssText=[
   "z-index:12",
   "max-width:min(420px,46vw)",
   `font-family:${gameFontFamily}`,
-  "font-size:clamp(11px,1.15vw,15px)",
+  gameFontClamp(11,1.15,15),
   "font-weight:900",
   "line-height:1.28",
   "letter-spacing:0.04em",
@@ -1094,7 +1101,7 @@ terraformCompleteText.style.cssText=[
   "transform:translate(-50%,-50%)",
   "z-index:121",
   `font-family:${gameFontFamily}`,
-  "font-size:clamp(34px,7vw,92px)",
+  gameFontClamp(34,7,92),
   "font-weight:900",
   "letter-spacing:0.08em",
   "text-transform:uppercase",
@@ -1124,7 +1131,7 @@ let missionCompleteText=document.createElement("div");
 missionCompleteText.textContent="Mission: Accomplished";
 missionCompleteText.style.cssText=[
   `font-family:${gameFontFamily}`,
-  "font-size:clamp(36px,7vw,92px)",
+  gameFontClamp(36,7,92),
   "font-weight:900",
   "letter-spacing:0.08em",
   "text-transform:uppercase",
@@ -1150,7 +1157,7 @@ missionCompleteBackButton.style.cssText=[
   "background:#64d968",
   "color:#071d10",
   `font-family:${gameFontFamily}`,
-  "font-size:16px",
+  gameFontSize(16),
   "font-weight:900",
   "letter-spacing:0.04em",
   "text-transform:uppercase",
@@ -1169,7 +1176,7 @@ missionStartText.style.cssText=[
   "transform:translate(-50%,-50%) scale(0.96)",
   "z-index:1001",
   `font-family:${gameFontFamily}`,
-  "font-size:clamp(36px,6.4vw,86px)",
+  gameFontClamp(36,6.4,86),
   "font-weight:900",
   "letter-spacing:0.06em",
   "color:rgba(82,255,154,0.96)",
@@ -1285,6 +1292,7 @@ const terrainHeightCacheTrim=4000;
 let terrainHeightCache=new Map();
 let cameraFollowDistance=18;
 let cameraFollowHeight=7.5;
+let thirdPersonCameraHeightScale=0.9;
 let cameraDownhillSampleDistance=30;
 let cameraDownhillExtraHeight=9.5;
 let cameraDownhillPullIn=4.5;
@@ -1485,6 +1493,8 @@ let bossBaseClusterBombHits=5;
 let emberCommunicationMissionId="ember-communications";
 let emberCommunicationOutpostCount=3;
 let completedMissionsStorageKey="seed-completed-missions.v3";
+let solvedRiddlesStorageKey="sol8-solved-riddles.v1";
+let riddleSolveUnitReward=350;
 let villageBuildingUnitAmount=50;
 let villageClearedUnitAmount=100;
 let cityClearedUnitAmount=1500;
@@ -1498,6 +1508,7 @@ let scannedRadarOutposts=new Map();
 let missionCommunicationOutposts=[];
 let generatedPlanetMission=null;
 let completedMissionIds=readCompletedMissionIds();
+let solvedRiddleIds=readSolvedRiddleIds();
 let refreshStartPlanetButtons=()=>{};
 let scannedLandingSpaces=new Map();
 let scannedPortals=new Map();
@@ -2559,7 +2570,7 @@ function createPauseMenu(audio){
   let title=document.createElement("div");
   title.textContent="Paused";
   title.style.cssText=[
-    "font-size:28px",
+    gameFontSize(28),
     "font-weight:900",
     "letter-spacing:0",
     "margin-bottom:20px",
@@ -2573,7 +2584,7 @@ function createPauseMenu(audio){
     row.style.cssText=[
       "display:block",
       "margin:18px 0",
-      "font-size:13px",
+      gameFontSize(13),
       "font-weight:800",
       "letter-spacing:0.08em",
       "text-transform:uppercase",
@@ -2620,7 +2631,7 @@ function createPauseMenu(audio){
     "background:#d6b25a",
     "color:#1c211f",
     `font-family:${gameFontFamily}`,
-    "font-size:15px",
+    gameFontSize(15),
     "font-weight:900",
     "text-transform:uppercase",
     "cursor:pointer"
@@ -2629,7 +2640,7 @@ function createPauseMenu(audio){
   saveStatus.style.cssText=[
     "min-height:18px",
     "margin-top:9px",
-    "font-size:12px",
+    gameFontSize(12),
     "font-weight:800",
     "color:rgba(245,255,249,0.74)"
   ].join(";");
@@ -2740,7 +2751,7 @@ function makeTerminalCloseButton(onClose){
     "background:rgba(6,12,15,0.72)",
     "color:#ecfbff",
     `font-family:${gameFontFamily}`,
-    "font-size:18px",
+    gameFontSize(18),
     "font-weight:900",
     "line-height:1",
     "display:flex",
@@ -2790,6 +2801,74 @@ function writeCompletedMissionIds(){
   }
 }
 
+function readSolvedRiddleIds(){
+  try{
+    let raw=localStorage.getItem(solvedRiddlesStorageKey);
+    let items=JSON.parse(raw || "[]");
+    return new Set(Array.isArray(items) ? items.filter(item=>typeof item==="string") : []);
+  }catch(error){
+    return new Set();
+  }
+}
+
+function writeSolvedRiddleIds(){
+  try{
+    localStorage.setItem(solvedRiddlesStorageKey,JSON.stringify(Array.from(solvedRiddleIds)));
+  }catch(error){
+    // Riddle progress is optional; ignore storage failures.
+  }
+}
+
+function riddleSolvedForMissionId(missionId){
+  return !!missionId && solvedRiddleIds.has(missionId);
+}
+
+function markRiddleSolved(missionId){
+  if(!missionId) return;
+  solvedRiddleIds.add(missionId);
+  writeSolvedRiddleIds();
+}
+
+function normalizeRiddleAnswer(value){
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g," ")
+    .replace(/\b(the|a|an)\b/g," ")
+    .replace(/\s+/g," ")
+    .trim();
+}
+
+function acceptedRiddleAnswers(riddle){
+  if(!riddle) return [];
+  return [riddle.answer,...(Array.isArray(riddle.acceptedAnswers) ? riddle.acceptedAnswers : [])]
+    .map(normalizeRiddleAnswer)
+    .filter(Boolean);
+}
+
+function solveCurrentPlanetRiddle(rawAnswer){
+  let mission=currentPlanetMission();
+  let riddle=mission && mission.riddle;
+  if(!mission || !mission.id || !riddle) return {solved:false,message:"No active riddle signal."};
+  if(riddleSolvedForMissionId(mission.id)){
+    return {solved:true,message:`Signal already decoded: ${riddle.answer}.`};
+  }
+
+  let answer=normalizeRiddleAnswer(rawAnswer);
+  if(!answer) return {solved:false,message:"No answer entered."};
+
+  let accepted=acceptedRiddleAnswers(riddle);
+  if(!accepted.includes(answer)) return {solved:false,message:"Signal rejected."};
+
+  markRiddleSolved(mission.id);
+  let reward=Math.max(0,Math.floor(riddle.rewardUnits || riddleSolveUnitReward));
+  if(reward>0) addUnits(reward);
+  return {
+    solved:true,
+    reward,
+    message:reward>0 ? `Signal decoded. +${reward} units.` : "Signal decoded."
+  };
+}
+
 function markMissionCompleted(missionId){
   if(!missionId) return;
   completedMissionIds.add(missionId);
@@ -2818,6 +2897,164 @@ function planetSelectable(environment){
 function firstSelectablePlanetIndex(){
   let index=worldEnvironments.findIndex(environment=>planetSelectable(environment));
   return index>=0 ? index : 0;
+}
+
+const planetMissionNarratives={
+  "alien dusk":{
+    quests:[
+      "Scan three glowing pod groves before the next night cycle.",
+      "Recover a cache from the road bend where the fog turns gold.",
+      "Clear a patrol ring while keeping every active vehicle above half health."
+    ],
+    riddle:{
+      prompt:"I open paths without a door and mark danger without a wall.",
+      hint:"The answer is the tool that reveals hidden bearings.",
+      answer:"scanner pulse",
+      acceptedAnswers:["scanner","pulse","scan"],
+      rewardUnits:riddleSolveUnitReward
+    }
+  },
+  "crystal frost":{
+    quests:[
+      "Map three ice ridge crossings and mark the safest route home.",
+      "Recover a cache from a shoreline frost shelf.",
+      "Disable a patrol without cracking the fuel reserve below half."
+    ],
+    riddle:{
+      prompt:"I am clear as glass, hard as stone, and vanish into water when warmed.",
+      hint:"The answer names the frozen material under this planet's ridges.",
+      answer:"crystal ice",
+      acceptedAnswers:["ice","crystal","frost"],
+      rewardUnits:riddleSolveUnitReward
+    }
+  },
+  "ember badlands":{
+    quests:[
+      "Destroy the relay outpost nearest the smoke-lit mesa.",
+      "Recover a cache from a black ash basin.",
+      "Draw defenders away from one outpost before striking the tower."
+    ],
+    riddle:{
+      prompt:"I eat the ground, paint the sky, and leave only glass behind.",
+      hint:"The answer burns through the badlands.",
+      answer:"ember fire",
+      acceptedAnswers:["fire","ember","flame"],
+      rewardUnits:riddleSolveUnitReward
+    }
+  },
+  "dschungel canopy":{
+    quests:[
+      "Scan three canopy clearings without losing the road signal.",
+      "Recover a cache hidden under the highest green cover.",
+      "Clear a settlement ring before the rain front closes in."
+    ],
+    riddle:{
+      prompt:"I stand above the road, drink the storm, and hide the stars.",
+      hint:"The answer is the green roof of the jungle.",
+      answer:"canopy",
+      acceptedAnswers:["jungle canopy","tree canopy"],
+      rewardUnits:riddleSolveUnitReward
+    }
+  },
+  "dschungel wetlands":{
+    quests:[
+      "Trace three dry crossings through the flooded lowlands.",
+      "Recover a cache from the mist line near open water.",
+      "Clear a patrol without sinking below the shore band."
+    ],
+    riddle:{
+      prompt:"I mirror the sky, slow every wheel, and remember each footprint.",
+      hint:"The answer gathers across the flooded lowlands.",
+      answer:"wetland water",
+      acceptedAnswers:["water","wetlands","wetland"],
+      rewardUnits:riddleSolveUnitReward
+    }
+  },
+  "storm archipelago":{
+    quests:[
+      "Link three island radar marks into a safe crossing route.",
+      "Recover a cache from the narrowest strand of shore.",
+      "Destroy a patrol between storm bursts."
+    ],
+    riddle:{
+      prompt:"I break the map into pieces but bind them with thunder.",
+      hint:"The answer is a chain of islands.",
+      answer:"archipelago",
+      acceptedAnswers:["islands","island chain","storm archipelago"],
+      rewardUnits:riddleSolveUnitReward
+    }
+  },
+  "violet mesas":{
+    quests:[
+      "Climb to a mesa rim and scan the valley floor.",
+      "Recover a cache from a shadowed purple pass.",
+      "Clear a relay or patrol before sunset hits the cliffs."
+    ],
+    riddle:{
+      prompt:"I am a table for the sky and a wall for the road.",
+      hint:"The answer is the flat-topped landform around you.",
+      answer:"mesa",
+      acceptedAnswers:["mesas","violet mesa","violet mesas"],
+      rewardUnits:riddleSolveUnitReward
+    }
+  },
+  "ash bloom":{
+    quests:[
+      "Recover a cache from the gray bloom fields.",
+      "Scan three ash vents along the road network.",
+      "Clear a settlement without spending the last fuel quarter."
+    ],
+    riddle:{
+      prompt:"I fall like dust, feed new color, and cover old scars.",
+      hint:"The answer is also this planet's name.",
+      answer:"ash bloom",
+      acceptedAnswers:["ash","bloom"],
+      rewardUnits:riddleSolveUnitReward
+    }
+  },
+  "titan highlands":{
+    quests:[
+      "Climb a high basin and scan all visible relay bearings.",
+      "Recover a cache above the low fog line.",
+      "Destroy a mountain relay after drawing its guards downhill."
+    ],
+    riddle:{
+      prompt:"I lift roads into clouds but never move from the ground.",
+      hint:"The answer is the high terrain itself.",
+      answer:"highlands",
+      acceptedAnswers:["titan highlands","mountains","mountain"],
+      rewardUnits:riddleSolveUnitReward
+    }
+  },
+  "neon city":{
+    quests:[
+      "Clear one district grid from edge to core.",
+      "Recover a cache from the city fringe before entering the next sector.",
+      "Destroy the command base after two city sectors go dark."
+    ],
+    riddle:{
+      prompt:"I shine without a star, guide without a sun, and vanish when power falls.",
+      hint:"The answer is the city's artificial glow.",
+      answer:"neon light",
+      acceptedAnswers:["neon","light","neon glow"],
+      rewardUnits:riddleSolveUnitReward
+    }
+  }
+};
+
+function missionNarrativeForEnvironment(environment){
+  let planetName=((environment && environment.name) || "").toLowerCase();
+  let narrative=planetMissionNarratives[planetName] || {};
+  let riddle=narrative.riddle && typeof narrative.riddle==="object" ? narrative.riddle : null;
+  return {
+    quests:Array.isArray(narrative.quests) ? narrative.quests : [],
+    riddle:riddle
+      ? {
+        ...riddle,
+        rewardUnits:Math.max(0,Math.floor(riddle.rewardUnits || riddleSolveUnitReward))
+      }
+      : null
+  };
 }
 
 function randomMissionTemplateForEnvironment(environment){
@@ -2936,11 +3173,14 @@ function randomMissionTemplateForEnvironment(environment){
 
 function createGeneratedPlanetMission(environment){
   let template=randomMissionTemplateForEnvironment(environment);
+  let narrative=missionNarrativeForEnvironment(environment);
   let mission={
     ...template,
     id:missionIdForEnvironment(environment),
     progress:0,
-    completed:false
+    completed:false,
+    quests:narrative.quests,
+    riddle:narrative.riddle
   };
   if(mission.type==="neonCity"){
     mission.cityProgress=0;
@@ -2965,7 +3205,10 @@ function generatedMissionDisplay(mission){
     progress,
     target,
     remaining:Math.max(0,target-progress),
-    lines:mission.lines
+    lines:mission.lines,
+    quests:Array.isArray(mission.quests) ? mission.quests : [],
+    riddle:mission.riddle || null,
+    riddleSolved:riddleSolvedForMissionId(mission.id)
   };
 }
 
@@ -3007,6 +3250,7 @@ function advanceGeneratedPlanetMission(type,amount=1,context={}){
 
 function currentPlanetMission(){
   if(missionIdForEnvironment(currentEnvironment)===emberCommunicationMissionId){
+    let narrative=missionNarrativeForEnvironment(currentEnvironment);
     let activeCount=missionCommunicationOutposts.length
       ? activeCommunicationMissionOutposts().length
       : emberCommunicationOutpostCount;
@@ -3023,15 +3267,20 @@ function currentPlanetMission(){
         "Primary objective: destroy all satellite communication outposts.",
         "Mission area: three outposts within the local perimeter.",
         "Threat report: each outpost is protected by reinforced armored patrols."
-      ]
+      ],
+      quests:narrative.quests,
+      riddle:narrative.riddle,
+      riddleSolved:riddleSolvedForMissionId(emberCommunicationMissionId)
     };
   }
 
   if(generatedPlanetMission) return generatedMissionDisplay(generatedPlanetMission);
 
+  let narrative=missionNarrativeForEnvironment(currentEnvironment);
+  let missionId=missionIdForEnvironment(currentEnvironment);
   let activeBossBases=(world && world.bossBases ? world.bossBases : []).filter(base=>base && base.active).length;
   return {
-    id:"boss-base",
+    id:missionId,
     goal:"Locate and destroy all active boss bases.",
     statusLabel:"Boss bases",
     statusValue:String(activeBossBases),
@@ -3042,7 +3291,10 @@ function currentPlanetMission(){
       "Primary objective: locate and destroy active boss bases.",
       "Earn units by destroying hostile robots, collecting treasures, and clearing villages.",
       "Use field trading terminals to buy equipment and fuel."
-    ]
+    ],
+    quests:narrative.quests,
+    riddle:narrative.riddle,
+    riddleSolved:riddleSolvedForMissionId(missionId)
   };
 }
 
@@ -3103,7 +3355,7 @@ function createMissionScreen(){
   let title=document.createElement("div");
   title.textContent="Mission Terminal";
   title.style.cssText=[
-    "font-size:26px",
+    gameFontSize(26),
     "font-weight:900",
     "text-transform:uppercase",
     "letter-spacing:0.04em",
@@ -3116,7 +3368,7 @@ function createMissionScreen(){
   let subhead=document.createElement("div");
   subhead.textContent="Home base command uplink";
   subhead.style.cssText=[
-    "font-size:12px",
+    gameFontSize(12),
     "font-weight:900",
     "text-transform:uppercase",
     "letter-spacing:0.12em",
@@ -3137,10 +3389,10 @@ function createMissionScreen(){
   ].join(";");
   let goalLabel=document.createElement("div");
   goalLabel.textContent="Mission Goal";
-  goalLabel.style.cssText="font-size:11px;font-weight:900;text-transform:uppercase;color:rgba(236,251,255,0.52);margin-bottom:7px";
+  goalLabel.style.cssText=`${gameFontSize(11)};font-weight:900;text-transform:uppercase;color:rgba(236,251,255,0.52);margin-bottom:7px`;
   let goalText=document.createElement("div");
   goalText.textContent=activeMission.goal;
-  goalText.style.cssText="font-size:18px;font-weight:900;text-transform:uppercase;color:#efcf72;line-height:1.25";
+  goalText.style.cssText=`${gameFontSize(18)};font-weight:900;text-transform:uppercase;color:#efcf72;line-height:1.25`;
   goal.appendChild(goalLabel);
   goal.appendChild(goalText);
   panel.appendChild(goal);
@@ -3163,10 +3415,10 @@ function createMissionScreen(){
     ].join(";");
     let labelEl=document.createElement("div");
     labelEl.textContent=label;
-    labelEl.style.cssText="font-size:11px;font-weight:900;text-transform:uppercase;color:rgba(236,251,255,0.52);margin-bottom:7px";
+    labelEl.style.cssText=`${gameFontSize(11)};font-weight:900;text-transform:uppercase;color:rgba(236,251,255,0.52);margin-bottom:7px`;
     let valueEl=document.createElement("div");
     valueEl.textContent=value;
-    valueEl.style.cssText="font-size:20px;font-weight:900;color:#efcf72";
+    valueEl.style.cssText=`${gameFontSize(20)};font-weight:900;color:#efcf72`;
     cell.appendChild(labelEl);
     cell.appendChild(valueEl);
     status.appendChild(cell);
@@ -3190,16 +3442,203 @@ function createMissionScreen(){
   ].join(";");
 
   function setMissionLines(lines){
+    lines=Array.isArray(lines) ? lines : [];
     while(list.firstChild) list.removeChild(list.firstChild);
     for(let text of lines){
       let row=document.createElement("div");
       row.textContent=text;
-      row.style.cssText="font-size:15px;font-weight:900;text-transform:uppercase;color:rgba(236,251,255,0.88)";
+      row.style.cssText=`${gameFontSize(15)};font-weight:900;text-transform:uppercase;color:rgba(236,251,255,0.88)`;
       list.appendChild(row);
     }
   }
   setMissionLines(activeMission.lines);
   panel.appendChild(list);
+
+  function makeMissionInfoSection(labelText){
+    let section=document.createElement("div");
+    section.style.cssText=[
+      "border:1px solid rgba(154,248,255,0.16)",
+      "background:rgba(8,16,20,0.5)",
+      "padding:14px 16px",
+      "box-sizing:border-box",
+      "margin-top:12px",
+      "display:none"
+    ].join(";");
+
+    let label=document.createElement("div");
+    label.textContent=labelText;
+    label.style.cssText=[
+      gameFontSize(11),
+      "font-weight:900",
+      "text-transform:uppercase",
+      "letter-spacing:0.12em",
+      "color:rgba(236,251,255,0.5)",
+      "margin-bottom:10px"
+    ].join(";");
+
+    let body=document.createElement("div");
+    body.style.cssText=[
+      "display:flex",
+      "flex-direction:column",
+      "gap:8px"
+    ].join(";");
+
+    section.appendChild(label);
+    section.appendChild(body);
+    panel.appendChild(section);
+    return {section,body};
+  }
+
+  function setMissionInfoSection(target,lines){
+    lines=Array.isArray(lines) ? lines.filter(line=>typeof line==="string" && line.length>0) : [];
+    target.section.style.display=lines.length ? "block" : "none";
+    let signature=lines.join("\n");
+    if(target.signature===signature) return;
+    target.signature=signature;
+    while(target.body.firstChild) target.body.removeChild(target.body.firstChild);
+    for(let text of lines){
+      let row=document.createElement("div");
+      row.textContent=text;
+      row.style.cssText=[
+        gameFontSize(14),
+        "font-weight:900",
+        "line-height:1.24",
+        "text-transform:uppercase",
+        "color:rgba(236,251,255,0.82)"
+      ].join(";");
+      target.body.appendChild(row);
+    }
+  }
+
+  function appendRiddleLine(target,text,color="rgba(236,251,255,0.82)"){
+    let row=document.createElement("div");
+    row.textContent=text;
+    row.style.cssText=[
+      gameFontSize(14),
+      "font-weight:900",
+      "line-height:1.24",
+      "text-transform:uppercase",
+      `color:${color}`
+    ].join(";");
+    target.body.appendChild(row);
+    return row;
+  }
+
+  function setRiddleSection(target,mission){
+    let riddle=mission && mission.riddle;
+    let solved=!!(mission && mission.riddleSolved) || riddleSolvedForMissionId(mission && mission.id);
+    if(!riddle){
+      target.section.style.display="none";
+      target.signature="";
+      while(target.body.firstChild) target.body.removeChild(target.body.firstChild);
+      return;
+    }
+
+    target.section.style.display="block";
+    let signature=[
+      mission.id || "",
+      solved ? "solved" : "open",
+      riddle.prompt || "",
+      riddle.hint || "",
+      riddle.answer || "",
+      riddle.rewardUnits || 0
+    ].join("|");
+    if(target.signature===signature) return;
+    target.signature=signature;
+    while(target.body.firstChild) target.body.removeChild(target.body.firstChild);
+
+    appendRiddleLine(target,`Riddle signal: ${riddle.prompt}`);
+    if(solved){
+      appendRiddleLine(target,`Decoded answer: ${riddle.answer}.`,"#64d968");
+      appendRiddleLine(target,`Reward claimed: ${Math.max(0,Math.floor(riddle.rewardUnits || riddleSolveUnitReward))} units.`,"rgba(239,207,114,0.92)");
+      return;
+    }
+
+    appendRiddleLine(target,`Hint: ${riddle.hint || "Decode the signal from this planet."}`,"rgba(236,251,255,0.58)");
+
+    let form=document.createElement("form");
+    form.style.cssText=[
+      "display:grid",
+      "grid-template-columns:minmax(0,1fr) auto",
+      "gap:8px",
+      "margin-top:4px"
+    ].join(";");
+
+    let answerInput=document.createElement("input");
+    answerInput.type="text";
+    answerInput.autocomplete="off";
+    answerInput.spellcheck=false;
+    answerInput.placeholder="Decoded answer";
+    answerInput.style.cssText=[
+      "height:40px",
+      "min-width:0",
+      "border:1px solid rgba(154,248,255,0.28)",
+      "background:rgba(2,7,10,0.72)",
+      "color:#ecfbff",
+      `font-family:${gameFontFamily}`,
+      gameFontSize(14),
+      "font-weight:900",
+      "letter-spacing:0.04em",
+      "text-transform:uppercase",
+      "padding:0 11px",
+      "box-sizing:border-box",
+      "outline:none"
+    ].join(";");
+
+    let submitButton=document.createElement("button");
+    submitButton.type="submit";
+    submitButton.textContent="Decode";
+    submitButton.style.cssText=[
+      "height:40px",
+      "border:0",
+      "background:#d6b25a",
+      "color:#1c211f",
+      `font-family:${gameFontFamily}`,
+      gameFontSize(13),
+      "font-weight:900",
+      "letter-spacing:0.04em",
+      "text-transform:uppercase",
+      "padding:0 16px",
+      "cursor:pointer"
+    ].join(";");
+
+    let feedback=document.createElement("div");
+    feedback.style.cssText=[
+      gameFontSize(12),
+      "min-height:18px",
+      "font-weight:900",
+      "line-height:1.2",
+      "text-transform:uppercase",
+      "color:rgba(236,251,255,0.54)"
+    ].join(";");
+
+    form.appendChild(answerInput);
+    form.appendChild(submitButton);
+    form.addEventListener("submit",event=>{
+      event.preventDefault();
+      event.stopPropagation();
+      playMenuClickFeedback();
+      let result=solveCurrentPlanetRiddle(answerInput.value);
+      feedback.textContent=result.message;
+      feedback.style.color=result.solved ? "#64d968" : "#ff9c8a";
+      if(result.solved){
+        target.signature="";
+        refresh();
+      }
+    });
+    for(let eventName of ["pointerdown","mousedown","click"]){
+      answerInput.addEventListener(eventName,event=>event.stopPropagation());
+      submitButton.addEventListener(eventName,event=>event.stopPropagation());
+    }
+
+    target.body.appendChild(form);
+    target.body.appendChild(feedback);
+  }
+
+  let questSection=makeMissionInfoSection("Quest Board");
+  let riddleSection=makeMissionInfoSection("Riddle Signal");
+  setMissionInfoSection(questSection,activeMission.quests);
+  setRiddleSection(riddleSection,activeMission);
 
   overlay.appendChild(panel);
   document.body.appendChild(overlay);
@@ -3212,6 +3651,8 @@ function createMissionScreen(){
     objectiveStatus.valueEl.textContent=mission.statusValue;
     scannerStatus.valueEl.textContent=scannerUnlocked() ? "Online" : "Locked";
     setMissionLines(mission.lines);
+    setMissionInfoSection(questSection,mission.quests);
+    setRiddleSection(riddleSection,mission);
   }
 
   function setVisible(visible){
@@ -3260,7 +3701,7 @@ function createTradingScreen(){
   let title=document.createElement("div");
   title.textContent="Trading Terminal";
   title.style.cssText=[
-    "font-size:26px",
+    gameFontSize(26),
     "font-weight:900",
     "text-transform:uppercase",
     "letter-spacing:0.04em",
@@ -3273,7 +3714,7 @@ function createTradingScreen(){
   let subhead=document.createElement("div");
   subhead.textContent="Unit exchange queue";
   subhead.style.cssText=[
-    "font-size:12px",
+    gameFontSize(12),
     "font-weight:900",
     "text-transform:uppercase",
     "letter-spacing:0.12em",
@@ -3297,10 +3738,10 @@ function createTradingScreen(){
   ].join(";");
   let unitLabel=document.createElement("div");
   unitLabel.textContent="Units available";
-  unitLabel.style.cssText="font-size:12px;font-weight:900;text-transform:uppercase;color:rgba(236,251,255,0.58)";
+  unitLabel.style.cssText=`${gameFontSize(12)};font-weight:900;text-transform:uppercase;color:rgba(236,251,255,0.58)`;
   let unitsValue=document.createElement("div");
   unitsValue.textContent="0";
-  unitsValue.style.cssText="font-size:28px;font-weight:900;color:#efcf72;text-shadow:0 0 14px rgba(239,207,114,0.32)";
+  unitsValue.style.cssText=`${gameFontSize(28)};font-weight:900;color:#efcf72;text-shadow:0 0 14px rgba(239,207,114,0.32)`;
   unitBar.appendChild(unitLabel);
   unitBar.appendChild(unitsValue);
 
@@ -3327,7 +3768,7 @@ function createTradingScreen(){
     header.style.cssText=[
       "padding:13px 14px",
       "border-bottom:1px solid rgba(154,248,255,0.14)",
-      "font-size:13px",
+      gameFontSize(13),
       "font-weight:900",
       "letter-spacing:0.08em",
       "text-transform:uppercase",
@@ -3496,7 +3937,7 @@ function createTradingScreen(){
         "background:"+(owned ? "rgba(20,48,28,0.5)" : affordable && !unavailable ? "rgba(214,178,90,0.18)" : "rgba(45,54,58,0.36)"),
         "color:"+(owned ? "rgba(196,255,190,0.78)" : affordable && !unavailable ? "#ecfbff" : "rgba(236,251,255,0.34)"),
         `font-family:${gameFontFamily}`,
-        "font-size:15px",
+        gameFontSize(15),
         "font-weight:900",
         "text-align:left",
         "padding:13px 14px",
@@ -3530,7 +3971,7 @@ function createTradingScreen(){
     if(boughtItems.length===0){
       let empty=document.createElement("div");
       empty.textContent="No items bought";
-      empty.style.cssText="padding:12px;color:rgba(236,251,255,0.42);font-size:14px;text-transform:uppercase";
+      empty.style.cssText=`padding:12px;color:rgba(236,251,255,0.42);${gameFontSize(14)};text-transform:uppercase`;
       boughtList.appendChild(empty);
     }else{
       for(let item of boughtItems){
@@ -3542,7 +3983,7 @@ function createTradingScreen(){
           "border:1px solid rgba(124,255,120,0.24)",
           "background:rgba(20,48,28,0.38)",
           "padding:13px 14px",
-          "font-size:15px",
+          gameFontSize(15),
           "font-weight:900",
           "text-transform:uppercase"
         ].join(";");
@@ -4787,7 +5228,10 @@ function updateRobotDamageFlashes(car){
 
 function addUnits(amount){
   units+=amount;
-  if(hud) hud.updateCompassHud();
+  if(hud){
+    hud.updateSpeedHud();
+    hud.updateCompassHud();
+  }
 }
 
 function enemyUnitReward(enemy){
@@ -14209,7 +14653,7 @@ function updateCameraForCar(car){
   car.cameraDownhillAmount+=(downhillAmount-car.cameraDownhillAmount)*downhillFollow;
 
   let camDist=cameraFollowDistance-cameraDownhillPullIn*car.cameraDownhillAmount;
-  let camHeight=cameraFollowHeight+cameraDownhillExtraHeight*car.cameraDownhillAmount;
+  let camHeight=(cameraFollowHeight+cameraDownhillExtraHeight*car.cameraDownhillAmount)*thirdPersonCameraHeightScale;
   let camX=car.x-Math.sin(car.cameraYaw)*camDist;
   let camZ=car.z-Math.cos(car.cameraYaw)*camDist;
   let targetCamY=cameraBaseY+camHeight;
